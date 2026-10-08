@@ -27,6 +27,9 @@ services:
       Scanner__Host: scanner
       Ocr__Enabled: "true"
       Ocr__Languages: ron+eng
+      Application__BaseUrl: ${APPLICATION_BASE_URL:-http://localhost:5080}
+      Session__Minutes: ${SESSION_MINUTES:-30}
+      Smtp__Port: ${SMTP_PORT:-587}
       Smtp__Host: ${SMTP_HOST:-}
       Smtp__From: ${SMTP_FROM:-}
       Smtp__Username: ${SMTP_USERNAME:-}
