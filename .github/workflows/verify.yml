@@ -90,6 +90,11 @@ jobs:
           cat application.log
           exit 1
       - run: npm run test:e2e --prefix ui
+      - name: Failure context
+        if: failure()
+        run: |
+          tail -150 application.log
+          python -c "from pathlib import Path; [print(p.read_text()) for p in Path('ui/test-results').rglob('error-context.md')]"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
