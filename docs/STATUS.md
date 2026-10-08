@@ -1,39 +1,46 @@
-# Starea reconstrucției / Rebuild status
+# Starea implementării / Implementation status
 
-[Verificare CI reușită / Successful CI](https://github.com/Cozmyn/Expense_report/actions/runs/37755062170).
+2026-10-08. Platformă internă, română implicit și engleză, pentru o singură entitate juridică din România. Nu este publicată o instanță de producție.
 
-2026-10-08. Sursă nouă, fără dependență de ZIP-ul anterior. Build-ul, testele backend și pornirea containerului sunt validate în GitHub Actions. Nu există încă o lansare publică pentru producție.
+## Verificare / Verification
 
-| Pas / Step | Rezultat / Result | Verificare / Verification |
-|---|---|---|
-| 1. Cerințe și structură | Documentația disponibilă și cerințele urmărite în REQUIREMENTS.md | Documentele citite; Excel consultat punctual |
-| 2. Auth, roluri, persistență | Identity, sesiuni DB, CSRF, RBAC, PostgreSQL/SQLite, RO/EN | 38 teste backend trecute pe SQLite/PostgreSQL |
-| 3. Deconturi și aprobări | Bonuri multiple, CUI companie/furnizor, TVA pe cote, documente individuale/comune, snapshots și aprobări | 38 teste backend trecute pe SQLite/PostgreSQL |
-| 4. Finance și administrare | Furnizori, utilizatori, delegări, versiuni nomenclatoare, CSV și alocări card | Cod prezent; unele cerințe parțiale |
-| 5. ERP și documente | Preflight, preview, XLSX ERP 24 coloane, XLSX bonuri/TVA, batch memorat, PDF, ZIP, raport CSV | XLSX, PDF și ZIP descărcate în fluxuri reale CI; acceptanța ERP a companiei în așteptare |
-| 6. Verificare și pachet | Frontend construit; 5 teste frontend, 38 teste backend și pornire Docker trecute | Backend verificat în GitHub; două fluxuri desktop/mobil trecute; nicio lansare publică |
+Sursa verificată: `13257f9c5f6a4814a25e10f671646a58bbf4d800`.
+[GitHub Actions](https://github.com/Cozmyn/Expense_report/actions/runs/37783990281).
+Actualizările ulterioare ale acestui document și README sunt exclusiv documentație; nu modifică sursa verificată.
 
-Browser acceptance runs employee UI entry on desktop and mobile. Manager/Finance decisions, export and downloads are exercised through authenticated HTTP clients against the live application, with a real ClamAV scan; these tests do not exercise every administrative screen.
+- 63 teste backend pe SQLite și 63 pe PostgreSQL, fără teste omise.
+- 5 teste frontend, verificare TypeScript, build Vite și audit npm.
+- Două fluxuri Playwright: desktop Chromium și mobil 390×844, cu aplicația reală, ClamAV și OCR Tesseract pentru un PDF de două pagini.
+- Build Docker, bootstrap repetat fără resetarea contului existent, health/static assets și acces anonim respins.
 
-## Fluxul bonurilor / Receipt workflow
+Browser tests enter receipts and confirm OCR suggestions through the UI. Manager/Finance decisions, supplier resolution, accounting exports and downloads use authenticated HTTP clients against the running application. These two scenarios do not cover every administrative screen interaction.
 
-Fluxul clarificat este implementat în `ReceiptModal.tsx`, `ReceiptFiles.cs`, `Rules.cs` și `ReceiptAccountingExport.cs`. Separă CUI-ul companiei de CUI-ul furnizorului; ascunde câmpurile contabile neaplicabile; verifică furnizorul în baza internă; păstrează baza/TVA la 0/11/21%; recompune suma; cere documente curate pentru fiecare bon sau acoperire comună confirmată. Solicitările repetate pentru același furnizor într-un decont sunt deduplicate. Finance/Auditor primește un XLSX cu valorile originale pe bon și cotă.
+## Funcții implementate / Implemented functions
 
-The browser scenario enters three receipts in the same report: mixed domestic VAT, Romanian without company VAT ID, and foreign EUR. It rejects a wrong VAT total, checks unknown/known suppliers, blocks missing evidence, scans individual/combined files and completes manager approval, Finance supplier registration, detailed accounting XLSX, ERP import/posting, PDF and ZIP downloads. Core source authorization, shared-file coverage changes and additive upgrades are tested separately on both database providers.
+| Domeniu / Area | Implementare / Implementation |
+|---|---|
+| Bonuri și documente | Până la 50 de bonuri; cele trei ramuri RO/străin/CUI companie; lookup CUI, confirmare necunoscut; baze și TVA plătit pe cote; documente individuale/comune cu acoperire explicită; scanare obligatorie |
+| OCR asistat | Încărcare înainte de formular; procesare asincronă după scanare; toate paginile PDF; sursă/pagină/stare ReviewRequired; confirmare explicită; câmpurile lipsă rămân goale; reîncercare și completare manuală; conversie HEIC |
+| Experiență utilizator | Formular lângă document pe desktop, responsive pe mobil; browse/cameră/progres; ciornă persistentă; protecție pentru modificări nesalvate; totaluri pe monedă și RON; limbi RO/EN |
+| Aprobări | Inbox propriu/delegat, comentarii pe bon, revizii și hash; respingere/returnare cu motiv; corecții Finance auditate; reaprobare configurabilă pentru creșterea decontării personale |
+| Finance | Filtre și sortare salvate, excepții și aging; corecții angajat/manager cu reaprobare; GL/local/subcont și TVA override cu motiv; preflight; furnizori cu istoric datat al conturilor ERP |
+| Carduri | CSV/XLSX și profile de coloane; erori/duplicate; sugestii; alocări manuale/parțiale/multiple; anulare cu motiv; decontare bancară efectivă RON; titular separat de persoana care a efectuat cheltuiala |
+| ERP și documente | Preview și XLSX exact 24 coloane, worksheet Import; exporturi memorate/hash/nume/istoric; postare și redeschidere cu permisiune și reversare ERP externă; Bonuri/TVA XLSX, PDF Unicode, ZIP cu originale |
+| Administrare | Utilizatori/roluri/disable/unlock/reset; parole temporare; reset single-use prin SMTP; inactivitate sesiuni; nomenclatoare și țări/documente/cote viitoare datate; importuri CSV/XLSX tranzacționale; organizație/alocări/delegări |
+| Operațiuni | Notificări pe eveniment și canal; remindere/escaladare deduplicate; retry/backoff; stare joburi/dependențe; audit căutabil/exportabil; raportare și dashboard-uri în limitele rolului |
+| Integritate | CSRF, RBAC și scope, concurență/idempotency; originale private; audit/revizii/decizii protejate; upgrade-uri aditive versionate/repetabile pe ambele baze |
 
-## Limitări concrete / Concrete limitations
+Source-to-requirement evidence is in [REQUIREMENTS.md](REQUIREMENTS.md); configuration and launch guidance are in [DEPLOYMENT.md](DEPLOYMENT.md) and the README.
 
-- Runtime-ul sandbox-ului local nu pornește; GitHub Actions a restaurat, compilat și testat backend-ul cu succes.
-- Nu există URL public sau cont de producție. Local launch scripts need a working Docker installation. Docker image build, repeated bootstrap and container startup have passed in CI; native PowerShell/bash launch scripts have not themselves been executed on user devices.
-- ERP tests are synthetic. The company must approve tax codes/account mappings and compare actual expected import files, especially vehicle 11%, mixed VAT and small 0% amounts. The legacy vehicle 11% branch is not copied blindly.
-- OCR extracts text with a manual-verification label; structured field extraction, confidence scores and prefill are not implemented. PDF OCR currently processes page one; HEIC OCR needs a supported converter.
-- Bank statement import supports CSV; XLSX statement import and stored mapping profiles remain to implement. Partial and multi-allocation backend logic is present; the UI confirms suggested lines only and does not yet expose undo.
-- Unicode PDF generation and PDF/ZIP HTTP downloads are runtime-tested. Visual layout acceptance with long, real documents remains pending. PDF is generated from the current report, not digitally signed.
-- Saved Finance filters, complete live exception dashboards, rich transaction-currency totals, line-specific manager comments and comprehensive report grouping remain incomplete.
-- Admin password reset exists; self-service email reset is not implemented. Session timeout is absolute, not idle. Full history of organization routing is not implemented.
-- Notification job retries and in-app notices exist; not every requested event is covered. Scheduled reminders/escalation and configurable notification policies remain to implement.
-- Master CSV/XLSX bulk import, configurable countries/document types, external VAT verification and future VAT-rate activation remain to implement.
-- Retention is recorded at posting and originals are not physically deleted. No automated retention purge is implemented; original documents survive line archival and legal hold is recorded.
-- Initial database creation uses EnsureCreated; a tested additive upgrade creates the report-attachment table for existing installations. Versioned EF migrations, deployment/rollback automation, storage encryption/IAM, key-vault rotation, monitoring alerts and restore drills must be completed and tested before production.
-- No multi-company tenancy, live ERP integration, SSO, MFA or public hosting is implemented. These are not implied by the local build.
-- Source authorization has automated HTTP tests. Full security review, accessibility, load and disaster-recovery acceptance remain outstanding.
+## Acceptanță operațională / Operational acceptance
+
+The implemented application and passing tests are not a certification of every company scenario or a production SLA.
+
+- Company Finance must supply and approve actual ERP accounts, tax codes, posting mappings and expected import files. Synthetic tests do not establish live ERP compatibility. External ERP reversal is recorded by reference; the application does not execute that reversal.
+- SMTP configuration and real delivery, TLS/domain, private object storage/IAM/encryption, key handling, alerts, database backups/PITR and timed restore drills require the deployment environment.
+- Security/ASVS, accessibility/WCAG, company-volume load/performance and user acceptance require dedicated production-like validation.
+- OCR is assisted extraction. It does not supply calibrated numeric confidence, invent missing fields or automatically submit. Real Romanian receipt variety needs user acceptance; HEIC conversion is implemented but no real HEIC fixture was tested.
+- Imports use bounded synchronous preview/confirmation (5 MB, 10,000 rows); OCR and scans use background jobs. Chunked/resumable uploads are not implemented.
+- Original retention/legal hold are recorded; no automatic physical purge is performed. PDF is generated from the report and is not digitally signed.
+- Additive upgrades are tested and versioned; they are not a complete EF migration/rollback framework. Native launch scripts have not been executed on user devices.
+- No multi-company tenancy, SSO/MFA, direct live ERP connector or public hosting is included.

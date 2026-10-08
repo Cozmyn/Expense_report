@@ -52,7 +52,7 @@ Nu sunt introduse conturi contabile, cursuri, furnizori sau carduri fictive. În
 3. Cote TVA 0/11/21, perioade, grupul TVA, codurile ordinare și codurile 50% pentru auto. 5% este blocat pentru tranzacții noi.
 4. Mapări contabile pe categorie: GL, cont local, subcont și clasificare auto/reparații.
 5. Cursuri interne datate pentru fiecare monedă străină; carduri active și titulari.
-6. Furnizori și conturi ERP; furnizorii lipsă creează solicitări la submit.
+6. Furnizori și conturi ERP; furnizorii lipsă creează solicitări la submit. Finance poate înregistra un cont ERP datat și pentru un furnizor deja existent, fără să rescrie numele/versiunea nomenclatorului. Data de început trebuie să acopere primul bon al solicitării; istoricul conturilor rămâne păstrat.
 7. Setarea ERP `default`: conturile de decontare/TVA/nedeductibile și referința aprobării regulilor de către Finance.
 
 Configurațiile au perioade de valabilitate fără suprapunere. Pentru schimbări creează versiuni noi. Închide perioada versiunii anterioare înainte de a crea versiunea nouă. Document date selects applicable mappings. Worker is always the employee who incurred the expense, including when a card belongs to someone else.
@@ -74,7 +74,7 @@ Read `docs/STATUS.md`, `docs/REQUIREMENTS.md` and `docs/DEPLOYMENT.md` before de
 
 Încarcă documentele din panoul OCR sau fotografiază bonul. Worker-ul scanează originalul înainte de procesare și citește toate paginile PDF (maximum 50, configurabil). Rezultatele propun valori cu pagina și textul sursă; starea este `ReviewRequired`, fără scor numeric de încredere inventat. Revizuiește propunerea lângă original, alege categoria/alocarea/plata și salvează. Poți completa manual sau reîncerca extragerea. HEIC folosește `heif-convert`; originalele rămân nemodificate. Previzualizarea HEIC disponibilă după scanare este un PNG separat, generat la cerere.
 
-- Politici datate: cod `company` pentru CUI companie, `uploads` pentru `maxFileMb`/`maxReportMb`, `vat` pentru `vatZeroTolerance`, `workflow` pentru `requireCardMatchBeforeApproval`.
+- Politici datate: cod `company` pentru CUI companie, `uploads` pentru `maxFileMb`/`maxReportMb`, `vat` pentru `vatZeroTolerance`, `workflow` pentru `requireCardMatchBeforeApproval` și `requireReapprovalOnPersonalIncrease` (implicit `true`; `false` dezactivează reaprobare doar pentru creșterea decontării personale, păstrând auditul).
 - Notificări: cod `default` sau codul evenimentului, cu `inApp` și `email`. Codul `reminders` folosește `afterHours`, `repeatHours`, `escalateHours`, `escalationRole`. Worker-ul evită reminderele repetate în același interval.
 - Resetare parolă: configurează SMTP și `Application__BaseUrl` cu adresa reală. Linkul expiră după 15 minute și poate fi folosit o singură dată. `Session__Minutes` controlează inactivitatea; resetarea/dezactivarea revocă sesiunile.
 - Importuri CSV/XLSX: selectează un fișier, verifică rândurile și confirmă. Importurile de nomenclatoare/angajați sunt tranzacționale; un lot invalid nu creează înregistrări parțiale. Pentru extrasul de card, mapează coloanele și salvează profilul; verifică erorile/duplicatele înainte de import.
