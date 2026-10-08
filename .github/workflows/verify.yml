@@ -1,17 +1,100 @@
 name: Validate expense platform
 on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
 jobs:
   build-and-test:
+    name: Backend and frontend (${{ matrix.database }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, postgres]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-test-only
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: {node-version: '22', cache: npm, cache-dependency-path: ui/package-lock.json}
       - uses: actions/setup-dotnet@v4
         with: {dotnet-version: '10.0.x'}
-      - run: npm ci --prefix ui && npm test --prefix ui && npm run build --prefix ui
-      - run: dotnet test tests/Decont.Tests.csproj --configuration Release --logger "trx;LogFileName=backend.trx"
+      - run: npm ci --prefix ui && npm audit --prefix ui --audit-level=high && npm test --prefix ui && npm run build --prefix ui
+      - name: Backend tests
+        env:
+          TEST_POSTGRES: ${{ matrix.database == 'postgres' && 'Host=localhost;Database=postgres;Username=postgres;Password=ci-test-only' || '' }}
+        run: dotnet test tests/Decont.Tests.csproj --configuration Release --logger "trx;LogFileName=backend.trx"
       - run: dotnet publish server/Decont.Api.csproj --configuration Release --output release
       - uses: actions/upload-artifact@v4
         if: always()
-        with: {name: verification, path: 'tests/TestResults/*.trx'}
+        with: {name: 'verification-${{ matrix.database }}', path: 'tests/TestResults/*.trx'}
+      - uses: actions/upload-artifact@v4
+        if: matrix.database == 'postgres'
+        with: {name: application, path: release/}
+  browser-workflows:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      scanner:
+        image: clamav/clamav:stable
+        ports: ['3310:3310']
+        options: >-
+          --health-cmd "clamdcheck.sh"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://127.0.0.1:5080
+      Data__Directory: ${{ github.workspace }}/.e2e-data
+      Storage__Directory: ${{ github.workspace }}/.e2e-data/objects
+      Scanner__Host: localhost
+      Ocr__Enabled: 'false'
+      Bootstrap__Username: ci-admin
+      Bootstrap__Email: ci-admin@example.invalid
+      Bootstrap__Password: Ci-only-bootstrap-Password1!
+      E2E_ADMIN_PASSWORD: Ci-only-bootstrap-Password1!
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '10.0.x'}
+      - uses: actions/download-artifact@v4
+        with: {name: application, path: release}
+      - name: Install browser and PDF fonts
+        run: |
+          npm ci --prefix ui
+          cd ui
+          npx playwright install --with-deps chromium
+          sudo apt-get install -y fonts-dejavu-core
+      - name: Start application
+        run: |
+          dotnet release/Decont.Api.dll --contentRoot "$PWD/release" --bootstrap
+          dotnet release/Decont.Api.dll --contentRoot "$PWD/release" > application.log 2>&1 &
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:5080/health/ready; then exit 0; fi
+            sleep 1
+          done
+          cat application.log
+          exit 1
+      - run: npm run test:e2e --prefix ui
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-results
+          path: |
+            ui/playwright-report/
+            ui/test-results/
+            application.log

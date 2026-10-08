@@ -3,3 +3,10 @@
 **/bin/
 **/obj/
 **/.data/
+
+**/playwright-report/
+**/test-results/
+.e2e-data/
+release/
+application.log
+server/wwwroot/
