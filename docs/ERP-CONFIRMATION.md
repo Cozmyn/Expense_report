@@ -1,0 +1,9 @@
+# Confirmări punctuale Excel / Targeted Excel confirmations
+
+Workbook: `Model Decont _Macro_v1.3_new_VAT(6).xlsm`, read-only. No macros were executed. Product documents remain the implementation source. Only relevant posting branches and Import headers were consulted; this is not a repeat of the full workbook review.
+
+Observed Import headers match the 24-column mapping in the supplied requirements. Foreign expenses use Ledger rows offset against the clearing account. Foreign vehicle expenses split the amount into two rows, with subaccount omitted on the second. Domestic documents without CUI use the ordinary gross Ledger branch. Domestic with-CUI expenses use base Ledger rows, Vendor credit of the base and a gross clearing row offset to Vendor. Vehicle branches include 50% base splits and non-deductible VAT expense/VAT-account rows. Worker is deliberately the expense employee per the confirmed product change.
+
+Legacy observed constants include clearing GL 161510, local 542.EMPLOYEES.CASH.ADVANCES, VAT GL 264110, local 4426.VAT.PURCHASE, repair non-deductible GL 536011/local 611.REPAIRS.OTH.NEDED and other-car non-deductible GL 727011. They are **not automatically seeded as approved configuration**. Finance must supply and approve the current accounts, tax codes and effective periods. Documented tax codes include VDOM, G00, G11, G21, SNDED50_21 and SDED50_21. Vehicle 11% follows the documented 21%-style structural rule; its correct live ERP codes must be confirmed.
+
+The old VBA 11% vehicle branch contains inconsistent VAT operations, and small 0% amounts interact with a count formula. The new engine does not silently drop a small 0% base. No global debit-minus-credit-equals-gross check is imposed: the legacy vendor/clearing branches are not a plain two-row balanced journal. Representative golden files, VAT tolerance cases and exact sequence/value comparisons remain required. Synthetic unit cases are provided but have not executed here.

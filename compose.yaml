@@ -1,0 +1,61 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: decont
+      POSTGRES_USER: decont
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?Set DATABASE_PASSWORD in .env}
+    volumes: ["database:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U decont"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  scanner:
+    image: clamav/clamav:stable
+    volumes: ["scanner:/var/lib/clamav"]
+  web:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Database__Provider: Postgres
+      ConnectionStrings__Database: Host=db;Database=decont;Username=decont;Password=${DATABASE_PASSWORD}
+      Data__Directory: /app/.data
+      Storage__Directory: /app/.data/objects
+      Scanner__Host: scanner
+      Ocr__Enabled: "true"
+      Ocr__Languages: ron+eng
+      Smtp__Host: ${SMTP_HOST:-}
+      Smtp__From: ${SMTP_FROM:-}
+      Smtp__Username: ${SMTP_USERNAME:-}
+      Smtp__Password: ${SMTP_PASSWORD:-}
+    ports: ["127.0.0.1:5080:8080"]
+    volumes: ["data:/app/.data"]
+    depends_on:
+      db: {condition: service_healthy}
+      scanner: {condition: service_started}
+    restart: unless-stopped
+  init:
+    profiles: [setup]
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    command: ["--bootstrap"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Database__Provider: Postgres
+      ConnectionStrings__Database: Host=db;Database=decont;Username=decont;Password=${DATABASE_PASSWORD}
+      Data__Directory: /app/.data
+      Worker__Disabled: "true"
+      Bootstrap__Username: ${ADMIN_USERNAME:?Set ADMIN_USERNAME}
+      Bootstrap__Email: ${ADMIN_EMAIL:?Set ADMIN_EMAIL}
+      Bootstrap__Password: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD}
+    volumes: ["data:/app/.data"]
+    depends_on:
+      db: {condition: service_healthy}
+volumes:
+  database:
+  data:
+  scanner:

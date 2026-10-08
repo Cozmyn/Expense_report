@@ -1,0 +1,13 @@
+{
+  "frontend_build": "passed: TypeScript + Vite",
+  "frontend_tests": {
+    "passed": 5,
+    "failed": 0
+  },
+  "backend_build": "blocked: CoreCLR HRESULT 0x8007000E, exit 137",
+  "backend_tests": "not executed",
+  "docker_build": "not executed",
+  "browser_qa": "not executed",
+  "erp_golden_acceptance": "pending",
+  "production_ready": false
+}

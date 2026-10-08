@@ -1,0 +1,17 @@
+name: Validate expense platform
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22', cache: npm, cache-dependency-path: ui/package-lock.json}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '10.0.x'}
+      - run: npm ci --prefix ui && npm test --prefix ui && npm run build --prefix ui
+      - run: dotnet test tests/Decont.Tests.csproj --configuration Release --logger "trx;LogFileName=backend.trx"
+      - run: dotnet publish server/Decont.Api.csproj --configuration Release --output release
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: verification, path: 'tests/TestResults/*.trx'}
