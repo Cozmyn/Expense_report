@@ -40,3 +40,7 @@ Use a managed HTTPS ingress terminating TLS, enforce HSTS and trusted forwarded 
 Posting records a retention date five years later. No business endpoint physically deletes originals. Archived lines/documents remain in the database and report packs include clean original files plus their SHA-256 manifest. Legal hold can be recorded by Finance with a reason. There is no automatic deletion job.
 
 Audit/snapshots/decisions/reviews are protected from updates/deletes through EF SaveChanges; there are no business endpoints to modify them. Production DB grants/triggers should enforce append-only permissions independently of the application. Export rows and the actual generated XLSX are retained with distinct hashes. Voiding an unposted export requires Finance + FinanceReopen and a reason; posted export reversal is an external ERP procedure not automated here.
+
+## Verificare CI / CI verification
+
+[Run 37744234244](https://github.com/Cozmyn/Expense_report/actions/runs/37744234244) verifies source commit `5ad03bb7779adca5416b6f608b9317dffbffbd15`: 25 backend tests in each SQLite/PostgreSQL matrix run, five frontend tests, release build/publish, two desktop/mobile workflows with real ClamAV, and Docker image build/bootstrap/launch. The browser scenarios use employee UI and authenticated HTTP clients for manager/Finance actions. GitHub Actions retains test results and browser traces/screenshots as artifacts. Subsequent documentation-only changes do not alter the verified application. Company ERP acceptance and the production gates above remain outstanding.

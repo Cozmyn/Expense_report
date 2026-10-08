@@ -1,13 +1,52 @@
 {
-  "frontend_build": "passed: TypeScript + Vite",
+  "date": "2026-10-08",
+  "verified_source_commit": "5ad03bb7779adca5416b6f608b9317dffbffbd15",
+  "workflow_url": "https://github.com/Cozmyn/Expense_report/actions/runs/37744234244",
+  "frontend_build": "passed: TypeScript + Vite release build",
   "frontend_tests": {
     "passed": 5,
     "failed": 0
   },
-  "backend_build": "blocked: CoreCLR HRESULT 0x8007000E, exit 137",
-  "backend_tests": "not executed",
-  "docker_build": "not executed",
-  "browser_qa": "not executed",
-  "erp_golden_acceptance": "pending",
-  "production_ready": false
+  "npm_audit": "0 vulnerabilities at verification",
+  "backend_build": "passed: .NET 10 Release restore/build/publish in GitHub Actions",
+  "backend_tests": {
+    "sqlite": {
+      "passed": 25,
+      "failed": 0,
+      "skipped": 0
+    },
+    "postgresql": {
+      "passed": 25,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "docker_build_and_launch": "passed: full image build, 25 embedded backend tests, repeated bootstrap, health/static files and anonymous access checks",
+  "browser_workflows": {
+    "passed": 2,
+    "failed": 0,
+    "projects": [
+      "chromium",
+      "mobile 390x844"
+    ],
+    "flows": [
+      "RO/EN language switch",
+      "temporary password change",
+      "expense creation and upload",
+      "real ClamAV clean verdict",
+      "employee submission",
+      "manager approval via HTTP",
+      "Finance review and duplicate exception via HTTP",
+      "ERP XLSX export and posting via HTTP",
+      "PDF and original-document ZIP download",
+      "posted report shown in UI"
+    ]
+  },
+  "pdf_generation": "passed: Romanian Unicode regression",
+  "coverage_note": "Automated tests cover selected workflows and invariants, not every requirement or business case. Browser tests use employee UI, authenticated manager/Finance HTTP clients, real ClamAV and synthetic finance configuration.",
+  "erp_golden_acceptance": "pending company-approved accounts, tax codes and expected import files",
+  "production_deployment": "not performed",
+  "production_ready": false,
+  "limitations_file": "STATUS.md",
+  "workflow_conclusion": "success"
 }
