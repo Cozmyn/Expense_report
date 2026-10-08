@@ -93,7 +93,7 @@ jobs:
       - name: Failure context
         if: failure()
         run: |
-          tail -150 application.log
+          python -c "from pathlib import Path; s=Path('application.log').read_text(); print('\n'.join(s.splitlines()[max(0,s[:s.find('failed')].count(chr(10))-3):][:90]) if 'failed' in s else s[-20000:])"
           python -c "from pathlib import Path; [print(p.read_text()) for p in Path('ui/test-results').rglob('error-context.md')]"
       - uses: actions/upload-artifact@v4
         if: always()
