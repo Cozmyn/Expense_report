@@ -35,7 +35,7 @@ public static class Rules {
   if(DomesticVat(d)){fields["cui"]="REQUIRED";fields["taxes"]="REQUIRED";fields["supplier"]="REQUIRED";fields["invoice"]="REQUIRED";}else{fields["cui"]="NOT_APPLICABLE";fields["taxes"]="NOT_APPLICABLE";fields["supplier"]="NOT_APPLICABLE";fields["invoice"]="OPTIONAL";}
   foreach(var core in new[]{"date","country","documentType","category","description","payment","amount","currency"})fields[core]="REQUIRED";fields["cardId"]=d.Payment=="CompanyCard"?"REQUIRED":"NOT_APPLICABLE";return fields;
  }
- public static List<Problem> Validate(Report r,IReadOnlyList<Master> masters,bool erp=false){
+ public static List<Problem> Validate(Report r,IReadOnlyList<Master> masters,bool erp=false,IReadOnlyList<SupplierAccount>? supplierAccounts=null){
   List<Problem> issues=[];var active=r.Lines.Where(l=>!l.Archived).ToList();
   if(string.IsNullOrWhiteSpace(r.Purpose))issues.Add(new("purpose","Scopul este obligatoriu.","Business purpose is required."));
   if(active.Count is <1 or >MaxLines)issues.Add(new("line_count","Adaugă între 1 și 50 de cheltuieli.","Add between 1 and 50 expenses."));
@@ -63,7 +63,7 @@ public static class Rules {
    if(DomesticVat(d)){var supplier=masters.SingleOrDefault(m=>m.Kind=="suppliers"&&m.Code==Cui(d.Cui)&&Effective(m,date));if(supplier==null&&!d.SupplierConfirmed)Add("supplier_confirmation","CUI-ul nu există în baza internă. Verifică-l pe bon și confirmă că este corect; Finance va adăuga furnizorul.","VAT ID is absent from the internal database. Check the receipt and confirm it is correct; Finance will add the supplier.");}
    issues.AddRange(VatIssues(l,masters));
    if(erp){var mapping=masters.SingleOrDefault(m=>m.Kind=="accounting"&&m.Code==d.Category&&Effective(m,date));if(mapping==null||d.Accounting==null&&(Text(mapping,"mainAccount")==""||Text(mapping,"localAccount")==""))Add("mapping","Lipsește maparea GL / cont local.","GL / local account mapping is missing.");
-    if(DomesticVat(d)){var supplier=masters.SingleOrDefault(m=>m.Kind=="suppliers"&&m.Code==Cui(d.Cui)&&Effective(m,date));if(supplier==null||Text(supplier,"vendorAccount")=="")Add("vendor","Lipsește contul ERP al furnizorului.","ERP vendor account is missing.");}
+    if(DomesticVat(d)){var supplier=masters.SingleOrDefault(m=>m.Kind=="suppliers"&&m.Code==Cui(d.Cui)&&Effective(m,date));if(supplier==null||Text(supplier,"vendorAccount")==""&&!(supplierAccounts??[]).Any(a=>a.Cui==Cui(d.Cui)&&a.From<=date&&(a.To==null||a.To>=date)))Add("vendor","Lipsește contul ERP al furnizorului.","ERP vendor account is missing.");}
     if(d.Payment=="CompanyCard"&&!l.Reconciled&&string.IsNullOrWhiteSpace(l.OverrideReason))Add("reconciliation","Cardul necesită reconciliere.","Card reconciliation is required.");
    }
   }return issues;

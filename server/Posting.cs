@@ -2,7 +2,7 @@ namespace Decont;
 public record PostingResult(string Version,List<string[]> Rows);
 public sealed class Posting {
  public static readonly string[] Headers=["Date","Account type","Account","Business unit","Cost center","Objective","Site","Local account","Production line","Project","Sub account","Worker","Description","Debit","Credit","Currency","Sales Tax Group","Item sales tax group","Offset Account type","Offset account","Invoice nr","Invoice date","Document nr","Due date"];
- public PostingResult Build(Report report,User employee,List<Master> masters){
+ public PostingResult Build(Report report,User employee,List<Master> masters,IReadOnlyList<SupplierAccount>? supplierAccounts=null){
   Guard.Require(!string.IsNullOrWhiteSpace(employee.Worker),"worker","Configurează codul Worker al angajatului.","Configure the expense employee's Worker code.");List<string[]> rows=[];List<Master> used=[];
   Master Find(string kind,string code,DateOnly date){var m=masters.SingleOrDefault(m=>m.Kind==kind&&m.Code==code&&Rules.Effective(m,date));Guard.Require(m!=null,"mapping","Lipsește maparea: "+kind+" / "+code,"Mapping missing: "+kind+" / "+code);used.Add(m!);return m!;}
   string Required(Master m,string key){var value=Rules.Text(m,key);Guard.Require(value!="","mapping","Completează maparea: "+key,"Complete mapping: "+key);return value;}
@@ -12,7 +12,7 @@ public sealed class Posting {
    if(!Rules.DomesticVat(d)){
     if(car&&d.Country!="RO"){var half=Rules.Money(line.Final()/2);Row("Ledger",gl,half,offsetType:"Ledger",offset:clearing);Row("Ledger",gl,line.Final()-half,subOverride:"",offsetType:"Ledger",offset:clearing);}else Row("Ledger",gl,line.Final(),offsetType:"Ledger",offset:clearing);continue;
    }
-   var vendor=Required(Find("suppliers",Rules.Cui(d.Cui),date),"vendorAccount");decimal bases=0;bool vendorWritten=false;
+   var supplierMaster=Find("suppliers",Rules.Cui(d.Cui),date);var vendor=Rules.Text(supplierMaster,"vendorAccount");if(vendor==""){var account=(supplierAccounts??[]).SingleOrDefault(a=>a.Cui==Rules.Cui(d.Cui)&&a.From<=date&&(a.To==null||a.To>=date));Guard.Require(account!=null,"vendor","Lipsește contul ERP al furnizorului.","ERP vendor account is missing.");vendor=account!.Account;used.Add(new Master{Id=account.Id,Kind="supplierAccounts",Code=account.Cui,From=account.From,To=account.To,Json=Serialization.Write(new{account.Account})});}decimal bases=0;bool vendorWritten=false;
    foreach(var sourceTax in d.Taxes){var factor=d.TaxCurrency=="RON"?1m:line.Final()/d.Amount;var tax=sourceTax with{Base=Rules.Money(sourceTax.Base*factor),Vat=Rules.Money(sourceTax.Vat*factor)};var rate=masters.Single(m=>m.Id==tax.RateId&&m.Kind=="vat"&&Rules.Effective(m,date));used.Add(rate);var pct=Rules.Number(rate,"rate");Guard.Require(pct>=0&&pct<=100&&pct!=5,"vat","Cotă TVA ERP neacceptată.","Unsupported ERP VAT rate.");var sales=Required(rate,"salesTaxGroup");bases+=tax.Base;
     if(!car){Row("Ledger",gl,tax.Base,sales:sales,tax:Required(rate,"itemTaxGroup"));}
     else {var half=Rules.Money(tax.Base/2);Row("Ledger",gl,half,sales:sales,tax:Required(rate,pct==0?"itemTaxGroup":"nonDeductible50Code"));Row("Ledger",gl,tax.Base-half,subOverride:"",sales:sales,tax:Required(rate,pct==0?"itemTaxGroup":"deductible50Code"));

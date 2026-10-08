@@ -5,3 +5,5 @@ public class Assignment {public Guid Id {get;set;}=Guid.NewGuid();public string 
 public class SchemaRelease {public int Id {get;set;}public string Name {get;set;}="";public DateTime Applied {get;set;}=DateTime.UtcNow;}
 public record CommentInput(long Version,Guid? LineId,string Text);
 public record AccountingOverride(string MainAccount,string LocalAccount,string SubAccount);
+
+public class SupplierAccount {public Guid Id {get;set;}=Guid.NewGuid();public string Cui {get;set;}="";public string Account {get;set;}="";public DateOnly From {get;set;}public DateOnly? To {get;set;}public string Actor {get;set;}="";public DateTime At {get;set;}=DateTime.UtcNow;}
