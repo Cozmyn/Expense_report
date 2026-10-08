@@ -1,0 +1,28 @@
+using Microsoft.EntityFrameworkCore;
+using System.Security.Cryptography;
+namespace Decont;
+public static class ReceiptFiles {
+ public static void Map(RouteGroupBuilder api){
+  api.MapGet("/suppliers/lookup",async(string cui,string date,Db db)=>{
+   var code=Rules.Cui(cui);var valid=Rules.ValidCui(code);Guard.Require(DateOnly.TryParse(date,out var day),"date","Data bonului este invalidă.","Invalid receipt date.");
+   var matches=await db.Masters.Where(m=>m.Kind=="suppliers"&&m.Code==code).ToListAsync();var found=matches.SingleOrDefault(m=>Rules.Effective(m,day));
+   return Results.Ok(new{cui=code,valid,found=found!=null,name=found?.NameRo,nameEn=found?.NameEn,hasErpAccount=found!=null&&Rules.Text(found,"vendorAccount")!="",messageRo=!valid?"CUI invalid. Verifică cifrele de pe bon.":found!=null?"Furnizor găsit în baza internă.":"Furnizorul nu există în baza internă. Verifică CUI-ul pe bon; dacă este corect, confirmă și păstrează-l. Finance va adăuga furnizorul.",messageEn=!valid?"Invalid VAT ID. Check the receipt.":found!=null?"Supplier found in the internal database.":"Supplier is absent from the internal database. Check the VAT ID; if correct, confirm and keep it. Finance will add the supplier."});
+  });
+  api.MapPost("/reports/{id:guid}/attachments",async(Guid id,HttpContext c,Db db,Reports svc,IStore store)=>await Upload(id,null,c,db,svc,store));
+  api.MapGet("/report-attachments/{id:guid}",async(Guid id,Db db,Reports svc,IStore store,HttpContext c)=>{var e=await db.ReportAttachments.SingleOrDefaultAsync(e=>e.Id==id)??throw new DomainException("missing","Document inexistent.","Document not found.",404);await svc.Get(e.ReportId,c.User);Guard.Require(e.Scan=="Clean","quarantine","Documentul nu a trecut scanarea.","Document has not passed scanning.");var bytes=await store.Get(e.Key);Guard.Require(Convert.ToHexString(SHA256.HashData(bytes))==e.Hash,"integrity","Document modificat.","Document integrity failed.");return Results.File(bytes,e.Mime,enableRangeProcessing:true);});
+  api.MapPost("/reports/{id:guid}/attachments/{aid:guid}/coverage",async(Guid id,Guid aid,VersionRequest i,Db db,Reports svc,HttpContext c)=>await Api.Atomic(db,c,i,async()=>{var r=await svc.Version(id,i.Version,c.User);svc.Edit(r,c.User,i.Reason);var e=r.Attachments.Single(e=>e.Id==aid&&!e.Archived);var before=e.CoveredLines;e.CoveredLines=Serialization.Write(r.Lines.Where(l=>!l.Archived).Select(l=>l.Id).ToList());Reports.Touch(r);svc.Log(c.User,id,aid.ToString(),"ReceiptCoverageConfirmed",before,e.CoveredLines,i.Reason);return Api.View(r);}));
+  api.MapPost("/reports/{id:guid}/attachments/{aid:guid}/archive",async(Guid id,Guid aid,VersionRequest i,Db db,Reports svc,HttpContext c)=>await Api.Atomic(db,c,i,async()=>{var r=await svc.Version(id,i.Version,c.User);svc.Edit(r,c.User,i.Reason);var e=r.Attachments.Single(e=>e.Id==aid&&!e.Archived);e.Archived=true;Reports.Touch(r);svc.Log(c.User,id,aid.ToString(),"ReportDocumentArchived",reason:i.Reason);return Api.View(r);}));
+ }
+ public static async Task<IResult> Upload(Guid id,Guid? lineId,HttpContext c,Db db,Reports svc,IStore store){
+  var form=await c.Request.ReadFormAsync();Guard.Require(long.TryParse(form["version"],out var version),"version","Versiune lipsă.","Version missing.");
+  var file=form.Files.GetFile("file")??throw new DomainException("file","Selectează fișierul bonului.","Select the receipt file.");Guard.Require(file.Length>0&&file.Length<=Files.MaxFile,"file_size","Limita este de 25 MB per fișier.","File limit is 25 MB.");
+  await using var tx=await db.Database.BeginTransactionAsync();var r=await svc.Version(id,version,c.User);svc.Edit(r,c.User,form["reason"]);
+  var line=lineId==null?null:r.Lines.SingleOrDefault(l=>l.Id==lineId&&!l.Archived);Guard.Require(lineId==null||line!=null,"line","Bon inexistent.","Receipt not found.",404);
+  Guard.Require(r.Lines.SelectMany(l=>l.Evidence).Sum(e=>e.Size)+r.Attachments.Sum(e=>e.Size)+file.Length<=Files.MaxReport,"report_size","Limita documentelor este de 200 MB per decont.","Report file limit is 200 MB.");
+  if(lineId==null)Guard.Require(form["coversAll"]=="true"&&r.Lines.Any(l=>!l.Archived),"coverage","Confirmă că fișierul include toate bonurile introduse în decont.","Confirm the file contains all receipts currently entered in the report.");
+  using var ms=new MemoryStream();await file.CopyToAsync(ms);var bytes=ms.ToArray();var mime=Files.Mime(bytes,file.FileName);var hash=Convert.ToHexString(SHA256.HashData(bytes));IOriginalDocument document;
+  if(line!=null){var e=new Evidence{LineId=line.Id,Name=Path.GetFileName(file.FileName),Mime=mime,Hash=hash,Size=bytes.Length};e.Key=$"originals/{id}/{e.Id}";line.Evidence.Add(e);db.Evidence.Add(e);document=e;db.Jobs.Add(new(){Kind="Scan",Json=e.Id.ToString()});}
+  else {var e=new ReportAttachment{ReportId=id,Name=Path.GetFileName(file.FileName),Mime=mime,Hash=hash,Size=bytes.Length,CoveredLines=Serialization.Write(r.Lines.Where(l=>!l.Archived).Select(l=>l.Id).ToList())};e.Key=$"originals/{id}/{e.Id}";r.Attachments.Add(e);db.ReportAttachments.Add(e);document=e;db.Jobs.Add(new(){Kind="ScanReport",Json=e.Id.ToString()});}
+  await store.Put(document.Key,bytes,mime);Reports.Touch(r);svc.Log(c.User,id,document.Id.ToString(),line==null?"CombinedReceiptsUploaded":"EvidenceUploaded",after:new{document.Name,document.Hash,document.Size,lineId,coveredLines=line==null?r.Lines.Where(l=>!l.Archived).Select(l=>l.Id):null},reason:form["reason"]);await db.SaveChangesAsync();await tx.CommitAsync();return Results.Ok(new{e=document,r.Version});
+ }
+}

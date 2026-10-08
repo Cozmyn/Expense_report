@@ -10,7 +10,7 @@ public class Report {
  public string EmployeeId {get;set;}="";public string ManagerId {get;set;}="";public string Purpose {get;set;}="";
  public string State {get;set;}=States.Draft;public long Version {get;set;}=1;public int Revision {get;set;}public decimal ApprovedPersonal {get;set;}
  public DateTime Created {get;set;}=DateTime.UtcNow;public DateTime Updated {get;set;}=DateTime.UtcNow;public DateTime? RetainUntil {get;set;}public bool LegalHold {get;set;}
- public List<Line> Lines {get;set;}=[];
+ public List<Line> Lines {get;set;}=[];public List<ReportAttachment> Attachments {get;set;}=[];
 }
 public class Line {
  public Guid Id {get;set;}=Guid.NewGuid();public Guid ReportId {get;set;}public int Position {get;set;}public bool Archived {get;set;}
@@ -20,9 +20,14 @@ public class Line {
  public ExpenseData Data()=>Serialization.Read<ExpenseData>(Json);
  public decimal Final()=>Reconciled?SettledRon??EstimatedRon:EstimatedRon;
 }
-public record ExpenseData(string Supplier,string? Cui,string Invoice,string Date,string Country,string DocumentType,string Category,string Description,string Payment,Guid? CardId,string CostCenter,string? Project,decimal Amount,string Currency,List<TaxData> Taxes);
+public record ExpenseData(string Supplier,string? Cui,string Invoice,string Date,string Country,string DocumentType,string Category,string Description,string Payment,Guid? CardId,string CostCenter,string? Project,decimal Amount,string Currency,List<TaxData> Taxes,bool? HasCompanyCui=null,bool SupplierConfirmed=false,string TaxCurrency="RON");
 public record TaxData(Guid RateId,decimal Base,decimal Vat);
-public class Evidence {
+public interface IOriginalDocument {Guid Id {get;}string Name {get;}string Key {get;}string Mime {get;}long Size {get;}string Hash {get;}string Scan {get;set;}bool Archived {get;}string? Ocr {get;set;}}
+public class ReportAttachment:IOriginalDocument {
+ public Guid Id {get;set;}=Guid.NewGuid();public Guid ReportId {get;set;}public string CoveredLines {get;set;}="[]";public string Name {get;set;}="";public string Key {get;set;}="";public string Mime {get;set;}="";public long Size {get;set;}public string Hash {get;set;}="";public string Scan {get;set;}="Pending";public bool Archived {get;set;}public string? Ocr {get;set;}public DateTime Created {get;set;}=DateTime.UtcNow;
+ public bool Covers(Guid line)=>Serialization.Read<List<Guid>>(CoveredLines).Contains(line);
+}
+public class Evidence:IOriginalDocument {
  public Guid Id {get;set;}=Guid.NewGuid();public Guid LineId {get;set;}public string Name {get;set;}="";public string Key {get;set;}="";public string Mime {get;set;}="";public long Size {get;set;}
  public string Hash {get;set;}="";public string Scan {get;set;}="Pending";public bool Archived {get;set;}public string? Ocr {get;set;}public DateTime Created {get;set;}=DateTime.UtcNow;
 }

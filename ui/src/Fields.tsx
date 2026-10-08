@@ -1,0 +1,2 @@
+import React from 'react';
+export function Field({name,children,note}:{name:string;children:React.ReactNode;note?:string}){const id=React.useId();return <div className="field"><label htmlFor={id}>{name}</label>{React.isValidElement(children)?React.cloneElement(children as React.ReactElement<any>,{id,'aria-describedby':note?id+'-note':undefined}):children}{note&&<small id={id+'-note'}>{note}</small>}</div>;}
