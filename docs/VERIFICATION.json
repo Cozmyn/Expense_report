@@ -1,7 +1,7 @@
 {
   "date": "2026-10-08",
-  "verified_source_commit": "5ad03bb7779adca5416b6f608b9317dffbffbd15",
-  "workflow_url": "https://github.com/Cozmyn/Expense_report/actions/runs/37744234244",
+  "verified_source_commit": "edbcff4a6834039148d2ad7a037ba78f7c9bb863",
+  "workflow_url": "https://github.com/Cozmyn/Expense_report/actions/runs/37755062170",
   "frontend_build": "passed: TypeScript + Vite release build",
   "frontend_tests": {
     "passed": 5,
@@ -11,17 +11,17 @@
   "backend_build": "passed: .NET 10 Release restore/build/publish in GitHub Actions",
   "backend_tests": {
     "sqlite": {
-      "passed": 25,
+      "passed": 38,
       "failed": 0,
       "skipped": 0
     },
     "postgresql": {
-      "passed": 25,
+      "passed": 38,
       "failed": 0,
       "skipped": 0
     }
   },
-  "docker_build_and_launch": "passed: full image build, 25 embedded backend tests, repeated bootstrap, health/static files and anonymous access checks",
+  "docker_build_and_launch": "passed: full image build, 38 embedded backend tests, repeated bootstrap, health/static files and anonymous access checks",
   "browser_workflows": {
     "passed": 2,
     "failed": 0,
@@ -32,21 +32,26 @@
     "flows": [
       "RO/EN language switch",
       "temporary password change",
-      "expense creation and upload",
-      "real ClamAV clean verdict",
+      "three receipts in one report: domestic mixed 0/11/21 VAT, domestic without company CUI, foreign EUR",
+      "unknown supplier confirmation and known supplier autofill",
+      "incorrect VAT total blocks saving",
+      "missing evidence and missing combined-file confirmation block submission/upload",
+      "individual and combined uploads with real ClamAV clean verdicts",
       "employee submission",
       "manager approval via HTTP",
-      "Finance review and duplicate exception via HTTP",
-      "ERP XLSX export and posting via HTTP",
+      "Finance supplier registration and duplicate exception via HTTP",
+      "detailed receipts/paid VAT XLSX and ERP XLSX export/posting via HTTP",
       "PDF and original-document ZIP download",
-      "posted report shown in UI"
+      "posted report shown in desktop/mobile UI"
     ]
   },
   "pdf_generation": "passed: Romanian Unicode regression",
-  "coverage_note": "Automated tests cover selected workflows and invariants, not every requirement or business case. Browser tests use employee UI, authenticated manager/Finance HTTP clients, real ClamAV and synthetic finance configuration.",
+  "coverage_note": "Automated tests cover selected workflows and receipt invariants, not every requirement or business case. Browser tests use employee UI, authenticated manager/Finance HTTP clients, real ClamAV and synthetic finance configuration. Visual screenshots inspected for the receipt form, multi-receipt report, Finance report and ERP preview.",
   "erp_golden_acceptance": "pending company-approved accounts, tax codes and expected import files",
   "production_deployment": "not performed",
   "production_ready": false,
   "limitations_file": "STATUS.md",
-  "workflow_conclusion": "success"
+  "workflow_conclusion": "success",
+  "receipt_accounting_workbook": "passed: exact original bases/paid VAT for 0/11/21, report amounts, Finance/Auditor permission, live download",
+  "existing_database_upgrade": "passed: additive attachment table upgrade repeated on both providers preserves existing report"
 }

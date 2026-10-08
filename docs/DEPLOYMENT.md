@@ -6,6 +6,20 @@
 
 Node 22 builds the frontend. .NET 10 builds/publishes the backend. Runtime image uses the official `10.0-noble` Ubuntu variant and installs Romanian/English Tesseract, Poppler and DejaVu Unicode fonts. Image tags are mutable: pin approved digests in the release pipeline. The initial schema command is for a new database only. Do not point `--init` at an existing unrelated database.
 
+## Actualizarea unei instalări existente / Existing installation upgrade
+
+Pentru instalările acestei aplicații anterioare fluxului de bonuri, realizează backup și oprește versiunea veche; construiește noua imagine, apoi rulează serviciul de inițializare înainte de pornirea aplicației:
+
+```sh
+docker compose build
+docker compose --profile setup run --rm init
+docker compose up -d web
+```
+
+`--init` / `--bootstrap` creează idempotent tabela `ReportAttachments` și indexul ei dacă lipsesc. Nu rescrie deconturile, bonurile sau documentele existente. Câmpurile noi ale bonului sunt stocate în JSON; documentele vechi cu `InvoiceWithCui` păstrează interpretarea CUI/TVA și moneda contabilă RON până la editare. Acest upgrade aditiv este testat pe SQLite/PostgreSQL; nu înlocuiește un sistem complet de migrări și rollback pentru producție.
+
+**English:** Back up the application's existing database, stop the old application, build the new image, run the setup service, then start the application. The additive attachment-table upgrade is idempotent and preserves existing reports. Do not run it against an unrelated database.
+
 ## Configurație PROD / Production configuration
 
 Separate environment, database and bucket for DEV, UAT and PROD. Production source refuses SQLite and refuses unconfigured private S3 storage. Configure:
@@ -43,4 +57,4 @@ Audit/snapshots/decisions/reviews are protected from updates/deletes through EF 
 
 ## Verificare CI / CI verification
 
-[Run 37744234244](https://github.com/Cozmyn/Expense_report/actions/runs/37744234244) verifies source commit `5ad03bb7779adca5416b6f608b9317dffbffbd15`: 25 backend tests in each SQLite/PostgreSQL matrix run, five frontend tests, release build/publish, two desktop/mobile workflows with real ClamAV, and Docker image build/bootstrap/launch. The browser scenarios use employee UI and authenticated HTTP clients for manager/Finance actions. GitHub Actions retains test results and browser traces/screenshots as artifacts. Subsequent documentation-only changes do not alter the verified application. Company ERP acceptance and the production gates above remain outstanding.
+[Run 37755062170](https://github.com/Cozmyn/Expense_report/actions/runs/37755062170) verifies source commit `edbcff4a6834039148d2ad7a037ba78f7c9bb863`: 38 backend tests in each SQLite/PostgreSQL matrix run, five frontend tests, release build/publish, two desktop/mobile workflows with real ClamAV, and Docker image build/bootstrap/launch. The browser scenarios use employee UI and authenticated HTTP clients for manager/Finance actions. GitHub Actions retains test results and browser traces/screenshots as artifacts. Subsequent documentation-only changes do not alter the verified application. Company ERP acceptance and the production gates above remain outstanding.

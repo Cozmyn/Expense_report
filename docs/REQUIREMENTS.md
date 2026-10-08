@@ -71,3 +71,17 @@ Sursa: documentația v2 Simple Auth furnizată în conversație. „Cod prezent�
 ## Cerințe nefuncționale / Non-functional requirements
 
 Identity password hashing, CSRF, role/object checks, immutable application audit, upload validation, quarantine, retention metadata and language switching have code implementations. Production TLS/encryption, ASVS validation, availability, disaster recovery, performance, end-to-end observability and accessibility acceptance remain deployment/test gates. See DEPLOYMENT.md and STATUS.md.
+
+## Clarificări bonuri fiscale / Receipt clarifications — 2026-10-08
+
+| Cerință / Requirement | Implementare / Implementation | Verificare / Verification |
+|---|---|---|
+| Mai multe bonuri într-un decont, tip și dată pentru fiecare | Până la 50 de rânduri; editor separat per bon | Browser desktop/mobil: 3 bonuri în același decont |
+| Furnizor străin / RO fără CUI companie | Fără CUI furnizor și TVA; descriere, monedă, sumă și alocare | ReceiptTests; două ramuri distincte în browser |
+| CUI companie diferit de CUI furnizor | Întrebare explicită, lookup intern datat, confirmare necunoscut și solicitare Finance unică | Lookup, confirmare și furnizor repetat testate |
+| Bază și TVA plătit la 0/11/21% | Grilă fixă, mapări datate, total recompus, validare server | TVA mixt, sumă greșită, 0% nenul și cotă duplicată |
+| Fișiere individuale sau comune obligatorii | Originale private, scanare, acoperire per ID bon, reconfirmare pentru bonuri noi | Permisiuni, carantină, lipsă/acoperire incompletă, revizie și ZIP |
+| Date TVA explicite pentru contabilitate | XLSX detaliat `Bonuri` / `TVA pe cote`; PDF/HTML/JSON; import ERP existent | Valorile originale și codurile ERP verificate separat |
+| Aplicație internă RO/EN | Autentificare simplă, instrucțiuni operaționale, fără sloganuri | Build TypeScript și browser desktop/mobil |
+
+Company ERP acceptance with real mappings remains pending; synthetic tests do not replace it.
