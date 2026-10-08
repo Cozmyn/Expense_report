@@ -33,7 +33,7 @@ public static class Rules {
   var values=new Dictionary<string,string>{{"country",d.Country},{"documentType",d.DocumentType},{"category",d.Category},{"payment",d.Payment},{"currency",d.Currency}};
   foreach(var m in masters.Where(m=>m.Kind=="fieldRules"&&Effective(m,date)).OrderBy(m=>Number(m,"priority"))){var json=Data(m);if(json.TryGetProperty("conditions",out var conditions)&&conditions.EnumerateObject().All(c=>values.GetValueOrDefault(c.Name)==c.Value.GetString())){var field=Text(m,"field");var state=Text(m,"state");if(fields.ContainsKey(field)&&state is "REQUIRED" or "OPTIONAL" or "NOT_APPLICABLE")fields[field]=state;}}
   if(DomesticVat(d)){fields["cui"]="REQUIRED";fields["taxes"]="REQUIRED";fields["supplier"]="REQUIRED";fields["invoice"]="REQUIRED";}else{fields["cui"]="NOT_APPLICABLE";fields["taxes"]="NOT_APPLICABLE";fields["supplier"]="NOT_APPLICABLE";fields["invoice"]="OPTIONAL";}
-  return fields;
+  foreach(var core in new[]{"date","country","documentType","category","description","payment","amount","currency"})fields[core]="REQUIRED";fields["cardId"]=d.Payment=="CompanyCard"?"REQUIRED":"NOT_APPLICABLE";return fields;
  }
  public static List<Problem> Validate(Report r,IReadOnlyList<Master> masters,bool erp=false){
   List<Problem> issues=[];var active=r.Lines.Where(l=>!l.Archived).ToList();
@@ -51,7 +51,7 @@ public static class Rules {
    if(fields["cui"]=="REQUIRED"&&!ValidCui(d.Cui))Add("cui","CUI-ul nu este valid.","Invalid Romanian VAT ID.");
    if(d.Payment=="Personal"&&d.CardId!=null)Add("card_na","Cardul nu se aplică plății personale.","A company card does not apply to personal payment.");
    if(d.Payment=="CompanyCard"&&!masters.Any(m=>m.Kind=="cards"&&m.Id==d.CardId&&Effective(m,date)))Add("card","Selectează un card activ.","Select an active card.");
-   foreach(var pair in new[]{("costCenters",d.CostCenter,"cost_center"),("expenseTypes",d.Category,"category")})if(!masters.Any(m=>m.Kind==pair.Item1&&m.Code==pair.Item2&&Effective(m,date)))Add(pair.Item3,"Nomenclatorul nu este valid la data documentului.","The master value is invalid for the document date.");
+   foreach(var pair in new[]{("costCenters",d.CostCenter,"cost_center"),("expenseTypes",d.Category,"category")})if((pair.Item1!="costCenters"||fields["costCenter"]!="NOT_APPLICABLE")&&!masters.Any(m=>m.Kind==pair.Item1&&m.Code==pair.Item2&&Effective(m,date)))Add(pair.Item3,"Nomenclatorul nu este valid la data documentului.","The master value is invalid for the document date.");
    if(!string.IsNullOrEmpty(d.Project)&&!masters.Any(m=>m.Kind=="projects"&&m.Code==d.Project&&Effective(m,date)))Add("project","Proiectul nu este valid.","Invalid project.");
    if(d.Currency!="RON"&&l.FxVersion==null)Add("fx","Lipsește cursul intern.","Internal FX rate is missing.");
    var files=l.Evidence.Where(e=>!e.Archived).Cast<IOriginalDocument>().Concat(r.Attachments.Where(e=>!e.Archived&&e.Covers(l.Id))).ToList();
