@@ -10,6 +10,7 @@ public static class Rules {
  public static decimal Number(Master m,string key)=>Data(m).TryGetProperty(key,out var v)?v.GetDecimal():0;
  public static decimal Personal(Report r)=>Money(r.Lines.Where(l=>!l.Archived&&l.Data().Payment=="Personal").Sum(l=>l.Final()));
  public static bool DomesticVat(ExpenseData d)=>d.Country=="RO"&&(d.HasCompanyCui??d.DocumentType=="InvoiceWithCui");
+ public static int VatCodeCount(ExpenseData d,IReadOnlyList<Master> masters)=>d.Taxes.Count(t=>{var m=masters.FirstOrDefault(m=>m.Id==t.RateId);return m!=null&&(Number(m,"rate")!=0||Math.Abs(t.Base)>2);});
  public static decimal TaxTotal(ExpenseData d)=>Money(d.Taxes.Sum(t=>t.Base+t.Vat));
  public static decimal TaxExpected(Line l)=>l.Data().TaxCurrency==l.Data().Currency?l.Data().Amount:l.EstimatedRon;
  public static List<Problem> VatIssues(Line l,IReadOnlyList<Master> masters){
@@ -19,12 +20,12 @@ public static class Rules {
   if(!DateOnly.TryParse(d.Date,out var date))return issues;
   if(d.Taxes.Count==0)Add("vat_missing","Completează baza și TVA pentru cotele de pe bon: 0%, 11%, 21%.","Enter taxable base and VAT for the receipt rates: 0%, 11%, 21%.");
   var rates=new HashSet<decimal>();
-  foreach(var t in d.Taxes){var rate=masters.SingleOrDefault(m=>m.Kind=="vat"&&m.Id==t.RateId&&Effective(m,date));if(rate==null||Number(rate,"rate") is not (0 or 11 or 21)){Add("vat_rate","Cota TVA nu este activă la data bonului.","VAT rate is not active for the receipt date.");continue;}
+  foreach(var t in d.Taxes){var rate=masters.SingleOrDefault(m=>m.Kind=="vat"&&m.Id==t.RateId&&Effective(m,date));if(rate==null||Number(rate,"rate")<0||Number(rate,"rate")>100||Number(rate,"rate")==5){Add("vat_rate","Cota TVA nu este activă la data bonului.","VAT rate is not active for the receipt date.");continue;}
    var pct=Number(rate,"rate");if(!rates.Add(pct))Add("vat_duplicate","Aceeași cotă TVA este completată de două ori.","The same VAT percentage is entered twice.");
    if(t.Base<0||t.Vat<0||t.Base!=Money(t.Base)||t.Vat!=Money(t.Vat)||pct==0&&t.Vat!=0||Math.Abs(Money(t.Base*pct/100)-t.Vat)>1)Add("vat_arithmetic",$"Verifică baza și TVA la {pct}%: TVA așteptat {Money(t.Base*pct/100):0.00}, introdus {t.Vat:0.00}.",$"Check base and VAT at {pct}%: expected {Money(t.Base*pct/100):0.00}, entered {t.Vat:0.00}.");
   }
   if(Math.Abs(TaxTotal(d)-TaxExpected(l))>0.01m)Add("vat_total",$"Totalul recompus din baze + TVA ({TaxTotal(d):0.00} {d.TaxCurrency}) diferă de totalul bonului ({TaxExpected(l):0.00}).",$"Reconstructed base + VAT total ({TaxTotal(d):0.00} {d.TaxCurrency}) differs from the receipt total ({TaxExpected(l):0.00}).");
-  return issues;
+  return l.VatOverrideReason==null?issues:issues.Select(p=>p.Code is "vat_arithmetic" or "vat_total"?p with{Blocking=false}:p).ToList();
  }
  public static Dictionary<string,string> FieldStates(ExpenseData d,IReadOnlyList<Master> masters){
   var fields=new Dictionary<string,string>{{"supplier",DomesticVat(d)?"REQUIRED":"NOT_APPLICABLE"},{"invoice",DomesticVat(d)?"REQUIRED":"OPTIONAL"},{"date","REQUIRED"},{"country","REQUIRED"},{"documentType","REQUIRED"},{"category","REQUIRED"},{"description","REQUIRED"},{"payment","REQUIRED"},{"costCenter","REQUIRED"},{"amount","REQUIRED"},{"currency","REQUIRED"},{"cui",DomesticVat(d)?"REQUIRED":"NOT_APPLICABLE"},{"cardId",d.Payment=="CompanyCard"?"REQUIRED":"NOT_APPLICABLE"},{"project","OPTIONAL"},{"taxes",DomesticVat(d)?"REQUIRED":"NOT_APPLICABLE"}};
@@ -59,7 +60,7 @@ public static class Rules {
    if(d.Country=="RO"&&d.DocumentType=="Receipt"&&d.HasCompanyCui==null)Add("company_cui","Precizează dacă bonul are CUI-ul companiei.","Specify whether the receipt includes the company VAT ID.");
    if(DomesticVat(d)){var supplier=masters.SingleOrDefault(m=>m.Kind=="suppliers"&&m.Code==Cui(d.Cui)&&Effective(m,date));if(supplier==null&&!d.SupplierConfirmed)Add("supplier_confirmation","CUI-ul nu există în baza internă. Verifică-l pe bon și confirmă că este corect; Finance va adăuga furnizorul.","VAT ID is absent from the internal database. Check the receipt and confirm it is correct; Finance will add the supplier.");}
    issues.AddRange(VatIssues(l,masters));
-   if(erp){var mapping=masters.SingleOrDefault(m=>m.Kind=="accounting"&&m.Code==d.Category&&Effective(m,date));if(mapping==null||Text(mapping,"mainAccount")==""||Text(mapping,"localAccount")=="")Add("mapping","Lipsește maparea GL / cont local.","GL / local account mapping is missing.");
+   if(erp){var mapping=masters.SingleOrDefault(m=>m.Kind=="accounting"&&m.Code==d.Category&&Effective(m,date));if(mapping==null||d.Accounting==null&&(Text(mapping,"mainAccount")==""||Text(mapping,"localAccount")==""))Add("mapping","Lipsește maparea GL / cont local.","GL / local account mapping is missing.");
     if(DomesticVat(d)){var supplier=masters.SingleOrDefault(m=>m.Kind=="suppliers"&&m.Code==Cui(d.Cui)&&Effective(m,date));if(supplier==null||Text(supplier,"vendorAccount")=="")Add("vendor","Lipsește contul ERP al furnizorului.","ERP vendor account is missing.");}
     if(d.Payment=="CompanyCard"&&!l.Reconciled&&string.IsNullOrWhiteSpace(l.OverrideReason))Add("reconciliation","Cardul necesită reconciliere.","Card reconciliation is required.");
    }

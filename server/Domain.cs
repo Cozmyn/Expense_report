@@ -15,12 +15,12 @@ public class Report {
 public class Line {
  public Guid Id {get;set;}=Guid.NewGuid();public Guid ReportId {get;set;}public int Position {get;set;}public bool Archived {get;set;}
  public string Json {get;set;}="{}";public decimal EstimatedRon {get;set;}public decimal? SettledRon {get;set;}public bool Reconciled {get;set;}
- public string? OverrideReason {get;set;}public string? DuplicateDisposition {get;set;}public string? FxVersion {get;set;}
+ public string? VatOverrideReason {get;set;}public string? OverrideReason {get;set;}public string? DuplicateDisposition {get;set;}public string? FxVersion {get;set;}
  public List<Evidence> Evidence {get;set;}=[];
  public ExpenseData Data()=>Serialization.Read<ExpenseData>(Json);
  public decimal Final()=>Reconciled?SettledRon??EstimatedRon:EstimatedRon;
 }
-public record ExpenseData(string Supplier,string? Cui,string Invoice,string Date,string Country,string DocumentType,string Category,string Description,string Payment,Guid? CardId,string CostCenter,string? Project,decimal Amount,string Currency,List<TaxData> Taxes,bool? HasCompanyCui=null,bool SupplierConfirmed=false,string TaxCurrency="RON");
+public record ExpenseData(string Supplier,string? Cui,string Invoice,string Date,string Country,string DocumentType,string Category,string Description,string Payment,Guid? CardId,string CostCenter,string? Project,decimal Amount,string Currency,List<TaxData> Taxes,bool? HasCompanyCui=null,bool SupplierConfirmed=false,string TaxCurrency="RON",AccountingOverride? Accounting=null);
 public record TaxData(Guid RateId,decimal Base,decimal Vat);
 public interface IOriginalDocument {Guid Id {get;}string Name {get;}string Key {get;}string Mime {get;}long Size {get;}string Hash {get;}string Scan {get;set;}bool Archived {get;}string? Ocr {get;set;}}
 public class ReportAttachment:IOriginalDocument {
@@ -32,7 +32,7 @@ public class Evidence:IOriginalDocument {
  public string Hash {get;set;}="";public string Scan {get;set;}="Pending";public bool Archived {get;set;}public string? Ocr {get;set;}public DateTime Created {get;set;}=DateTime.UtcNow;
 }
 public class Snapshot {public Guid Id {get;set;}=Guid.NewGuid();public Guid ReportId {get;set;}public int Revision {get;set;}public string Json {get;set;}="";public string Hash {get;set;}="";public string Actor {get;set;}="";public DateTime At {get;set;}=DateTime.UtcNow;}
-public class Decision {public Guid Id {get;set;}=Guid.NewGuid();public Guid ReportId {get;set;}public int Revision {get;set;}public string Actor {get;set;}="";public string Action {get;set;}="";public string? Reason {get;set;}public DateTime At {get;set;}=DateTime.UtcNow;}
+public class Decision {public string RevisionHash {get;set;}="";public Guid Id {get;set;}=Guid.NewGuid();public Guid ReportId {get;set;}public int Revision {get;set;}public string Actor {get;set;}="";public string Action {get;set;}="";public string? Reason {get;set;}public DateTime At {get;set;}=DateTime.UtcNow;}
 public class Audit {public long Id {get;set;}public Guid? ReportId {get;set;}public string Actor {get;set;}="";public string Entity {get;set;}="";public string Action {get;set;}="";public string? Before {get;set;}public string? After {get;set;}public string? Reason {get;set;}public DateTime At {get;set;}=DateTime.UtcNow;}
 public class Master {public Guid Id {get;set;}=Guid.NewGuid();public string Kind {get;set;}="";public string Code {get;set;}="";public string NameRo {get;set;}="";public string NameEn {get;set;}="";public string Json {get;set;}="{}";public DateOnly From {get;set;}public DateOnly? To {get;set;}public bool Active {get;set;}=true;}
 public class VendorRequest {public Guid Id {get;set;}=Guid.NewGuid();public Guid ReportId {get;set;}public string Cui {get;set;}="";public string Supplier {get;set;}="";public string State {get;set;}="Pending";public string? Account {get;set;}}
