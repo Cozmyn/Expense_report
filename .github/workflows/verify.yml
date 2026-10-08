@@ -50,7 +50,7 @@ jobs:
         image: clamav/clamav:stable
         ports: ['3310:3310']
         options: >-
-          --health-cmd "clamdcheck.sh"
+          --health-cmd "clamdscan --ping=1"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 30
@@ -98,3 +98,38 @@ jobs:
             ui/playwright-report/
             ui/test-results/
             application.log
+  container-launch:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and start the application container
+        run: |
+          docker build -t decont:ci -f deploy/Dockerfile .
+          docker volume create decont-ci-data
+          docker run --rm -v decont-ci-data:/app/.data \
+            -e ASPNETCORE_ENVIRONMENT=Development \
+            -e Bootstrap__Username=container-admin \
+            -e Bootstrap__Email=container-admin@example.invalid \
+            -e 'Bootstrap__Password=Container-test-Password1!' \
+            decont:ci --bootstrap
+          docker run --rm -v decont-ci-data:/app/.data \
+            -e ASPNETCORE_ENVIRONMENT=Development \
+            -e Bootstrap__Username=container-admin \
+            -e Bootstrap__Email=container-admin@example.invalid \
+            -e 'Bootstrap__Password=Container-test-Password1!' \
+            decont:ci --bootstrap
+          docker run -d --name decont-ci -p 127.0.0.1:5081:8080 \
+            -v decont-ci-data:/app/.data -e ASPNETCORE_ENVIRONMENT=Development \
+            -e Worker__Disabled=true decont:ci
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:5081/health/ready; then break; fi
+            sleep 1
+          done
+          curl --fail http://127.0.0.1:5081/health/ready
+          curl --fail http://127.0.0.1:5081/ | grep 'src="/assets/'
+          test "$(curl --silent -o /dev/null -w '%{http_code}' http://127.0.0.1:5081/api/reports)" = '401'
+      - name: Container logs
+        if: always()
+        run: docker logs decont-ci || true
