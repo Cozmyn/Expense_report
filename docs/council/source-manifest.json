@@ -1,0 +1,50 @@
+{
+  "baseline_commit": "d23bc5639abbb1269d5f17c368673b945a457df6",
+  "sources": [
+    {
+      "source": "SPEC",
+      "file": "Expense_Management_Platform_Final_Specification_v2_Simple_Auth_RO(1).docx",
+      "sha256": "31bad999cb5a75056bddaf8ab227a3df0d84585c2727c04d9bec6c2e46f49f5a"
+    },
+    {
+      "source": "UX",
+      "file": "Expense_Platform_Product_Process_UX_Brief_RO(1).docx",
+      "sha256": "24359ec8dfbe26e0384ccdaadc6ed55f3b6d0836066ce4438291ca5e8fcd6134"
+    },
+    {
+      "source": "WORKBOOK",
+      "file": "Expense_Platform_Traceability_and_Requirements_v2_Simple_Auth(1).xlsx",
+      "sha256": "5344c179876f0ee292bfcfdf8743ae52a4ee60b4161d8c16dff307b1f1465a35",
+      "sheets": [
+        "Requirements",
+        "Non-Functional",
+        "Target Business Rules",
+        "Excel Traceability",
+        "ERP Mapping",
+        "Roles Permissions",
+        "Decisions",
+        "Risk Disposition",
+        "API Catalogue",
+        "Test Scenarios",
+        "ERP Headers Exact",
+        "Page Catalogue",
+        "Authentication",
+        "Open Implementation Inputs"
+      ]
+    }
+  ],
+  "counts": {
+    "Context": 29,
+    "Table header": 114,
+    "Heading": 124,
+    "Obligation": 1579
+  },
+  "requirement_rows": 1579,
+  "status_counts": {
+    "Partial": 1567,
+    "Broken": 5,
+    "Missing": 7
+  },
+  "coverage_definition": "Every extracted nonempty body paragraph/table row classified. This is source-inventory accounting, NOT proof of semantic completeness or implementation acceptance. Compound requirements still need leaf-case review.",
+  "source_inventory_complete": true
+}
