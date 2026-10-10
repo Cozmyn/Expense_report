@@ -21,3 +21,8 @@ input,select,textarea{border-color:var(--control-border)}
 .profile-panel{max-width:720px;margin-bottom:24px}.profile-facts{margin:0 0 24px}.profile-facts>div{display:grid;grid-template-columns:minmax(120px,1fr) 2fr;gap:16px;padding:12px 0;border-bottom:1px solid var(--border)}.profile-facts dt{color:var(--muted)}.profile-facts dd{margin:0;overflow-wrap:anywhere}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
 @media(max-width:480px){.profile-facts>div{grid-template-columns:1fr;gap:4px}}
+/* Apply semantic text tokens to legacy field/status selectors as well. */
+.field small{color:var(--muted)}
+.success{color:#166534;background:#f0fdf4;border-color:#bbd8c3}
+.error{color:#b91c1c;background:#fef2f2;border-color:#d7a4a4}
+.sidebar{overflow-y:auto}
