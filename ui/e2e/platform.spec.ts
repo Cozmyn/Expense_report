@@ -46,7 +46,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP',as
  await expect(page.getByRole('alert')).toContainText('Parolele noi nu coincid');
  await page.getByLabel('Confirmă parola nouă',{exact:true}).fill('Profile-updated-Password3!');
  await page.getByRole('button',{name:'Schimbă parola',exact:true}).click();
- await expect(page.getByRole('status')).toContainText('Parola a fost schimbată');
+ await expect(page.getByText('Parola a fost schimbată. Celelalte sesiuni au fost închise.',{exact:true})).toBeVisible();
  expect((await employee.get('/api/me')).status()).toBe(401);
  await shot(page,'12-profile');
  if(suffix==='chromium'){const ctx=await browser.newContext({storageState:await admin.storageState()});const ap=await ctx.newPage();await ap.goto('/');await ap.getByRole('button',{name:'Utilizatori și acces',exact:true}).click();await expect(ap.getByRole('heading',{name:'Utilizatori și acces',exact:true})).toBeVisible();await shot(ap,'10-users');await ap.getByRole('button',{name:'Nomenclatoare',exact:true}).click();await expect(ap.getByRole('heading',{name:'Nomenclatoare și reguli'})).toBeVisible();await shot(ap,'11-master-data');await ctx.close();}await admin.dispose();await employee.dispose();await managerClient.dispose();await fin.dispose();
