@@ -41,4 +41,4 @@ This implements a subset of batches B1 and B2, not the entire Phase 2 design. Fu
 
 ## Statusul cerințelor / Requirement status
 
-Phase-3 matrix preserves all 1,579 IDs. Affected Broken/Missing items become Partial with concrete implementation evidence, not automatically Done. Source-level acceptance and original-document coverage are distinct from the number of passing tests.
+Phase-3 matrix preserves all 1,579 IDs. Affected Broken/Missing items become Partial with concrete implementation evidence. The two SHR-02 source references for minimal profile self-service are Done following passing desktop/mobile acceptance. Source-level acceptance and original-document coverage are distinct from the number of passing tests.

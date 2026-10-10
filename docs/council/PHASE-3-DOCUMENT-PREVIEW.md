@@ -8,4 +8,4 @@ Desktop: original left, fields right. Mobile: original above fields. Image zoom 
 
 Files: DocumentViewer.tsx, ReceiptModal.tsx, style.css, platform.spec.ts. No endpoint, schema or migration changes. Existing authorization, malware scanning and original integrity handling remain in force.
 
-Validation: TypeScript and production build passed. Desktop/mobile browser assertions added for zoom, rotation and reset; CI pending for this batch. PREM-016 is Partial, not Done. Full Phase 1/2 acceptance and all remaining batches are still open.
+Validation: TypeScript and production build passed. Desktop/mobile browser assertions added for zoom, rotation and reset; CI 38051190408 passed for commit ce571ec949a90496bc33604e06c1507286b8aba3: both database suites, desktop/mobile browser workflows and container launch. PREM-016 is Partial, not Done. Full Phase 1/2 acceptance and all remaining batches are still open.
