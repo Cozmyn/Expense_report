@@ -33,5 +33,21 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP',as
  await page.getByLabel('Selectează documente PDF / imagini',{exact:true}).setInputFiles({name:'two-invoices-'+suffix+'.pdf',mimeType:'application/pdf',buffer:pdfFixture});await expect(page.getByRole('button',{name:'Revizuiește și creează bonul'})).toHaveCount(2,{timeout:90000});await page.screenshot({path:'test-results/'+suffix+'-ocr-review.png',fullPage:true});
  for(let n=0;n<2;n++){await page.getByRole('button',{name:'Revizuiește și creează bonul'}).nth(n).click();await expect(dialog.getByLabel('Total bon în moneda documentului',{exact:true})).toHaveValue(String((n+1)*10));await dialog.getByLabel('Furnizorul este din România?',{exact:true}).selectOption('no');await dialog.getByLabel('Tip cheltuială',{exact:true}).selectOption(cat);await dialog.getByLabel('Centru de cost',{exact:true}).selectOption(cc);await dialog.getByLabel('Descriere / justificare',{exact:true}).fill('Confirmed OCR page '+(n+1));await save();}
  const captured=(await(await employee.get('/api/reports/'+ocrReport.id)).json()).report;expect(captured.lines).toHaveLength(2);const extraction=JSON.parse(captured.attachments[0].ocr);expect(extraction.pages).toHaveLength(2);expect(extraction.candidates).toHaveLength(2);expect(JSON.parse(captured.attachments[0].coveredLines)).toHaveLength(2);expect(captured.total).toBe(30);await expect(page.getByRole('button',{name:'Trimite la aprobare'})).toBeEnabled();await page.getByRole('button',{name:'Trimite la aprobare'}).click();await expect(page.getByText('La manager',{exact:true}).first()).toBeVisible();
+ // Self-service profile and password change must work on desktop and mobile.
+ await page.getByRole('button',{name:'Profilul meu',exact:true}).last().click();
+ await expect(page.getByRole('heading',{name:'Profilul meu',exact:true})).toBeVisible();
+ await page.getByLabel('Limba interfeței',{exact:true}).selectOption('en');
+ await expect(page.getByRole('heading',{name:'My profile',exact:true})).toBeVisible();
+ await page.getByLabel('Interface language',{exact:true}).selectOption('ro');
+ await page.getByLabel('Parola actuală',{exact:true}).fill(changed);
+ await page.getByLabel('Parola nouă',{exact:true}).fill('Profile-updated-Password3!');
+ await page.getByLabel('Confirmă parola nouă',{exact:true}).fill('Different-password-123!');
+ await page.getByRole('button',{name:'Schimbă parola',exact:true}).click();
+ await expect(page.getByRole('alert')).toContainText('Parolele noi nu coincid');
+ await page.getByLabel('Confirmă parola nouă',{exact:true}).fill('Profile-updated-Password3!');
+ await page.getByRole('button',{name:'Schimbă parola',exact:true}).click();
+ await expect(page.getByRole('status')).toContainText('Parola a fost schimbată');
+ expect((await employee.get('/api/me')).status()).toBe(401);
+ await shot(page,'12-profile');
  if(suffix==='chromium'){const ctx=await browser.newContext({storageState:await admin.storageState()});const ap=await ctx.newPage();await ap.goto('/');await ap.getByRole('button',{name:'Utilizatori și acces',exact:true}).click();await expect(ap.getByRole('heading',{name:'Utilizatori și acces',exact:true})).toBeVisible();await shot(ap,'10-users');await ap.getByRole('button',{name:'Nomenclatoare',exact:true}).click();await expect(ap.getByRole('heading',{name:'Nomenclatoare și reguli'})).toBeVisible();await shot(ap,'11-master-data');await ctx.close();}await admin.dispose();await employee.dispose();await managerClient.dispose();await fin.dispose();
 });
