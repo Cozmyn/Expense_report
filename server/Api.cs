@@ -15,6 +15,15 @@ public static class Api {
   api.MapPost("/reports/{id:guid}/submit",async(Guid id,VersionRequest i,Reports svc,Db db,HttpContext c)=>await Atomic(db,c,i,async()=>{var r=await svc.Version(id,i.Version,c.User);await svc.Submit(r,c.User);return View(r);}));
   api.MapPost("/reports/{id:guid}/actions/{action}",async(Guid id,string action,VersionRequest i,Reports svc,Db db,HttpContext c)=>await Atomic(db,c,i,async()=>{var r=await svc.Version(id,i.Version,c.User);await svc.Action(r,c.User,action,i.Reason);return View(r);}));
   api.MapGet("/reports/{id:guid}/snapshots/{revision:int}",async(Guid id,int revision,Reports svc,Db db,HttpContext c)=>{await svc.Get(id,c.User);var s=await db.Snapshots.SingleAsync(s=>s.ReportId==id&&s.Revision==revision);return Results.Text(s.Json,"application/json");});
+  // Read-only financial preview: reuse the exact submit/preflight arithmetic, including RON tolerance.
+  api.MapPost("/vat-validation",async(ExpenseData d,Db db)=>{
+   Guard.Require(d.Amount>0,"amount","Suma trebuie să fie pozitivă.","Amount must be positive.");
+   Guard.Require(DateOnly.TryParse(d.Date,out var day),"date","Data nu este validă.","Invalid date.");
+   var masters=await db.Masters.ToListAsync();decimal estimated=Rules.Money(d.Amount);
+   if(d.Currency!="RON"){var fx=masters.SingleOrDefault(m=>m.Kind=="fx"&&m.Code==d.Currency&&Rules.Effective(m,day));Guard.Require(fx!=null&&Rules.Number(fx,"ronRate")>0,"fx","Configurează cursul intern pentru dată și monedă.","Configure an internal FX rate for this date and currency.");estimated=Rules.Money(estimated*Rules.Number(fx!,"ronRate"));}
+   var line=new Line{Json=Serialization.Write(d with{Amount=Rules.Money(d.Amount)}),EstimatedRon=estimated};
+   return new{issues=Rules.VatIssues(line,masters),expected=Rules.TaxExpected(line),reconstructed=Rules.TaxTotal(d)};
+  });
   api.MapGet("/rules",async(HttpContext c,Db db)=>{var q=c.Request.Query;var d=new ExpenseData("","","",q["date"].ToString(),q["country"].ToString(),q["documentType"].ToString(),q["category"].ToString(),"",q["payment"].ToString(),null,"",null,0,q["currency"].ToString(),[],bool.TryParse(q["hasCompanyCui"],out var has)?has:null);return Rules.FieldStates(d,await db.Masters.ToListAsync());});
   api.MapGet("/masters",async(Db db)=>await db.Masters.Where(m=>new[]{"costCenters","projects","expenseTypes","cards","vat","fx","fieldRules","countries","documentTypes","policies"}.Contains(m.Kind)).ToListAsync());
   api.MapGet("/notices",async(Db db,HttpContext c)=>await db.Notices.Where(n=>n.UserId==Reports.Actor(c.User)&&!n.Hidden).OrderByDescending(n=>n.At).Take(100).ToListAsync());

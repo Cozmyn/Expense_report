@@ -14,6 +14,30 @@ public class BusinessTests {
  [Fact]public void WorkbookContainsOnlyValuesAndExactSchema(){var rows=new List<string[]>{Enumerable.Range(0,24).Select(_=>"").ToArray()};rows[0][1]="Ledger";rows[0][2]="TEST";rows[0][12]="=MALICIOUS()";rows[0][13]="100.00";using var ms=new MemoryStream(Documents.Workbook(rows));using var book=new XLWorkbook(ms);Assert.Single(book.Worksheets);var sheet=book.Worksheet("Import");for(int i=0;i<24;i++)Assert.Equal(Posting.Headers[i],sheet.Cell(1,i+1).GetString());Assert.Equal(100m,sheet.Cell(2,14).GetValue<decimal>());Assert.Equal("=MALICIOUS()",sheet.Cell(2,13).GetString());Assert.False(sheet.Cell(2,13).HasFormula);}
  [Fact]public async Task SameReportInvoiceDuplicatesAreDetected(){await using var db=Database();await db.Database.EnsureCreatedAsync();var (report,_,user)=Fixture();report.Lines.Add(new(){ReportId=report.Id,Position=2,Json=report.Lines[0].Json,EstimatedRon=100});db.Reports.Add(report);await db.SaveChangesAsync();var issues=await new Reports(db).Validate(report,true);Assert.Equal(2,issues.Count(p=>p.Code=="duplicate_exact"));Assert.All(issues.Where(p=>p.Code=="duplicate_exact"),p=>Assert.True(p.Blocking));}
  [Fact]public void RomanianPdfHasValidHeaderAndContent(){var (report,_,user)=Fixture();report.Purpose="Întâlnire și deplasare la București";user.Name="Ștefan Țăran";var bytes=ReportPdf.Generate(report,user,[]);Assert.Equal("%PDF-",System.Text.Encoding.ASCII.GetString(bytes,0,5));Assert.True(bytes.Length>1000);}
+
+ [Theory]
+ [InlineData(0,11,1)][InlineData(1.99,11,1)][InlineData(2,11,1)][InlineData(2.01,11,2)]
+ [InlineData(0,21,1)][InlineData(1.99,21,1)][InlineData(2,21,1)][InlineData(2.01,21,2)]
+ public void SmallZeroChangesVehicleBranchWithoutDroppingMoney(decimal zeroBase,int percent,int count){
+  var (report,masters,user)=Fixture();masters.Single(m=>m.Kind=="accounting").Json=Serialization.Write(new{mainAccount="TEST-GL",localAccount="TEST-LOCAL",subAccount="SUB",vehicle=true});
+  var zero=Master("vat","0",new{rate=0,salesTaxGroup="VDOM",itemTaxGroup="G00"});
+  var rate=Master("vat",percent.ToString(),new{rate=percent,salesTaxGroup="VDOM",itemTaxGroup="G",deductible50Code="DED",nonDeductible50Code="NONDED"});masters.AddRange([zero,rate]);
+  var d=Data() with{Amount=100+percent+zeroBase,Taxes=[new(zero.Id,zeroBase,0),new(rate.Id,100,percent)]};
+  var line=report.Lines[0];line.Json=Serialization.Write(d);line.EstimatedRon=d.Amount;
+  Assert.Equal(count,Rules.VatCodeCount(d,masters));var rows=new Posting().Build(report,user,masters).Rows;
+  var vendor=Assert.Single(rows.Where(r=>r[1]=="Vendor"));Assert.Equal((100+zeroBase).ToString("0.00",System.Globalization.CultureInfo.InvariantCulture),vendor[14]);
+  var vendorIndex=rows.IndexOf(vendor);var adjustmentIndex=rows.FindIndex(r=>r[2]=="NONDED");Assert.Equal(count==1,vendorIndex<adjustmentIndex);
+  Assert.Equal(zeroBase,rows.Where(r=>r[17]=="G00").Sum(r=>r[13]==""?0:decimal.Parse(r[13],System.Globalization.CultureInfo.InvariantCulture)));
+  Assert.Equal(d.Amount.ToString("0.00",System.Globalization.CultureInfo.InvariantCulture),rows[^1][14]);
+ }
+ [Theory][InlineData(.39,1)][InlineData(.4,1)][InlineData(.41,2)]
+ public void SmallZeroUsesRonConversion(decimal zeroBase,int expected){var (_,masters,_)=Fixture();var zero=Master("vat","0",new{rate=0});var positive=Master("vat","21",new{rate=21});masters.AddRange([zero,positive,Master("fx","EUR",new{ronRate=5})]);var d=Data() with{Currency="EUR",TaxCurrency="EUR",Taxes=[new(zero.Id,zeroBase,0),new(positive.Id,100,21)]};Assert.Equal(expected,Rules.VatCodeCount(d,masters));Assert.Equal(2,Rules.VatCodeCount(d,masters,6));}
+ [Theory][InlineData(.2,false)][InlineData(.21,true)]
+ public void VatArithmeticToleranceIsRonNotReceiptCurrency(decimal extra,bool blocked){var rate=Master("vat","21",new{rate=21});var d=Data() with{Currency="EUR",TaxCurrency="EUR",Amount=121+extra,Taxes=[new(rate.Id,100,21+extra)]};var l=new Line{Json=Serialization.Write(d),EstimatedRon=d.Amount*5};Assert.Equal(blocked,Rules.VatIssues(l,[rate]).Any(p=>p.Code=="vat_arithmetic"&&p.Blocking));}
+ [Fact]public void ZeroAmountReturnsValidationInsteadOfDividingByZero(){var rate=Master("vat","21",new{rate=21});var d=Data() with{Currency="EUR",TaxCurrency="EUR",Amount=0,Taxes=[new(rate.Id,100,21)]};Assert.Contains(Rules.VatIssues(new Line{Json=Serialization.Write(d)},[rate]),p=>p.Code=="amount");}
+ [Fact]public void NotApplicableProjectNeverRequiresMasterOrLeaksIntoPosting(){var (report,masters,user)=Fixture();masters.Add(Master("fieldRules","no-project",new{field="project",state="NOT_APPLICABLE",conditions=new{country="DE"},priority=1}));report.Lines[0].Json=Serialization.Write(Data() with{Country="DE",Project="RETIRED-PROJECT"});Assert.DoesNotContain(Rules.Validate(report,masters),p=>p.Code=="project");Assert.All(new Posting().Build(report,user,masters).Rows,r=>Assert.Equal("",r[9]));}
+ [Fact]public void ApplicableProjectStillRequiresAnEffectiveMaster(){var (report,masters,_)=Fixture();report.Lines[0].Json=Serialization.Write(Data() with{Country="DE",Project="RETIRED-PROJECT"});Assert.Contains(Rules.Validate(report,masters),p=>p.Code=="project");}
+ [Fact]public void VatPolicyChangeChangesPostingFingerprint(){var (report,masters,user)=Fixture();var zero=Master("vat","0",new{rate=0,salesTaxGroup="VDOM",itemTaxGroup="G00"});var policy=Master("policies","vat",new{vatZeroTolerance=2});masters.AddRange([zero,policy]);report.Lines[0].Json=Serialization.Write(Data() with{Taxes=[new(zero.Id,100,0)]});var first=new Posting().Build(report,user,masters);policy.Json=Serialization.Write(new{vatZeroTolerance=3});Assert.NotEqual(first.Version,new Posting().Build(report,user,masters).Version);}
  static Db Database(){var db=new Db(new DbContextOptionsBuilder<Db>().UseSqlite("Data Source=:memory:").Options);db.Database.OpenConnection();return db;}
  static ClaimsPrincipal Principal(string id,string role)=>new(new ClaimsIdentity([new(ClaimTypes.NameIdentifier,id),new(ClaimTypes.Role,role)],"test"));
  static Master Master(string kind,string code,object data)=>new(){Kind=kind,Code=code,From=new(2020,1,1),Json=Serialization.Write(data)};
