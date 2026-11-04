@@ -21,7 +21,7 @@ public static class Rules {
   if(d.Amount<=0||l.EstimatedRon<=0){Add("amount","Suma și valoarea în RON trebuie să fie pozitive.","Amount and RON value must be positive.");return issues;}
   if(d.Taxes.Count==0)Add("vat_missing","Completează baza și TVA pentru cotele de pe bon: 0%, 11%, 21%.","Enter taxable base and VAT for the receipt rates: 0%, 11%, 21%.");
   var rates=new HashSet<decimal>();
-  foreach(var t in d.Taxes){var rate=masters.SingleOrDefault(m=>m.Kind=="vat"&&m.Id==t.RateId&&Effective(m,date));if(rate==null||Number(rate,"rate")<0||Number(rate,"rate")>100||Number(rate,"rate")==5){Add("vat_rate","Cota TVA nu este activă la data bonului.","VAT rate is not active for the receipt date.");continue;}
+  foreach(var t in d.Taxes){var rate=masters.SingleOrDefault(m=>m.Kind=="vat"&&m.Id==t.RateId&&Effective(m,date));if(rate==null||Number(rate,"rate")<0||Number(rate,"rate")>100||Number(rate,"rate") is 5 or 19){Add("vat_rate","Cota TVA nu este activă la data bonului.","VAT rate is not active for the receipt date.");continue;}
    var pct=Number(rate,"rate");if(!rates.Add(pct))Add("vat_duplicate","Aceeași cotă TVA este completată de două ori.","The same VAT percentage is entered twice.");
    if(t.Base<0||t.Vat<0||t.Base!=Money(t.Base)||t.Vat!=Money(t.Vat)||pct==0&&t.Vat!=0||Math.Abs(Money(t.Base*pct/100)-t.Vat)*(d.TaxCurrency=="RON"?1:l.EstimatedRon/d.Amount)>1)Add("vat_arithmetic",$"Verifică baza și TVA la {pct}%: TVA așteptat {Money(t.Base*pct/100):0.00}, introdus {t.Vat:0.00}.",$"Check base and VAT at {pct}%: expected {Money(t.Base*pct/100):0.00}, entered {t.Vat:0.00}.");
   }
