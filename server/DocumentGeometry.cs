@@ -4,7 +4,7 @@ public record SourceBox(decimal X,decimal Y,decimal Width,decimal Height);
 public record OcrWord(string Text,SourceBox Box,decimal? Confidence=null);
 public static class DocumentGeometry {
  static decimal Number(string value)=>decimal.Parse(value,NumberStyles.Float,CultureInfo.InvariantCulture);
- static string Normalize(string text)=>Regex.Replace(text.ToUpperInvariant(),@"[^\p{L}\p{Nd}]","");
+ static string Normalize(string text)=>Regex.Replace(text.ToUpperInvariant(),@"[^\p{L}\p{Nd}\p{Sc}]","");
  public static (SourceBox? Box,decimal? Confidence) Find(OcrPage page,string evidence,int offset=0,int? count=null){
   if(page.Words==null||evidence.Length>2000)return(null,null);var words=page.Words.Skip(offset).Take(count??int.MaxValue).ToList();var target=Normalize(evidence);if(target.Length==0)return(null,null);
   for(int start=0;start<words.Count;start++){string joined="";for(int end=start;end<Math.Min(words.Count,start+80);end++){joined+=Normalize(words[end].Text);if(joined==target){var selected=words.GetRange(start,end-start+1);var x=selected.Min(w=>w.Box.X);var y=selected.Min(w=>w.Box.Y);var right=selected.Max(w=>w.Box.X+w.Box.Width);var bottom=selected.Max(w=>w.Box.Y+w.Box.Height);return(new(x,y,right-x,bottom-y),selected.All(w=>w.Confidence!=null)?selected.Min(w=>w.Confidence):null);}if(joined.Length>target.Length||!target.StartsWith(joined,StringComparison.Ordinal))break;}}
