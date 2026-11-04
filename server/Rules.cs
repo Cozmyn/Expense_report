@@ -38,6 +38,7 @@ public static class Rules {
  }
  public static List<Problem> Validate(Report r,IReadOnlyList<Master> masters,bool erp=false,IReadOnlyList<SupplierAccount>? supplierAccounts=null){
   List<Problem> issues=[];var active=r.Lines.Where(l=>!l.Archived).ToList();
+  if(active.Select(l=>l.Data().Payment).Distinct().Count()>1)issues.Add(new("mixed_payment","Folosește deconturi separate pentru plata personală și cardul companiei.","Use separate reports for personal payments and company-card expenses."));
   if(string.IsNullOrWhiteSpace(r.Purpose))issues.Add(new("purpose","Scopul este obligatoriu.","Business purpose is required."));
   if(active.Count is <1 or >MaxLines)issues.Add(new("line_count","Adaugă între 1 și 50 de cheltuieli.","Add between 1 and 50 expenses."));
   if(string.IsNullOrWhiteSpace(r.ManagerId))issues.Add(new("manager","Configurează managerul pentru aprobare.","Configure the approval manager."));
