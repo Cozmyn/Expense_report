@@ -8,6 +8,7 @@ public class User:IdentityUser {
 public class Report {
  public Guid Id {get;set;}=Guid.NewGuid();public string Number {get;set;}="ER-"+Guid.NewGuid().ToString("N")[..10].ToUpperInvariant();
  public string EmployeeId {get;set;}="";public string ManagerId {get;set;}="";public string Purpose {get;set;}="";
+ public string EmployeeName {get;set;}="";public string EmployeeWorker {get;set;}="";public string DepartmentCode {get;set;}="";public string? Payment {get;set;}public Guid? CardId {get;set;}
  public string State {get;set;}=States.Draft;public long Version {get;set;}=1;public int Revision {get;set;}public decimal ApprovedPersonal {get;set;}
  public DateTime Created {get;set;}=DateTime.UtcNow;public DateTime Updated {get;set;}=DateTime.UtcNow;public DateTime? RetainUntil {get;set;}public bool LegalHold {get;set;}
  public List<Line> Lines {get;set;}=[];public List<ReportAttachment> Attachments {get;set;}=[];
