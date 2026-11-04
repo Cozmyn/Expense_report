@@ -1,8 +1,12 @@
+# Current status / Stare actuală
+
+The user resolved both questions: retain Finance intake/re-extraction; disable 19% and 5%. The initial audit below is historical. See BLUEPRINT-02-SOURCE-REVIEW.md and BLUEPRINT-02-CURRENT-MATRIX.md for the tested implementation and remaining acceptance gaps.
+
 # Blueprint 02 — audit and first safeguards / audit și primele protecții
 
 Source: 02_Batch_PDF_OCR_and_Expense_Capture(1).pdf, v2.0, pages 1–8. Workbook SHA-256 matches a37f9fd3e8e09d8db93c40e780d3d0f4c7eb9e8b8c4286c375b8740a147f5038.
 
-## Decisions requiring user clarification
+## Initial questions (resolved by user; historical)
 
 1. PDF section 3.1 allows intake only on Draft/Returned reports. Existing platform allows Finance to upload/extract during financial review and employees to edit rejected reports. Preserve existing permissions until user decides which states/roles can ingest or re-extract.
 2. PDF sections 3/8 list unsupported 19% OCR output. Existing effective-date master policy can allow rates other than 5%. User has explicitly disabled 5%, but has not categorically disabled historical 19%. Preserve financial policy; ask whether 19% always blocks or can be reviewed for eligible historical dates. OCR must never remap 19 to 21.
