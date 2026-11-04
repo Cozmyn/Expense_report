@@ -6,11 +6,9 @@ Source: 01_Report_Workflow_and_Product_Blueprint(2).pdf, v2.0, 04 November 2026,
 
 User, 4 November 2026: retain username/password; do not implement enterprise OIDC. Preserve employee-based Worker; do not change export Worker to card owner. These override blueprint pages 2 and 8. The user decides further conflicts. No Accounting approval is implied.
 
-## Conflicte deschise / Open conflicts
+## Conflicte rezolvate / Resolved conflicts
 
-- Current maximum 50 receipts versus 87 workbook data rows: preserve 50 pending user decision. Workbook capacity is not automatically a product limit.
-- Current 5% VAT disabled versus source dictionary including historical 5%: preserve current rule pending user decision on historical-date support.
-- Current payment is per receipt; blueprint introduces header reimbursement method. Preserve mixed-payment reports while designing header defaults; obtain user decision before restricting mixed methods.
+The user confirmed: 50 receipts maximum, 5% VAT disabled, separate reports by personal/company-card payment method. See BLUEPRINT-01-DECISIONS.md for enforcement and verification. These replace the earlier provisional mixed-payment behavior. No open decision remains among the conflicts raised so far.
 
 ## Implementare începută / Implementation started
 
