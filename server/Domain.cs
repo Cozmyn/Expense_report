@@ -25,7 +25,7 @@ public record ExpenseData(string Supplier,string? Cui,string Invoice,string Date
 public record TaxData(Guid RateId,decimal Base,decimal Vat);
 public interface IOriginalDocument {Guid Id {get;}string Name {get;}string Key {get;}string Mime {get;}long Size {get;}string Hash {get;}string Scan {get;set;}bool Archived {get;}string? Ocr {get;set;}}
 public class ReportAttachment:IOriginalDocument {
- public bool Capture {get;set;}
+ public bool Capture {get;set;}public string UploadedBy {get;set;}="";
  public Guid Id {get;set;}=Guid.NewGuid();public Guid ReportId {get;set;}public string CoveredLines {get;set;}="[]";public string Name {get;set;}="";public string Key {get;set;}="";public string Mime {get;set;}="";public long Size {get;set;}public string Hash {get;set;}="";public string Scan {get;set;}="Pending";public bool Archived {get;set;}public string? Ocr {get;set;}public DateTime Created {get;set;}=DateTime.UtcNow;
  public bool Covers(Guid line)=>Serialization.Read<List<Guid>>(CoveredLines).Contains(line);
 }
