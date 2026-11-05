@@ -1,24 +1,31 @@
-# PDF03 completion — progress and acceptance
+# PDF03 completion — phase results
 
-## Phase 1 / audit
+## Experts and roles
 
-Reviewed the existing 59-group traceability register against all 12 PDF pages and the main runtime. Remaining groups covered exact decimal transport, evidence states, controlled scoped policy approval/resolution, bank charge treatment, reversible reset, mapping reproducibility, readable diffs, formula registry and real Finance acceptance. No workbook re-audit was started.
+Product owner; UX/content RO+EN; financial/full-stack architecture; Accounting/data integrity; front/back-office operations; QA. These are review perspectives, not a claim of independent human accountant sign-off.
 
-## Phase 2 / implementation decisions
+## Phase 1 — audit
 
-- Immutable drafts plus independent Finance approval/retirement decisions for tax policy; operational FX/currency settings remain direct Finance controls.
-- Priority/specificity-based company/country/CUI/document/category/date resolution. Gaps or equal-priority ties block. After the company adoption date, retiring policy cannot silently restore the owner fallback. Earlier documents remain under confirmed owner rules.
-- Standard, exempt, outside-scope, not-present and unknown are distinct. Special treatment requires matching approved policy and source explanation; no fictitious 0%-base.
-- Bank principal/fees/markup reconcile exactly; fees and markup become separate RON company-card expenses, linked to a clean statement. Principal alone drives allocation FX. Corrections use immutable revocation history after allocation undo. Signed reversals stay in the same flow.
-- Reset archives active receipts/groups, never original files. Restore is confirmed, versioned, scoped, blocks non-empty targets, and invalidates financial confirmations.
-- Exact decimal HTTP mode is used by the browser; legacy API clients retain numeric responses. BigInt decimal arithmetic handles browser totals, OCR aggregation, drafts, reconciliation and formatted money.
-- Accepted snapshots pin input, source hashes, group regions, full mapping versions, policy decisions and FX evidence. Paginated history exposes before/after fields.
-- Human Finance/ERP acceptance is recorded only through an authenticated Finance action with actual checklist completion and a current configuration fingerprint.
+Reviewed all 12 PDF pages and the existing 59-group matrix/code. Retained every source coordinate and owner decision. Gaps identified in exact decimal transport, evidence states, scoped policy approval, bank charges, reset/restore, full mapping provenance/diffs and real acceptance.
 
-## Phase 3 / QA in progress
+## Phases 2–4 — implemented
 
-Initial expanded local suite: 193 backend tests passing. Eight UI unit tests and TypeScript/production build cover exact decimal arithmetic/rate serialization and client request controls. Desktop/phone workflows added for reset/restore, statement fee separation, calculation provenance and independent policy approval. Cross-database, real scan/OCR and container gates will be recorded after CI.
+- Immutable tax-policy drafts with a different Finance approver, dated/scoped resolution, explicit ties/gaps and controlled retirement. Owner rules remain effective before the first adopted policy period.
+- Source-backed VAT states and policy-required special treatments; no invented zero-rate base or 5/19 remapping; existing vehicle category accounting preserved.
+- Full accepted input/source/mapping/FX snapshots, normalized unique VAT components, scoped paginated before/after comparisons and cross-receipt calculation attribution checks.
+- Explicit principal/fee/markup reconciliation and source-linked charge expenses; correction by match undo plus immutable revocation. Bank FX choices require current classification of all allocated transactions. Individual statement attachments can be reused without claiming to contain all receipts.
+- Confirmed scoped reset/restore, preserving files/history and invalidating financial confirmations; posted exports remain immutable.
+- Exact decimal browser transport, lossless historical JSON parsing, BigInt sums/comparison/formatting/OCR aggregation/rate serialization; source currency precision and configured allocation rounding preserved.
+- Central Finance settings independent of report creation, plus contextual RO/EN controls. Latest approval estimate honors both supported Finance rate-entry paths.
+- Real configuration-hashed Finance acceptance UI and production export gate; expense FX decisions never request manager reapproval.
 
-## External acceptance
+## Phase 5 — verified
 
-Actual production master data, representative receipt corpus quality, legal/accounting policy authority and ERP import sign-off are not invented by software tests. Responsible Finance users must record the real checks in the acceptance screen. Software implementation coverage and human acceptance are tracked separately.
+Tested runtime: b4efb248b13e68c6b049688c2d89990aa0f060ed.
+CI: https://github.com/Cozmyn/Expense_report/actions/runs/42037424593
+
+200 tests pass on each database, 9 UI tests pass, 6 desktop/phone workflows pass, TypeScript/build/dependency audit and constrained container launch pass. Backend test hosts isolate keys and explicitly disable fixture background workers; real scan/OCR workers remain exercised in browser/container gates.
+
+## Matrix and remaining risks
+
+59/59 mapped; 56 Done, 3 Partial for actual production master data, representative corpus and Accounting/ERP acceptance. No Missing/Broken software group. Deployment needs schema release8 and real configuration. Real users must perform and record the remaining human checks; tests do not impersonate them. No deployment to a live production environment or actual ERP posting is claimed.

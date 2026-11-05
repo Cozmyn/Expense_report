@@ -122,7 +122,7 @@ Detailed configuration, API routes, owner decisions, limitations and QA steps: [
 
 ### Română
 
-- **Politici TVA:** în fila „Calcul și FX”, deschide „Politici TVA și aprobare”. Alege compania, țara, tipul documentului, prezența CUI, categoria și perioada. „Orice tip/categorie” evită introducerea codurilor. Completează referința și motivul, apoi salvează ciorna. Alt utilizator Finance o aprobă. Politicile suprapuse/ambigue sau lipsa unei reguli aplicabile blochează verificarea; o ciornă nu schimbă calculele.
+- **Politici TVA:** deschide „Configurare Finance” din navigarea principală, apoi „Politici TVA și aprobare”. Aceleași controale sunt disponibile contextual în fila „Calcul și FX”. Alege compania, țara, tipul documentului, prezența CUI, categoria și perioada. „Orice tip/categorie” evită introducerea codurilor. Completează referința și motivul, apoi salvează ciorna. Alt utilizator Finance o aprobă. Politicile suprapuse/ambigue sau lipsa unei reguli aplicabile blochează verificarea; o ciornă nu schimbă calculele.
 - **Tratament special:** când documentul arată CUI-ul companiei, poți indica scutit/în afara sferei/TVA neprezentat și justificarea. Este necesară o politică aprobată corespunzătoare; „necunoscut” nu înseamnă zero și nu poate fi confirmat. Detaliile TVA permit indicarea stării și paginii din grupul verificat.
 - **Istoric:** „Compară versiunile calculate” arată versiunile acceptate și valorile înainte/după. Fișierele și bazele originale rămân disponibile separat de valorile contabile confirmate.
 - **Comisioane bancare:** în „Carduri și tranzacții”, deschide „Principal, comisioane și adaos FX”. Selectează tranzacția/decontul și extrasul scanat (atașat unui bon sau documentelor decontului), completează principalul/comisionul/adaosul și categoria/centrul de cost. Folosește „Recompune principalul” și confirmă. Confirmă explicit și cazurile fără comisioane. Costurile devin bonuri RON distincte, cu același card și document justificativ; la FX se alocă numai principalul. Pentru corecție, anulează întâi alocările, apoi clasificarea. Istoricul și originalul se păstrează.
@@ -131,7 +131,7 @@ Detailed configuration, API routes, owner decisions, limitations and QA steps: [
 
 ### English
 
-Use **Calculations & FX → VAT policies & approval** to scope and draft a policy; a different Finance user approves it. Drafts remain inactive. Policy gaps and equal-priority ties block verification. Special VAT treatment needs an approved matching policy and an explanation; unknown never becomes zero. **Compare calculated versions** shows accepted before/after values and source provenance.
+Use **Finance settings → VAT policies & approval** from the main navigation, or the contextual controls under **Calculations & FX**, to scope and draft a policy; a different Finance user approves it. Drafts remain inactive. Policy gaps and equal-priority ties block verification. Special VAT treatment needs an approved matching policy and an explanation; unknown never becomes zero. **Compare calculated versions** shows accepted before/after values and source provenance.
 
 In **Cards & transactions → Principal, fees & FX markup**, choose the transaction/report and scanned statement (attached to a receipt or report), separate and reconcile principal/fees/markup, and select charge category/cost centre. Explicitly confirm no-charge cases too. Charges become separate RON expenses; only principal is allocated for FX. Undo associated allocations before correcting classification; originals/history are retained.
 
@@ -155,3 +155,10 @@ Full contracts and migration: [API03](council/API-03.md), [ADR03](council/ADR-03
 | Golire reversibilă / restaurare | Reversible reset / restore |
 | Versiune acceptată / diferență | Accepted version / difference |
 | Acceptanță Finance | Finance acceptance |
+
+
+**RO:** „Configurare Finance” este disponibilă fără decont deschis. Aici administrezi monedele, politicile TVA și acceptanța Finance/ERP. Ciornele neaprobate nu schimbă regulile active. Cursul estimat folosește ultima valoare validă introdusă de Finance prin oricare dintre cele două căi de configurare acceptate, după data înregistrării.
+
+**EN:** **Finance settings** is available without opening a report. Manage currencies, tax policies and Finance/ERP acceptance here. Unapproved drafts never change active rules. The estimate uses the latest valid Finance entry across both supported rate configuration paths, ordered by recorded entry time.
+
+[Final verification and owner QA / Verificare finală și pași pentru beneficiar](council/PDF03-COMPLETION-VERIFICATION.md).

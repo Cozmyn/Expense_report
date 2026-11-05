@@ -98,8 +98,13 @@ Category configuration may include `ocrKeywords` on active `expenseTypes`. Alloc
 
 ## Calcul Finance / Finance calculation update
 
-See [Finance decisions and bilingual operating guide](docs/council/FINANCE-DECISIONS-2026-11-05.md) and [PDF03 traceability](docs/council/BLUEPRINT-03-REQUIREMENTS.md). Run `--init` for schema release 7 before starting the upgraded server. Finance explicitly confirms final FX; estimates and manager approval remain preserved.
+See [Finance decisions and bilingual operating guide](docs/council/FINANCE-DECISIONS-2026-11-05.md) and [PDF03 traceability](docs/council/BLUEPRINT-03-REQUIREMENTS.md). Run `--init` for schema release 8 before starting the upgraded server. Finance explicitly confirms final FX; estimates and manager approval remain preserved.
 
-Finance implementation verification: [tested commit and CI evidence](docs/council/BLUEPRINT-03-VERIFICATION.md).
+Earlier Finance implementation evidence (historical): [prior tested commit](docs/council/BLUEPRINT-03-VERIFICATION.md).
 
 PDF03 completion controls: [API and migration](docs/council/API-03.md), [architecture](docs/council/ADR-03.md), [traceability](docs/council/BLUEPRINT-03-REQUIREMENTS.md). Run `--init` for schema release 8. Actual Finance/ERP acceptance is required for production export; it is never created automatically by tests or deployment.
+
+
+## PDF03 — verificare finală / final verification
+
+[Rezultate, matrice și verificări pentru beneficiar / Results, traceability and owner QA](docs/council/PDF03-COMPLETION-VERIFICATION.md): 200 backend tests per database (SQLite and PostgreSQL), 9 UI tests, 6 desktop/mobile workflows and container verification passed on runtime commit `b4efb248b13e68c6b049688c2d89990aa0f060ed`. Finance has dedicated **Configurare Finance / Finance settings** navigation independent of reports. All 59 PDF03 groups are mapped; 56 Done and 3 Partial for real production data/corpus and Finance/ERP acceptance. These results do not close every earlier premium-platform requirement or claim live production deployment.

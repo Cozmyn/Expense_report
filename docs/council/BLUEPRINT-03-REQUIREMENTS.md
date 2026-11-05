@@ -1,8 +1,8 @@
-# PDF 03 — Requirements and initial disposition
+# PDF03 — Implementation traceability and acceptance
 
 Source: attached Part03/05 v2.0, 04.11.2026, all12pages. PDF SHA-256: b8cb81df5af0b739872ffed172d4cd6ef8f284e3740ccbf93425f4d08691b989.
 
-Status reflects implementation of owner decisions D01–D05. Broader PDF03 gaps are deliberately retained; this is not a claim of 100% PDF coverage. See FINANCE-DECISIONS-2026-11-05.md for the current rules and QA steps.
+All 59 requirement groups are mapped to implementation, source and verification. Software implementation is complete in tested runtime b4efb248b13e68c6b049688c2d89990aa0f060ed. Status remains Partial for three requirements that require actual production master-data/corpus/Accounting/ERP acceptance; no human approval is fabricated. See PDF03-COMPLETION-VERIFICATION.md.
 
 | ID | Source | Requirement | Status | Existing evidence / implementation / next fix |
 |---|---|---|---|---|
@@ -39,15 +39,15 @@ Status reflects implementation of owner decisions D01–D05. Broader PDF03 gaps 
 | PDF03-031 | §4 AJ:AL | Rate-specific tests and approved thresholds; 21% uses21, not19 | Done | 21% reconstruction and configurable Finance tolerance; boundary tests |
 | PDF03-032 | §4 AM13 | Sum versioned computed bases | Done | Accepted computed bases consumed by ERP; original bases retained separately |
 | PDF03-033 | §5 S19:S99 | Record defects with source coordinates, reproductions, corrected rule and approval | Done | PDF03-SOURCE-RULE-REGISTER.md records stated defective coordinates and 87-position regression; actual human sign-off tracked externally |
-| PDF03-034 | §5 X13:X99 | Replace hardcoded workbook rates across currencies | Done | Latest effective Finance currency estimate captured at entry; controlled per-expense final value |
+| PDF03-034 | §5 X13:X99 | Replace hardcoded workbook rates across currencies | Done | Latest valid Finance entry across currency settings and legacy rate masters, ordered by recorded entry time; estimate captured once, per-expense final approval retained. |
 | PDF03-035 | §5 I10 | Database sums for all valid expenses, no fixed Excel range | Done | Existing active-line sums; 50-receipt report cap preserved |
 | PDF03-036 | §5 Sheet8 clear | Stateless deterministic export regeneration, no stale rows | Done | Existing values-only XLSX and immutable export batches |
 | PDF03-037 | §5 Sheet3 clear | Confirmed reversible reset/archive; never destroy originals | Done | ReportResets confirmed scoped archive/restore, source preservation, match/state/empty-target guards and tests/UI |
 | PDF03-038 | §5 Module1 | Validate all active records; no first-blank-country/active-sheet assumption | Done | Existing per-line validation with explicit country |
 | PDF03-039 | §5 Module4 | Output includes all report expenses, no A1:Q50 cutoff | Done | Existing dynamic report PDF/export |
-| PDF03-040 | §5 named ranges/master data | Discard #REF! and sample placeholders; production lists validated | Partial | Broken-reference/production sample-marker checks and configuration-hashed Finance acceptance; real production data acceptance external |
+| PDF03-040 | §5 named ranges/master data | Discard #REF! and sample placeholders; production lists validated | Partial | Software complete: broken-reference/production sample guards and configuration-hashed acceptance. Actual production master-data validation by responsible Finance remains pending. |
 | PDF03-041 | §6.1 | Separate OCR_RAW/HUMAN_VERIFIED/ACCOUNTING_OVERRIDE money/source evidence | Done | Original OCR and human Json retained, separate accepted Accounting calculation layer |
-| PDF03-042 | §6.2 | Resolve policy by company/country/CUI/kind/category/date | Done | TaxPolicies.Resolve company/country/CUI/document/category/date, priority/specificity, explicit gaps/ties and no fallback after retirement |
+| PDF03-042 | §6.2 | Resolve policy by company/country/CUI/kind/category/date | Done | Company/country/CUI/document/category/date resolution; priority/specificity, explicit gaps/ties, no fallback after adoption/retirement; earlier documents retain owner rules before the first effective date. |
 | PDF03-043 | §6.4 | Compare rounded bases + preserved paid VAT against printed gross | Done | Live preview/confirmation compare derived bases plus printed VAT with gross |
 | PDF03-044 | §6.5 | Convert only after original-currency calculation; preserve RON differences | Done | Original-currency reconstruction then approved FX and separate RON rounding |
 | PDF03-045 | §6.6 | Stable mapping IDs/versions and reproducible payload shared by approval/export | Done | Accepted Result pins full masters, supplier accounts, FX proposals/decisions, currency versions, tax policy author/approver and source snapshots |
@@ -55,7 +55,7 @@ Status reflects implementation of owner decisions D01–D05. Broader PDF03 gaps 
 | PDF03-047 | §7 VAT001/002/004/005/006/008 | Current/mixed/zero/mismatch/foreign-currency mathematical fixtures | Done | InvoiceArithmeticTests, including original-currency and zero-evidence cases |
 | PDF03-048 | §7 VAT003/007 | 5% sample pass superseded; 19% rejected | Done | Explicit user decision takes precedence; both tested as unsupported |
 | PDF03-049 | §7 VAT009/010/011/012 | Unknown/no-CUI/foreign/credit applicability and authority | Done | Unknown blocked; explicit foreign/no-CUI outcome; signed normal-flow owner authority |
-| PDF03-050 | §7–8 policy register | Rounding/tolerance, deductibility, 0%, FX precedence/fees/reapproval need real sign-off | Partial | Policy authority and real FinanceAcceptanceRecord checklist/hash are implemented; actual human Accounting/ERP sign-off is pending |
+| PDF03-050 | §7–8 policy register | Rounding/tolerance, deductibility, 0%, FX precedence/fees/reapproval need real sign-off | Partial | Software complete: independent scoped tax-policy approval, authority register and production acceptance gate. Actual Accounting/ERP sign-off on real policies/data remains pending. |
 | PDF03-051 | §8–11 formulas E:AM | Maintain source-to-rule registry; do not execute Excel in production | Done | PDF03-SOURCE-RULE-REGISTER.md links E:AM/formula defects/macros/named ranges to services, tests and owner deviations |
 | PDF03-052 | §11 VerificaTVA | Do not turn workbook green/amber colors into approval; exact decimal recon | Done | Typed decimal reasons and Finance confirmations; blocked calculations cannot be forced valid by color/boolean/reason |
 | PDF03-053 | §12 preview | Scoped provisional calculate-preview endpoint and bilingual financial UI | Done | Scoped calculation preview plus bilingual FinancialWorkspace |
@@ -64,18 +64,18 @@ Status reflects implementation of owner decisions D01–D05. Broader PDF03 gaps 
 | PDF03-056 | §12 FX APIs/history | Manual/bank proposals, Accounting decision and histories | Done | FX proposals/decisions/history endpoints and Finance workspace |
 | PDF03-057 | §12 invalidation | Changing inputs invalidates calculation/dependent export candidates | Done | Input, evidence, FX and mapping/policy context invalidate accepted calculations |
 | PDF03-058 | §12 exceptions | No is_valid=true bypass; named override policy + actor/reason | Done | Reason-only VAT override rejected; invalid calculations cannot be forced valid |
-| PDF03-059 | §12 acceptance | Golden/property tests, no float, provenance, Finance approval before PDF04 | Partial | Core/property/integration/decimal/browser regression gates implemented; final CI and real Finance acceptance remain pending |
+| PDF03-059 | §12 acceptance | Golden/property tests, no float, provenance, Finance approval before PDF04 | Partial | 200 backend tests per database, 9 UI tests, 6 real desktop/mobile workflows and container gates PASS (run42037424593). Actual representative-corpus/Finance acceptance remains pending before PDF04 can be declared accepted. |
 
-## Current execution and validation
+## Phase closure and evidence
 
-1. Source audit and 59-group extraction completed; original source coordinates retained.
-2. Owner D01–D05 decisions recorded; conflicting provisional proposals superseded explicitly.
-3. Live calculations, immutable ledgers, Finance FX decisions, invalidation and migration implemented.
-4. RO/EN Finance workspace, signed receipt editing and accounting export connected.
-5. Local database/unit and UI regression execution completed; CI run 41991342254 passed: 179 tests per database, 5 UI unit tests, 4 browser workflows and container launch. See BLUEPRINT-03-VERIFICATION.md. Actual Finance/ERP acceptance remains external.
+1. **Audit:** all 12 PDF pages and the existing project reviewed; all 59 groups retained; no workbook re-audit.
+2. **Policy and data:** immutable drafts, independent Finance approval, date/scope resolution, typed evidence and normalized source components implemented.
+3. **Operations:** reproducible snapshots/diffs, bank principal/fees/markup and correction, reversible reset/restore, production Finance acceptance gate implemented.
+4. **RO/EN UI and precision:** central Finance settings plus contextual controls, source-preserving decimal transport/parser/arithmetic, guided special treatment, comparison and classification forms implemented.
+5. **QA:** [run42037424593](https://github.com/Cozmyn/Expense_report/actions/runs/42037424593) passed 200 tests on SQLite and 200 on PostgreSQL, 9 UI tests, 6 desktop/mobile workflows, production build/dependency audit and constrained container launch. See [completion verification](PDF03-COMPLETION-VERIFICATION.md).
 
-The five owner decisions are implemented. Full PDF03 coverage is not asserted while Partial/Missing entries remain. No separate credit-note, OIDC, card-owner or FX manager-reapproval workflow is introduced.
+**Traceability coverage: 59/59 groups mapped. Status: 56 Done, 3 Partial (real external acceptance), 0 Missing, 0 Broken.** This does not mean that a real accountant, production corpus or ERP integration has been signed off by the coding agent.
 
+No requirement was silently removed. Owner-approved deviations remain explicit: 5%/19% disabled, signed same-flow documents, expense employee Worker, no card-owner/OIDC module, 50 active receipts, separate personal/card reports, no manager reapproval on FX, documented zero base and no additional attachment for ≤2RON rounding. Tax-policy approval is separate configuration governance by another Finance user; it does not reopen manager approval.
 
-
-Updated after implementation phase: 56 Done, 3 Partial, 0 Missing, 0 Broken. Final CI and real human acceptance are tracked separately.
+Remaining closure actions are only actual human/production acceptance for PDF03-040, PDF03-050 and PDF03-059. The application exposes authenticated Finance acceptance, records checks actually performed against the current configuration hash and blocks production export without it. Do not mark the PDF04 business acceptance gate closed until responsible Finance records that sign-off.
