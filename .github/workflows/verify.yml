@@ -79,7 +79,7 @@ jobs:
           npm ci --prefix ui
           cd ui
           npx playwright install --with-deps chromium
-          sudo apt-get install -y fonts-dejavu-core tesseract-ocr tesseract-ocr-ron tesseract-ocr-eng poppler-utils libheif-examples
+          sudo apt-get install -y fonts-dejavu-core tesseract-ocr tesseract-ocr-ron tesseract-ocr-eng tesseract-ocr-osd poppler-utils libheif-examples
       - name: Start application
         run: |
           dotnet release/Decont.Api.dll --contentRoot "$PWD/release" --bootstrap
@@ -126,7 +126,7 @@ jobs:
             -e Bootstrap__Email=container-admin@example.invalid \
             -e 'Bootstrap__Password=Container-test-Password1!' \
             decont:ci --bootstrap
-          docker run -d --name decont-ci -p 127.0.0.1:5081:8080 \
+          docker run -d --read-only --tmpfs /tmp:size=536870912,mode=1777 --cap-drop ALL --security-opt no-new-privileges:true --memory 1536m --pids-limit 256 --name decont-ci -p 127.0.0.1:5081:8080 \
             -v decont-ci-data:/app/.data -e ASPNETCORE_ENVIRONMENT=Development \
             -e Worker__Disabled=true decont:ci
           for attempt in {1..30}; do
