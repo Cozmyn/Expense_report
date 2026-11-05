@@ -38,3 +38,6 @@ input,select,textarea{border-color:var(--control-border)}
 @media(max-width:900px){.receipt-editor-layout.with-original{grid-template-columns:minmax(0,1fr)}.document-image-scroll{max-height:40vh}}
 
 .ocr-review-layout{display:grid;grid-template-columns:minmax(260px,1fr) minmax(280px,1fr);gap:20px;margin:20px 0}.ocr-review-original{position:sticky;top:12px;align-self:start;min-width:0}.ocr-review-groups{min-width:0}.ocr-review-groups .ocr-fields{overflow-wrap:anywhere}.ocr-review-original .document-image-scroll{max-height:65vh}.ocr-group-board .capture-document{margin-bottom:16px}.document-image-stage img{object-fit:contain;max-width:none;max-height:none}.ocr-group-board .form-grid input{max-width:100%}@media(max-width:1050px){.ocr-review-layout{grid-template-columns:minmax(0,1fr)}.ocr-review-original{position:static}.ocr-review-original .document-image-scroll{max-height:40vh}}
+
+
+.ocr-review-controls{border:0;padding:0;margin:0;min-width:0}.ocr-review-controls:disabled{opacity:.72}

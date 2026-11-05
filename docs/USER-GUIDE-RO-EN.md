@@ -94,3 +94,18 @@ Admins manage users, assignments and delegation. Review effective dates and impo
 
 **EN:** In the editor, the original appears on the left on desktop and above the fields on mobile. For images, use **Zoom in**, **Zoom out**, **Rotate** and **Reset**. Scroll within the image for details. These actions never modify the attachment. If loading fails, choose **Retry** or **Open original**. A newly selected HEIC becomes previewable after saving and scanning. Uploaded, scanned PDFs support page navigation and source highlighting; an unsaved local PDF temporarily uses browser controls.
 
+
+## Terminologie / Glossary
+
+| Română | English | Sens / Meaning |
+|---|---|---|
+| Decont | Expense report | Antet și bonuri pentru un flux de aprobare / Header and expenses for one approval workflow |
+| Bon / document | Receipt / document | Document justificativ individual / Individual financial evidence |
+| Grup de documente | Document group | Pagini/regiuni pentru un singur document / Pages/regions belonging to one document |
+| Pagină justificativă | Supporting page | Pagină păstrată fără cheltuială separată / Retained page without a separate expense |
+| Ciornă pentru verificare | Review draft | Date neconfirmate, fără acces la contabilizare / Unverified data, ineligible for posting |
+| Bază TVA | VAT base | Valoarea fără TVA pentru o cotă / Net taxable amount for one rate |
+| TVA plătit | Paid VAT | Taxa efectiv înscrisă pe document / Tax explicitly printed on the document |
+| Centru de cost | Cost centre | Alocare din nomenclator / Controlled allocation dimension |
+| Valoare extrasă | Extracted value | Propunere OCR cu sursă / Source-linked OCR proposal |
+| Valoare verificată | Verified value | Valoare confirmată de utilizator și validată de server / Human-confirmed, server-validated value |
