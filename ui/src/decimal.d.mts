@@ -7,3 +7,6 @@ export function sum(items:unknown[]):string;
 export function formatMoney(value:unknown,locale?:string,decimals?:number):string;
 
 export function masterJson(data:Record<string,unknown>):string;
+
+export function formatOriginal(value:unknown,locale?:string):string;
+export function parseFinancialJson(text:string):any;
