@@ -22,8 +22,8 @@ public class Line {
  public decimal? FinanceRon {get;set;}public Guid? FxDecisionId {get;set;}public Guid? CalculationId {get;set;}public string? CalculatedJson {get;set;}public string? CalculationHash {get;set;}public decimal RoundingRon {get;set;}public InvoiceRounding? FinancialRounding {get;set;}
  public decimal Final()=>FinanceRon??EstimatedRon;
 }
-public record ExpenseData(string Supplier,string? Cui,string Invoice,string Date,string Country,string DocumentType,string Category,string Description,string Payment,Guid? CardId,string CostCenter,string? Project,decimal Amount,string Currency,List<TaxData> Taxes,bool? HasCompanyCui=null,bool SupplierConfirmed=false,string TaxCurrency="RON",AccountingOverride? Accounting=null);
-public record TaxData(Guid RateId,decimal Base,decimal Vat);
+public record ExpenseData(string Supplier,string? Cui,string Invoice,string Date,string Country,string DocumentType,string Category,string Description,string Payment,Guid? CardId,string CostCenter,string? Project,decimal Amount,string Currency,List<TaxData> Taxes,bool? HasCompanyCui=null,bool SupplierConfirmed=false,string TaxCurrency="RON",AccountingOverride? Accounting=null,string VatTreatment="STANDARD",string? VatExplanation=null);
+public record TaxData(Guid RateId,decimal Base,decimal Vat,VatEvidenceState? State=null,string? EvidenceReference=null,int? EvidencePage=null);
 public interface IOriginalDocument {Guid Id {get;}string Name {get;}string Key {get;}string Mime {get;}long Size {get;}string Hash {get;}string Scan {get;set;}bool Archived {get;}string? Ocr {get;set;}}
 public class ReportAttachment:IOriginalDocument {
  public bool Capture {get;set;}public string UploadedBy {get;set;}="";

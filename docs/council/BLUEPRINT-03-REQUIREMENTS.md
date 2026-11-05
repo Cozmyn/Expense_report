@@ -11,19 +11,19 @@ Status reflects implementation of owner decisions D01–D05. Broader PDF03 gaps 
 | PDF03-003 | §2, §6 Y:AB | Reconstruct positive-rate bases VAT/(bps/10000) in invoice currency | Done | InvoiceArithmetic -> Finance confirmation -> canonical PostingJson -> Posting |
 | PDF03-004 | §2 Y13 | 0% VAT zero; zero base must be documented or explicitly approved residual | Done | Documented zero base and clean source; no inferred residual; owner D04 |
 | PDF03-005 | §2 | Preserve exact decimal intermediates and declare rounding checkpoints | Done | Versioned Finance currency exponent/rounding/tolerance and exact intermediate strings |
-| PDF03-006 | §2 | No floating-point arithmetic for booked money; currency exponents | Partial | Decimal-string editor submissions and decimal backend are integrated; all legacy/read DTO decimal representations still need a complete exact-string wire-contract migration |
+| PDF03-006 | §2 | No floating-point arithmetic for booked money; currency exponents | Done | ExactMoneyJson exact-v1 browser transport; BigInt decimal totals/OCR/drafts/master FX; numeric legacy API retained; precision tests |
 | PDF03-007 | §2 | Negative credit notes use separate tested policy | Done | Owner D05 supersedes separate credits: same flow, sign checks, warnings and debit/credit reversal |
 | PDF03-008 | §2 Q13 | Foreign/no-company-CUI treatment is explicit policy, not silent OK | Done | Explicit applicability outcome and owner policy reference in immutable financial result |
-| PDF03-009 | §2 | Distinct unknown/not_present/explicit_zero/exempt/outside_scope states | Partial | Core typed evidence states; UI/database policy integration missing |
-| PDF03-010 | §3 | Versioned company/country/document/effective-date VAT policy | Missing | Operational Finance currency versions are implemented. Separate multi-dimensional VAT-policy author/approver lifecycle remains outstanding; owner decisions are not fabricated tax sign-off. |
-| PDF03-011 | §3 | Unique typed VAT component per expense/rate with source region and verification | Partial | Integrated Finance calculation/FX/API/UI/export layer is implemented; see decision document. Original requirement still has broader provenance/diff/policy/acceptance work; retained Partial. |
+| PDF03-009 | §2 | Distinct unknown/not_present/explicit_zero/exempt/outside_scope states | Done | TaxData evidence states; separate explicit document treatments with approved policy and explanation; unknown blocks |
+| PDF03-010 | §3 | Versioned company/country/document/effective-date VAT policy | Done | TaxPolicyDraft + immutable independent Finance approval/retirement, scoped effective-date rules |
+| PDF03-011 | §3 | Unique typed VAT component per expense/rate with source region and verification | Done | Unique accepted VerifiedVatComponent per calculation/rate, original/derived values, source document hashes and verified regions |
 | PDF03-012 | §3 | Immutable input/output hashes, precision, FX steps, policy decisions | Done | ExpenseCalculation input/context/output hashes and immutable Finance FX/policy records |
 | PDF03-013 | §3, §6 | Unsupported 19% never silently maps to21%; 5% disabled by user | Done | Existing hard validation/posting/master guards; core regression tests also reject 500/1900 bps |
 | PDF03-014 | §4 X13 | Per-expense manual/bank FX candidates, rate/date/source/version/evidence | Done | Typed manual/estimate/reconciled-bank proposals and immutable Finance decisions/history |
 | PDF03-015 | §4 | Accounting enters approved rate or converted amount with exact precision and reason | Done | Finance-only precision-controlled rate or exact RON amount; actor and reason |
-| PDF03-016 | §4 | Bank fingerprints, card/employee/merchant/date/amount matching; ambiguous alternatives | Partial | Integrated Finance calculation/FX/API/UI/export layer is implemented; see decision document. Original requirement still has broader provenance/diff/policy/acceptance work; retained Partial. |
+| PDF03-016 | §4 | Bank fingerprints, card/employee/merchant/date/amount matching; ambiguous alternatives | Done | Statement fingerprints, explicit scored alternatives, employee from expense; no automatic match; controlled treatment and source-linked decisions |
 | PDF03-017 | §4 | No automatic winner when bank and manual amounts differ | Done | Bank match remains proposal; Finance explicitly chooses final amount |
-| PDF03-018 | §4 | Fees/markup/partial settlement/reversals get distinct policy treatment | Partial | Integrated Finance calculation/FX/API/UI/export layer is implemented; see decision document. Original requirement still has broader provenance/diff/policy/acceptance work; retained Partial. |
+| PDF03-018 | §4 | Fees/markup/partial settlement/reversals get distinct policy treatment | Done | BankTreatments separates principal/fees/markup; signed normal-flow reversals; partial allocations conserve principal; guarded immutable correction history |
 | PDF03-019 | §4 | FX unresolved blocks final export; locking and approval records | Done | Foreign finalization requires explicit Finance decision; export requires accepted current ledger |
 | PDF03-020 | §4, §6 | Manager reapproval after RON change by approved policy | Done | Owner D03: no FX-only manager reapproval; original estimate/revision preserved |
 | PDF03-021 | §4 E13 | Controlled supplier registry, unknown/review outcome | Done | Existing supplier lookup, confirmation and Finance registration |
@@ -38,33 +38,33 @@ Status reflects implementation of owner decisions D01–D05. Broader PDF03 gaps 
 | PDF03-030 | §4 AH:AI | Versioned original-currency and RON reconciliation deltas/status | Done | Original variance and RON rounding persisted in immutable calculations |
 | PDF03-031 | §4 AJ:AL | Rate-specific tests and approved thresholds; 21% uses21, not19 | Done | 21% reconstruction and configurable Finance tolerance; boundary tests |
 | PDF03-032 | §4 AM13 | Sum versioned computed bases | Done | Accepted computed bases consumed by ERP; original bases retained separately |
-| PDF03-033 | §5 S19:S99 | Record defects with source coordinates, reproductions, corrected rule and approval | Partial | Integrated Finance calculation/FX/API/UI/export layer is implemented; see decision document. Original requirement still has broader provenance/diff/policy/acceptance work; retained Partial. |
+| PDF03-033 | §5 S19:S99 | Record defects with source coordinates, reproductions, corrected rule and approval | Done | PDF03-SOURCE-RULE-REGISTER.md records stated defective coordinates and 87-position regression; actual human sign-off tracked externally |
 | PDF03-034 | §5 X13:X99 | Replace hardcoded workbook rates across currencies | Done | Latest effective Finance currency estimate captured at entry; controlled per-expense final value |
 | PDF03-035 | §5 I10 | Database sums for all valid expenses, no fixed Excel range | Done | Existing active-line sums; 50-receipt report cap preserved |
 | PDF03-036 | §5 Sheet8 clear | Stateless deterministic export regeneration, no stale rows | Done | Existing values-only XLSX and immutable export batches |
-| PDF03-037 | §5 Sheet3 clear | Confirmed reversible reset/archive; never destroy originals | Partial | Integrated Finance calculation/FX/API/UI/export layer is implemented; see decision document. Original requirement still has broader provenance/diff/policy/acceptance work; retained Partial. |
+| PDF03-037 | §5 Sheet3 clear | Confirmed reversible reset/archive; never destroy originals | Done | ReportResets confirmed scoped archive/restore, source preservation, match/state/empty-target guards and tests/UI |
 | PDF03-038 | §5 Module1 | Validate all active records; no first-blank-country/active-sheet assumption | Done | Existing per-line validation with explicit country |
 | PDF03-039 | §5 Module4 | Output includes all report expenses, no A1:Q50 cutoff | Done | Existing dynamic report PDF/export |
-| PDF03-040 | §5 named ranges/master data | Discard #REF! and sample placeholders; production lists validated | Partial | Integrated Finance calculation/FX/API/UI/export layer is implemented; see decision document. Original requirement still has broader provenance/diff/policy/acceptance work; retained Partial. |
+| PDF03-040 | §5 named ranges/master data | Discard #REF! and sample placeholders; production lists validated | Partial | Broken-reference/production sample-marker checks and configuration-hashed Finance acceptance; real production data acceptance external |
 | PDF03-041 | §6.1 | Separate OCR_RAW/HUMAN_VERIFIED/ACCOUNTING_OVERRIDE money/source evidence | Done | Original OCR and human Json retained, separate accepted Accounting calculation layer |
-| PDF03-042 | §6.2 | Resolve policy by company/country/CUI/kind/category/date | Missing | Operational Finance currency versions are implemented. Separate multi-dimensional VAT-policy author/approver lifecycle remains outstanding; owner decisions are not fabricated tax sign-off. |
+| PDF03-042 | §6.2 | Resolve policy by company/country/CUI/kind/category/date | Done | TaxPolicies.Resolve company/country/CUI/document/category/date, priority/specificity, explicit gaps/ties and no fallback after retirement |
 | PDF03-043 | §6.4 | Compare rounded bases + preserved paid VAT against printed gross | Done | Live preview/confirmation compare derived bases plus printed VAT with gross |
 | PDF03-044 | §6.5 | Convert only after original-currency calculation; preserve RON differences | Done | Original-currency reconstruction then approved FX and separate RON rounding |
-| PDF03-045 | §6.6 | Stable mapping IDs/versions and reproducible payload shared by approval/export | Partial | Integrated Finance calculation/FX/API/UI/export layer is implemented; see decision document. Original requirement still has broader provenance/diff/policy/acceptance work; retained Partial. |
+| PDF03-045 | §6.6 | Stable mapping IDs/versions and reproducible payload shared by approval/export | Done | Accepted Result pins full masters, supplier accounts, FX proposals/decisions, currency versions, tax policy author/approver and source snapshots |
 | PDF03-046 | §6.7 | Accepted snapshot includes input/source/policy/mapping/FX/output/actor/version/time | Done | ExpenseCalculation persisted with source/mapping/policy/FX context and hashes |
 | PDF03-047 | §7 VAT001/002/004/005/006/008 | Current/mixed/zero/mismatch/foreign-currency mathematical fixtures | Done | InvoiceArithmeticTests, including original-currency and zero-evidence cases |
 | PDF03-048 | §7 VAT003/007 | 5% sample pass superseded; 19% rejected | Done | Explicit user decision takes precedence; both tested as unsupported |
 | PDF03-049 | §7 VAT009/010/011/012 | Unknown/no-CUI/foreign/credit applicability and authority | Done | Unknown blocked; explicit foreign/no-CUI outcome; signed normal-flow owner authority |
-| PDF03-050 | §7–8 policy register | Rounding/tolerance, deductibility, 0%, FX precedence/fees/reapproval need real sign-off | Missing | Operational Finance currency versions are implemented. Separate multi-dimensional VAT-policy author/approver lifecycle remains outstanding; owner decisions are not fabricated tax sign-off. |
-| PDF03-051 | §8–11 formulas E:AM | Maintain source-to-rule registry; do not execute Excel in production | Partial | Integrated Finance calculation/FX/API/UI/export layer is implemented; see decision document. Original requirement still has broader provenance/diff/policy/acceptance work; retained Partial. |
-| PDF03-052 | §11 VerificaTVA | Do not turn workbook green/amber colors into approval; exact decimal recon | Partial | Integrated Finance calculation/FX/API/UI/export layer is implemented; see decision document. Original requirement still has broader provenance/diff/policy/acceptance work; retained Partial. |
+| PDF03-050 | §7–8 policy register | Rounding/tolerance, deductibility, 0%, FX precedence/fees/reapproval need real sign-off | Partial | Policy authority and real FinanceAcceptanceRecord checklist/hash are implemented; actual human Accounting/ERP sign-off is pending |
+| PDF03-051 | §8–11 formulas E:AM | Maintain source-to-rule registry; do not execute Excel in production | Done | PDF03-SOURCE-RULE-REGISTER.md links E:AM/formula defects/macros/named ranges to services, tests and owner deviations |
+| PDF03-052 | §11 VerificaTVA | Do not turn workbook green/amber colors into approval; exact decimal recon | Done | Typed decimal reasons and Finance confirmations; blocked calculations cannot be forced valid by color/boolean/reason |
 | PDF03-053 | §12 preview | Scoped provisional calculate-preview endpoint and bilingual financial UI | Done | Scoped calculation preview plus bilingual FinancialWorkspace |
-| PDF03-054 | §12 verify/history | Transactional accepted finance snapshot and readable version/source diffs | Partial | Integrated Finance calculation/FX/API/UI/export layer is implemented; see decision document. Original requirement still has broader provenance/diff/policy/acceptance work; retained Partial. |
-| PDF03-055 | §12 policy author/approve | Draft policy and controlled activation with separation of duties | Missing | Operational Finance currency versions are implemented. Separate multi-dimensional VAT-policy author/approver lifecycle remains outstanding; owner decisions are not fabricated tax sign-off. |
+| PDF03-054 | §12 verify/history | Transactional accepted finance snapshot and readable version/source diffs | Done | Scoped paginated CalculationHistory with before/after/source/policy/mapping diffs and bilingual comparison UI |
+| PDF03-055 | §12 policy author/approve | Draft policy and controlled activation with separation of duties | Done | Draft policy, different Finance approver, immutable decisions, controlled retirement and overlap checks |
 | PDF03-056 | §12 FX APIs/history | Manual/bank proposals, Accounting decision and histories | Done | FX proposals/decisions/history endpoints and Finance workspace |
 | PDF03-057 | §12 invalidation | Changing inputs invalidates calculation/dependent export candidates | Done | Input, evidence, FX and mapping/policy context invalidate accepted calculations |
 | PDF03-058 | §12 exceptions | No is_valid=true bypass; named override policy + actor/reason | Done | Reason-only VAT override rejected; invalid calculations cannot be forced valid |
-| PDF03-059 | §12 acceptance | Golden/property tests, no float, provenance, Finance approval before PDF04 | Partial | Integrated Finance calculation/FX/API/UI/export layer is implemented; see decision document. Original requirement still has broader provenance/diff/policy/acceptance work; retained Partial. |
+| PDF03-059 | §12 acceptance | Golden/property tests, no float, provenance, Finance approval before PDF04 | Partial | Core/property/integration/decimal/browser regression gates implemented; final CI and real Finance acceptance remain pending |
 
 ## Current execution and validation
 
@@ -77,4 +77,5 @@ Status reflects implementation of owner decisions D01–D05. Broader PDF03 gaps 
 The five owner decisions are implemented. Full PDF03 coverage is not asserted while Partial/Missing entries remain. No separate credit-note, OIDC, card-owner or FX manager-reapproval workflow is introduced.
 
 
-Current implementation coverage: 42 Done, 13 Partial, 4 Missing, 0 Broken. Requirement groups are not a substitute for production acceptance.
+
+Updated after implementation phase: 56 Done, 3 Partial, 0 Missing, 0 Broken. Final CI and real human acceptance are tracked separately.

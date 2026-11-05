@@ -19,7 +19,7 @@ public static class Rules {
   if(!DateOnly.TryParse(d.Date,out var date))return fields;
   var values=new Dictionary<string,string>{{"country",d.Country},{"documentType",d.DocumentType},{"category",d.Category},{"payment",d.Payment},{"currency",d.Currency}};
   foreach(var m in masters.Where(m=>m.Kind=="fieldRules"&&Effective(m,date)).OrderBy(m=>Number(m,"priority"))){var json=Data(m);if(json.TryGetProperty("conditions",out var conditions)&&conditions.EnumerateObject().All(c=>values.GetValueOrDefault(c.Name)==c.Value.GetString())){var field=Text(m,"field");var state=Text(m,"state");if(fields.ContainsKey(field)&&state is "REQUIRED" or "OPTIONAL" or "NOT_APPLICABLE")fields[field]=state;}}
-  if(DomesticVat(d)){fields["cui"]="REQUIRED";fields["taxes"]="REQUIRED";fields["supplier"]="REQUIRED";fields["invoice"]="REQUIRED";}else{fields["cui"]="NOT_APPLICABLE";fields["taxes"]="NOT_APPLICABLE";fields["supplier"]="NOT_APPLICABLE";fields["invoice"]="OPTIONAL";}
+  if(DomesticVat(d)){fields["cui"]="REQUIRED";fields["taxes"]=d.VatTreatment=="STANDARD"?"REQUIRED":"NOT_APPLICABLE";fields["supplier"]="REQUIRED";fields["invoice"]="REQUIRED";}else{fields["cui"]="NOT_APPLICABLE";fields["taxes"]="NOT_APPLICABLE";fields["supplier"]="NOT_APPLICABLE";fields["invoice"]="OPTIONAL";}
   foreach(var core in new[]{"date","country","documentType","category","description","payment","amount","currency"})fields[core]="REQUIRED";fields["cardId"]=d.Payment=="CompanyCard"?"REQUIRED":"NOT_APPLICABLE";return fields;
  }
  public static List<Problem> Validate(Report r,IReadOnlyList<Master> masters,bool erp=false,IReadOnlyList<SupplierAccount>? supplierAccounts=null){
