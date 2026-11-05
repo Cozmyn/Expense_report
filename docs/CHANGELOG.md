@@ -1,5 +1,15 @@
 # Modificări / Changelog
 
+## 2026-11-05 — PDF 02 implementation
+
+- Signed, bounded and resumable intake, clean-scan gate, PDF text-layer/Tesseract orientation and per-page progress.
+- Multi-page and on-page source groups, geometry/confidence, alternative evidence, split/merge/crop/support/delete/restore.
+- Shared unverified drafts, controlled category/description suggestions and employee allocation defaults; human verification and complete-page preflight.
+- Immutable extraction/correction history, unique expense lineage, durable outbox and dependency/job diagnostics; schema releases 5/6.
+- Both 5% and 19% disabled in active master data, UI, domain and posting. Finance intake rights retained.
+- Synthetic quality corpus, real PDF/raster/rotated/low-contrast browser checks and recorded desktop/mobile walkthrough.
+- Updated RO/EN guide, API, ADR, traceability, security review and owner checklist. External Accounting/corpus/infrastructure acceptance is tracked separately.
+
 ## 2026-10-10 — primele corecții ale consiliului / first council fixes
 
 - Corrected tolerance-aware vehicle VAT branch selection without dropping zero-rate base amounts; effective VAT policy participates in the posting fingerprint.
@@ -17,4 +27,5 @@ No production deployment, database migration, full OCR redesign, full WCAG certi
 - Original-left desktop layout and original-first mobile reading order.
 - Bilingual image zoom/rotation/reset, loading/error/retry and original link.
 - Desktop/mobile regression assertions for the image controls.
-- PDF navigation is still native; OCR field geometry remains open. See council/PHASE-3-DOCUMENT-PREVIEW.md.
+- Historical first slice: superseded by PDF 02 page navigation and geometry; see council/BLUEPRINT-02-CURRENT-MATRIX.md.
+

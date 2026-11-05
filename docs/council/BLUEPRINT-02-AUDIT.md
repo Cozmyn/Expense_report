@@ -1,5 +1,7 @@
 # Current status / Stare actuală
 
+**PDF 02 update (05.11.2026):** current implementation/evidence is in `BLUEPRINT-02-CURRENT-MATRIX.md` and `VERIFICATION-02.json`. Earlier slice findings below are historical; external acceptance remains explicit.
+
 The user resolved both questions: retain Finance intake/re-extraction; disable 19% and 5%. The initial audit below is historical. See BLUEPRINT-02-SOURCE-REVIEW.md and BLUEPRINT-02-CURRENT-MATRIX.md for the tested implementation and remaining acceptance gaps.
 
 # Blueprint 02 — audit and first safeguards / audit și primele protecții
@@ -55,3 +57,4 @@ Existing genuine local OCR, MIME checking, malware scanning, private originals, 
 | BP02-20 | 6–8 (pages) | Preserve raw values; 5/19% rate handling | 5 disabled per user; 19 clarification pending |
 
 No original requirement is dropped. This supplementary register does not replace the existing source matrix or claim 100% implementation. Next full vertical slice: versioned source groups, explicit page dispositions and transactional verification-to-expense creation, then spatial review and failure recovery.
+

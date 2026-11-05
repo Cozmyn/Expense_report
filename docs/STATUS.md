@@ -1,5 +1,7 @@
 # Starea curentă / Current status
 
+**PDF 02 update (05.11.2026):** current implementation/evidence is in `council/BLUEPRINT-02-CURRENT-MATRIX.md` and `council/VERIFICATION-02.json`. Earlier slice findings below are historical; external acceptance remains explicit.
+
 **Implementarea completă a cererii premium nu este terminată. / The full premium request is not complete.**
 
 Auditul static și planul de reproiectare sunt livrate; verificarea completă și implementarea tuturor loturilor rămân deschise. Corecțiile financiare și profilul RO/EN sunt documentate în [loturile 1–2](council/PHASE-3-BATCH-1-2.md). Rezultatele actuale sunt în [VERIFICATION-CURRENT.json](council/VERIFICATION-CURRENT.json).
@@ -54,3 +56,4 @@ The implemented application and passing tests are not a certification of every c
 - Original retention/legal hold are recorded; no automatic physical purge is performed. PDF is generated from the report and is not digitally signed.
 - Additive upgrades are tested and versioned; they are not a complete EF migration/rollback framework. Native launch scripts have not been executed on user devices.
 - No multi-company tenancy, SSO/MFA, direct live ERP connector or public hosting is included.
+

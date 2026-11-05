@@ -53,7 +53,7 @@ Nu sunt introduse conturi contabile, cursuri, furnizori sau carduri fictive. În
 
 1. Conturile angajaților, codurile Worker și managerul de aprobare.
 2. Tipuri de cheltuieli, centre de cost și proiecte cu codurile ERP explicite.
-3. Cote TVA 0/11/21, perioade, grupul TVA, codurile ordinare și codurile 50% pentru auto. 5% este blocat pentru tranzacții noi.
+3. Cote TVA 0/11/21, perioade, grupul TVA, codurile ordinare și codurile 50% pentru auto. 5% și 19% sunt dezactivate în configurarea activă și în contabilizare.
 4. Mapări contabile pe categorie: GL, cont local, subcont și clasificare auto/reparații.
 5. Cursuri interne datate pentru fiecare monedă străină; carduri active și titulari.
 6. Furnizori și conturi ERP; furnizorii lipsă creează solicitări la submit.
@@ -74,6 +74,14 @@ GitHub Actions verifies the frontend build and tests, the backend suite on both 
 
 Read `docs/STATUS.md`, `docs/REQUIREMENTS.md` and `docs/DEPLOYMENT.md` before deciding readiness. Application functions are mapped to their source in the requirements matrix; operational acceptance is tracked separately. Actual ERP golden files and operational acceptance tests are required before production. Automated verification covers the listed workflows; it does not establish every business scenario, production SLA or live ERP compatibility.
 
+## PDF 02 — bulk OCR / OCR pentru documente multiple
+
+Flux implementat: încărcare semnată → scanare → normalizare/pagini → grupuri/regiuni → propuneri → verificare umană → bonuri cu trasabilitate. Romanian default, English available. A single PDF can produce multiple drafts, including a three-page invoice and two receipts on one scan. Regrouping, corrections, supporting pages, source previews and safe retry are available; submission requires complete source review.
+
+See [current traceability](docs/council/BLUEPRINT-02-CURRENT-MATRIX.md), [API](docs/council/API-02.md), [architecture](docs/council/ADR-02.md), [verification and owner QA](docs/council/TEST-02.md) and [security/operations](docs/council/SECURITY-02.md). CI produces parser-quality JSON plus desktop/mobile video/screenshots. Synthetic regression results are not real-document accuracy guarantees. Finance quality/ERP sign-off and target infrastructure acceptance remain external release gates.
+
+Category configuration may include `ocrKeywords` on active `expenseTypes`. Allocation policy `policies/expenseDefaults` supports company `costCenter`/`project`, then department overrides in `departments`, then employee LantID overrides in `workers`. Referenced dimensions must be effective on the receipt date. Defaults never come from OCR guesses or force a category.
+
 ## OCR, operațiuni și configurare / OCR, operations and configuration
 
 Încarcă documentele din panoul OCR sau fotografiază bonul. Worker-ul scanează originalul înainte de procesare și citește toate paginile PDF (maximum 50, configurabil). Rezultatele propun valori cu pagina și textul sursă; starea este `ReviewRequired`, fără scor numeric de încredere inventat. Revizuiește propunerea lângă original, alege categoria/alocarea/plata și salvează. Poți completa manual sau reîncerca extragerea. HEIC folosește `heif-convert`; originalele rămân nemodificate. Previzualizarea HEIC disponibilă după scanare este un PNG separat, generat la cerere.
@@ -86,3 +94,4 @@ Read `docs/STATUS.md`, `docs/REQUIREMENTS.md` and `docs/DEPLOYMENT.md` before de
 - Operațiuni: Admin vede joburi și dependențe, utilizatorii autorizați văd procesarea/livrarea în istoricul decontului. Joburile eșuate se reîncearcă cu motiv. Emailurile necesită SMTP funcțional; existența unei cozi nu confirmă livrarea.
 
 **English:** Upload, scan, extract every PDF page, review and explicitly confirm. Configure company VAT ID, dated policies, masters, notification channels and SMTP internally. Card/master XLSX imports use preview before confirmation. Routing/accounting corrections and posted-export reopening are audited. Production ERP acceptance, infrastructure configuration and recovery/load testing remain company-environment gates.
+
