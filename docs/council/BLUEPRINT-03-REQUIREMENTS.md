@@ -11,7 +11,7 @@ Status reflects implementation of owner decisions D01–D05. Broader PDF03 gaps 
 | PDF03-003 | §2, §6 Y:AB | Reconstruct positive-rate bases VAT/(bps/10000) in invoice currency | Done | InvoiceArithmetic -> Finance confirmation -> canonical PostingJson -> Posting |
 | PDF03-004 | §2 Y13 | 0% VAT zero; zero base must be documented or explicitly approved residual | Done | Documented zero base and clean source; no inferred residual; owner D04 |
 | PDF03-005 | §2 | Preserve exact decimal intermediates and declare rounding checkpoints | Done | Versioned Finance currency exponent/rounding/tolerance and exact intermediate strings |
-| PDF03-006 | §2 | No floating-point arithmetic for booked money; currency exponents | Done | Decimal-string editor requests; decimal backend; explicit currency exponent |
+| PDF03-006 | §2 | No floating-point arithmetic for booked money; currency exponents | Partial | Decimal-string editor submissions and decimal backend are integrated; all legacy/read DTO decimal representations still need a complete exact-string wire-contract migration |
 | PDF03-007 | §2 | Negative credit notes use separate tested policy | Done | Owner D05 supersedes separate credits: same flow, sign checks, warnings and debit/credit reversal |
 | PDF03-008 | §2 Q13 | Foreign/no-company-CUI treatment is explicit policy, not silent OK | Done | Explicit applicability outcome and owner policy reference in immutable financial result |
 | PDF03-009 | §2 | Distinct unknown/not_present/explicit_zero/exempt/outside_scope states | Partial | Core typed evidence states; UI/database policy integration missing |
@@ -75,3 +75,5 @@ Status reflects implementation of owner decisions D01–D05. Broader PDF03 gaps 
 5. Local database/unit and UI regression execution completed; CI SQLite/PostgreSQL/browser/container verification follows on the implementation branch. Actual Finance/ERP acceptance remains external.
 
 The five owner decisions are implemented. Full PDF03 coverage is not asserted while Partial/Missing entries remain. No separate credit-note, OIDC, card-owner or FX manager-reapproval workflow is introduced.
+
+Current implementation coverage: 42 Done, 12 Partial, 5 Missing, 0 Broken. These are requirement-group statuses, not an invented 100% acceptance score.

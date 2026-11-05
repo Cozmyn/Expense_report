@@ -58,3 +58,15 @@ Mutations use existing CSRF, idempotency keys, optimistic versions and transacti
 ## Remaining broader PDF03 scope
 
 Do not read this delivery as 100% completion of the entire PDF. The traceability register retains partial/missing items for the separate multi-dimensional tax-policy author/approver module, exempt/outside-scope intake, dedicated fee/markup classification, full field-level source diffs, reversible whole-report reset, and actual Finance/ERP acceptance on production documents. Those are not replaced with fabricated policy approval or test data.
+
+## Before → after
+
+- Entered taxable bases drove posting → Finance confirms VAT-derived bases; original entries remain evidence.
+- Bank matching changed the payable total immediately → matching proposes settlement; Finance explicitly selects final FX.
+- Personal FX increases could reopen manager approval → approval estimate/revision are preserved for FX-only adjustments.
+- Zero-rate amounts up to 2 RON affected branch suppression → every documented zero-rate amount counts; rounding is separate.
+- Negative entry/import blocked → signed amounts use normal workflow with warnings and positive export sides.
+- Free-text VAT override could relax checks → a reason cannot force an invalid calculation to pass.
+- No per-expense accepted financial ledger → immutable calculation/FX/policy histories and stale-export checks.
+
+Local regression: 178 backend tests pass; 5 UI tests pass; TypeScript/production build passes. The initial integrated commit also passed SQLite and PostgreSQL suites, desktop/mobile browser workflows, and container launch. Final browser coverage includes explicit Finance adjustments and verification on the new RO/EN screen; final run evidence is recorded separately after completion.
