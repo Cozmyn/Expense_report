@@ -7,7 +7,7 @@ Reviewed the existing 59-group traceability register against all 12 PDF pages an
 ## Phase 2 / implementation decisions
 
 - Immutable drafts plus independent Finance approval/retirement decisions for tax policy; operational FX/currency settings remain direct Finance controls.
-- Priority/specificity-based company/country/CUI/document/category/date resolution. Gaps or equal-priority ties block. Once controlled policy has been activated, retiring it cannot silently restore the owner fallback.
+- Priority/specificity-based company/country/CUI/document/category/date resolution. Gaps or equal-priority ties block. After the company adoption date, retiring policy cannot silently restore the owner fallback. Earlier documents remain under confirmed owner rules.
 - Standard, exempt, outside-scope, not-present and unknown are distinct. Special treatment requires matching approved policy and source explanation; no fictitious 0%-base.
 - Bank principal/fees/markup reconcile exactly; fees and markup become separate RON company-card expenses, linked to a clean statement. Principal alone drives allocation FX. Corrections use immutable revocation history after allocation undo. Signed reversals stay in the same flow.
 - Reset archives active receipts/groups, never original files. Restore is confirmed, versioned, scoped, blocks non-empty targets, and invalidates financial confirmations.

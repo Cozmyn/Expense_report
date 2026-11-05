@@ -25,7 +25,7 @@ Existing calculate-preview, verify-financials, FX proposal/decision, matching an
 
 `TaxPolicyRule`: company (`DEFAULT` before a company CUI is configured, configured CUI or `*`), countryGroup (`RO`, `FOREIGN`, `*`), documentKind/code or `*`, companyCui (`PRESENT`, `ABSENT`, `*`), category/code or `*`, from/to, priority, inputVatRequired, allowZeroBase, treatment, authority and `deductibility=CATEGORY_MAPPING`.
 
-Approved rules resolve by effective date, highest priority then most specific scope. Equal priority/specificity ties or gaps block. Only an installation/company that has never activated a controlled policy may use the explicit owner fallback. Retired policies remain reproducible in old snapshots. The current app remains one internal company context; this is not a new multi-tenant identity or card-owner module.
+Approved rules resolve by effective date, highest priority then most specific scope. Equal priority/specificity ties or gaps block. The explicit owner fallback remains valid before the first approved effective date for the company, or while no controlled policy has been adopted. Retired policies remain reproducible in old snapshots. The current app remains one internal company context; this is not a new multi-tenant identity or card-owner module.
 
 Treatments: `STANDARD`, `EXEMPT`, `OUTSIDE_SCOPE`, `NOT_PRESENT`; unknown remains blocked. Special treatment needs a matching approved policy and an explanation. Zero-rate base always requires source evidence; no inferred residual. Category accounting, including vehicle splits, remains explicit reference data. 5% and 19% cannot be enabled through policy.
 
