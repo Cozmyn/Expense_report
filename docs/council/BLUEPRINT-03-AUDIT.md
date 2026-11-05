@@ -19,7 +19,7 @@ Finance domain, financial architecture, data integrity, bilingual UX and QA. The
 
 **Medium:** financial-policy history/diff and explicit non-domestic applicability outcomes need UI/API/data integration; report reset is not a dedicated reversible command; production corpus/configuration sign-off remains external.
 
-## Questions requiring owner decisions
+## Original proposals (historical; superseded)
 
 D01 — **Base authority.** Target PDF says derive positive-rate base from printed VAT/rate, retain printed base as comparison evidence. Existing export uses the entered base. Proposed: derived base is the calculation result, conflicting printed base needs a named Finance exception; never overwrite the original.
 
@@ -41,4 +41,8 @@ Fuel/car deductibility is not reinterpreted as legislation. Existing branches re
 
 `tests/BusinessTests.cs`: regression that all original positions13–99 map the same category to the same GL/local account and employee Worker, independent of another card owner.
 
-Full PDF03 implementation remains pending the decisions and missing/partial requirements in BLUEPRINT-03-REQUIREMENTS.md. No policy has been activated and no migration of historical booked values has been performed.
+The owner resolved D01–D05 on 05.11.2026. See FINANCE-DECISIONS-2026-11-05.md for the current rules and implementation. The proposals below are historical and do not govern runtime behavior. Broader PDF03 gaps remain explicit in the matrix.
+
+## Implementation update — 05.11.2026
+
+Live arithmetic, Finance currency settings, explicit per-expense FX decisions, immutable accepted calculations, source/policy invalidation, bilingual Finance workspace and export consumption are implemented. Manager reapproval on FX-only changes has been removed by owner instruction. Signed documents use the normal flow with warnings. ≤2 RON rounding uses a separate accounting adjustment, without guessed 0% base or additional attachment. Free-text VAT override is rejected. Broader policy lifecycle/acceptance gaps remain visible rather than being marked complete.

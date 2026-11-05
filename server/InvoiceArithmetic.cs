@@ -32,19 +32,19 @@ public static class InvoiceArithmetic {
  public static decimal? Parse(string? value)=>value!=null&&Canonical.IsMatch(value)&&
   decimal.TryParse(value,NumberStyles.AllowDecimalPoint|NumberStyles.AllowLeadingSign,CultureInfo.InvariantCulture,out var amount)?amount:null;
  static string Exact(decimal amount)=>amount.ToString("G29",CultureInfo.InvariantCulture);
- static decimal Quantum(int exponent){decimal value=1;for(var i=0;i<exponent;i++)value/=10;return value;}
+ public static decimal Unit(int exponent){decimal value=1;for(var i=0;i<exponent;i++)value/=10;return value;}
  public static decimal Quantize(decimal amount,int exponent,InvoiceRounding rounding)=>
   decimal.Round(amount,exponent,rounding==InvoiceRounding.HalfAwayFromZero?MidpointRounding.AwayFromZero:MidpointRounding.ToEven);
  static string Money(decimal value,ReconstructionPolicy p)=>Quantize(value,p.CurrencyExponent,p.Rounding).ToString("F"+p.CurrencyExponent,CultureInfo.InvariantCulture);
  public static ReconstructionResult Calculate(PrintedInvoice input,ReconstructionPolicy policy){
   Guard.Require(input.Components!=null&&input.Components.Count<=20,"calculation_input","Prea multe componente TVA.","Too many VAT components.");
-  Guard.Require(policy.CurrencyExponent is >=0 and <=6&&Enum.IsDefined(policy.Rounding)&&policy.GrossToleranceMinor is >=0 and <=10000&&policy.PrintedBaseToleranceMinor is >=0 and <=10000&&policy.Version>0&&!string.IsNullOrWhiteSpace(policy.Id),"calculation_policy","Politica de calcul nu este validă.","Invalid calculation policy.");
+  Guard.Require(policy.CurrencyExponent is >=0 and <=6&&Enum.IsDefined(policy.Rounding)&&policy.GrossToleranceMinor is >=0 and <=100000000&&policy.PrintedBaseToleranceMinor is >=0 and <=100000000&&policy.Version>0&&!string.IsNullOrWhiteSpace(policy.Id),"calculation_policy","Politica de calcul nu este validă.","Invalid calculation policy.");
   List<FinancialReason> reasons=[];List<ReconstructedComponent> components=[];
   void Block(string code,string ro,string en)=>reasons.Add(new(code,ro,en));
   if(!DateOnly.TryParseExact(input.DocumentDate,"yyyy-MM-dd",out _))Block("INVALID_DATE","Data documentului nu este validă.","Invalid document date.");
   if(input.Currency!=policy.Currency||input.Currency.Length!=3||!input.Currency.All(char.IsAsciiLetterUpper))Block("CURRENCY_POLICY_MISMATCH","Moneda nu corespunde politicii.","Currency does not match policy.");
   if((policy.AllowCredits||policy.AllowZeroResidual)&&string.IsNullOrWhiteSpace(policy.AuthorityReference))Block("POLICY_AUTHORITY_REQUIRED","Lipsește referința aprobării politicii pentru excepție.","An exception policy approval reference is required.");
-  var gross=Parse(input.Gross);var quantum=Quantum(policy.CurrencyExponent);decimal total=0;var complete=true;
+  var gross=Parse(input.Gross);var quantum=Unit(policy.CurrencyExponent);decimal total=0;var complete=true;
   if(gross==null||gross==0||Math.Abs(gross.Value)>1000000000000m){Block("INVALID_GROSS","Totalul trebuie să fie o sumă zecimală documentată, în limita permisă.","Gross must be a documented decimal amount within limits.");complete=false;}
   else{if(Quantize(gross.Value,policy.CurrencyExponent,policy.Rounding)!=gross)Block("CURRENCY_PRECISION","Totalul are mai multe zecimale decât permite moneda.","Gross exceeds currency precision.");if(gross<0&&!policy.AllowCredits)Block("CREDIT_POLICY_REQUIRED","Notele de credit necesită o politică aprobată.","Credit notes require an approved policy.");}
   if(policy.AllowZeroResidual)Block("ZERO_RESIDUAL_POLICY_PENDING","Alocarea rezidualului la 0% necesită decizia explicită a beneficiarului și un flux aprobat.","Zero-rate residual allocation requires the owner decision and an approved workflow.");

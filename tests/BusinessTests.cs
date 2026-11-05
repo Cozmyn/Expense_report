@@ -16,9 +16,9 @@ public class BusinessTests {
  [Fact]public void RomanianPdfHasValidHeaderAndContent(){var (report,_,user)=Fixture();report.Purpose="Întâlnire și deplasare la București";user.Name="Ștefan Țăran";var bytes=ReportPdf.Generate(report,user,[]);Assert.Equal("%PDF-",System.Text.Encoding.ASCII.GetString(bytes,0,5));Assert.True(bytes.Length>1000);}
 
  [Theory]
- [InlineData(0,11,1)][InlineData(1.99,11,1)][InlineData(2,11,1)][InlineData(2.01,11,2)]
- [InlineData(0,21,1)][InlineData(1.99,21,1)][InlineData(2,21,1)][InlineData(2.01,21,2)]
- public void SmallZeroChangesVehicleBranchWithoutDroppingMoney(decimal zeroBase,int percent,int count){
+ [InlineData(0,11,1)][InlineData(1.99,11,2)][InlineData(2,11,2)][InlineData(2.01,11,2)]
+ [InlineData(0,21,1)][InlineData(1.99,21,2)][InlineData(2,21,2)][InlineData(2.01,21,2)]
+ public void DocumentedZeroBaseAlwaysCountsWithoutDroppingMoney(decimal zeroBase,int percent,int count){
   var (report,masters,user)=Fixture();masters.Single(m=>m.Kind=="accounting").Json=Serialization.Write(new{mainAccount="TEST-GL",localAccount="TEST-LOCAL",subAccount="SUB",vehicle=true});
   var zero=Master("vat","0",new{rate=0,salesTaxGroup="VDOM",itemTaxGroup="G00"});
   var rate=Master("vat",percent.ToString(),new{rate=percent,salesTaxGroup="VDOM",itemTaxGroup="G",deductible50Code="DED",nonDeductible50Code="NONDED"});masters.AddRange([zero,rate]);
@@ -30,9 +30,9 @@ public class BusinessTests {
   Assert.Equal(zeroBase,rows.Where(r=>r[17]=="G00").Sum(r=>r[13]==""?0:decimal.Parse(r[13],System.Globalization.CultureInfo.InvariantCulture)));
   Assert.Equal(d.Amount.ToString("0.00",System.Globalization.CultureInfo.InvariantCulture),rows[^1][14]);
  }
- [Theory][InlineData(.39,1)][InlineData(.4,1)][InlineData(.41,2)]
- public void SmallZeroUsesRonConversion(decimal zeroBase,int expected){var (_,masters,_)=Fixture();var zero=Master("vat","0",new{rate=0});var positive=Master("vat","21",new{rate=21});masters.AddRange([zero,positive,Master("fx","EUR",new{ronRate=5})]);var d=Data() with{Currency="EUR",TaxCurrency="EUR",Taxes=[new(zero.Id,zeroBase,0),new(positive.Id,100,21)]};Assert.Equal(expected,Rules.VatCodeCount(d,masters));Assert.Equal(2,Rules.VatCodeCount(d,masters,6));}
- [Theory][InlineData(.2,false)][InlineData(.21,true)]
+ [Theory][InlineData(.39,2)][InlineData(.4,2)][InlineData(.41,2)]
+ public void DocumentedZeroBaseIsNotSuppressedByFx(decimal zeroBase,int expected){var (_,masters,_)=Fixture();var zero=Master("vat","0",new{rate=0});var positive=Master("vat","21",new{rate=21});masters.AddRange([zero,positive,Master("fx","EUR",new{ronRate=5})]);var d=Data() with{Currency="EUR",TaxCurrency="EUR",Taxes=[new(zero.Id,zeroBase,0),new(positive.Id,100,21)]};Assert.Equal(expected,Rules.VatCodeCount(d,masters));Assert.Equal(2,Rules.VatCodeCount(d,masters,6));}
+ [Theory][InlineData(.08,false)][InlineData(.09,true)]
  public void VatArithmeticToleranceIsRonNotReceiptCurrency(decimal extra,bool blocked){var rate=Master("vat","21",new{rate=21});var d=Data() with{Currency="EUR",TaxCurrency="EUR",Amount=121+extra,Taxes=[new(rate.Id,100,21+extra)]};var l=new Line{Json=Serialization.Write(d),EstimatedRon=d.Amount*5};Assert.Equal(blocked,Rules.VatIssues(l,[rate]).Any(p=>p.Code=="vat_arithmetic"&&p.Blocking));}
  [Fact]public void ZeroAmountReturnsValidationInsteadOfDividingByZero(){var rate=Master("vat","21",new{rate=21});var d=Data() with{Currency="EUR",TaxCurrency="EUR",Amount=0,Taxes=[new(rate.Id,100,21)]};Assert.Contains(Rules.VatIssues(new Line{Json=Serialization.Write(d)},[rate]),p=>p.Code=="amount");}
  [Fact]public void NotApplicableProjectNeverRequiresMasterOrLeaksIntoPosting(){var (report,masters,user)=Fixture();masters.Add(Master("fieldRules","no-project",new{field="project",state="NOT_APPLICABLE",conditions=new{country="DE"},priority=1}));report.Lines[0].Json=Serialization.Write(Data() with{Country="DE",Project="RETIRED-PROJECT"});Assert.DoesNotContain(Rules.Validate(report,masters),p=>p.Code=="project");Assert.All(new Posting().Build(report,user,masters).Rows,r=>Assert.Equal("",r[9]));}

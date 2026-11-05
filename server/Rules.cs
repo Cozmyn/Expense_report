@@ -10,24 +10,10 @@ public static class Rules {
  public static decimal Number(Master m,string key)=>Data(m).TryGetProperty(key,out var v)?v.GetDecimal():0;
  public static decimal Personal(Report r)=>Money(r.Lines.Where(l=>!l.Archived&&l.Data().Payment=="Personal").Sum(l=>l.Final()));
  public static bool DomesticVat(ExpenseData d)=>d.Country=="RO"&&(d.HasCompanyCui??d.DocumentType=="InvoiceWithCui");
- public static int VatCodeCount(ExpenseData d,IReadOnlyList<Master> masters,decimal? ronFactor=null){var day=DateOnly.Parse(d.Date);var policy=masters.FirstOrDefault(m=>m.Kind=="policies"&&m.Code=="vat"&&Effective(m,day));var tolerance=policy!=null&&Data(policy).TryGetProperty("vatZeroTolerance",out var zero)?zero.GetDecimal():2;var fx=ronFactor??(d.TaxCurrency=="RON"?1:masters.Where(m=>m.Kind=="fx"&&m.Code==d.TaxCurrency&&Effective(m,day)).Select(m=>Number(m,"ronRate")).FirstOrDefault());Guard.Require(fx>0,"fx","Lipsește cursul pentru verificarea TVA.","FX rate is missing for VAT validation.");return d.Taxes.Count(t=>{var m=masters.FirstOrDefault(m=>m.Id==t.RateId);return m!=null&&(Number(m,"rate")!=0||Math.Abs(t.Base*fx)>tolerance);});}
+ public static int VatCodeCount(ExpenseData d,IReadOnlyList<Master> masters,decimal? ronFactor=null)=>d.Taxes.Count(t=>t.Base!=0||t.Vat!=0);
  public static decimal TaxTotal(ExpenseData d)=>Money(d.Taxes.Sum(t=>t.Base+t.Vat));
- public static decimal TaxExpected(Line l)=>l.Data().TaxCurrency==l.Data().Currency?l.Data().Amount:l.EstimatedRon;
- public static List<Problem> VatIssues(Line l,IReadOnlyList<Master> masters){
-  var d=l.Data();List<Problem> issues=[];void Add(string code,string ro,string en)=>issues.Add(new(code,ro,en,l.Id));
-  if(!DomesticVat(d)){if(d.Taxes.Count>0)Add("vat_na","TVA nu se completează pentru acest bon.","VAT is not applicable to this receipt.");return issues;}
-  if(d.TaxCurrency!=d.Currency&&d.TaxCurrency!="RON")Add("vat_currency","Moneda defalcării TVA este invalidă.","Invalid VAT breakdown currency.");
-  if(!DateOnly.TryParse(d.Date,out var date))return issues;
-  if(d.Amount<=0||l.EstimatedRon<=0){Add("amount","Suma și valoarea în RON trebuie să fie pozitive.","Amount and RON value must be positive.");return issues;}
-  if(d.Taxes.Count==0)Add("vat_missing","Completează baza și TVA pentru cotele de pe bon: 0%, 11%, 21%.","Enter taxable base and VAT for the receipt rates: 0%, 11%, 21%.");
-  var rates=new HashSet<decimal>();
-  foreach(var t in d.Taxes){var rate=masters.SingleOrDefault(m=>m.Kind=="vat"&&m.Id==t.RateId&&Effective(m,date));if(rate==null||Number(rate,"rate")<0||Number(rate,"rate")>100||Number(rate,"rate") is 5 or 19){Add("vat_rate","Cota TVA nu este activă la data bonului.","VAT rate is not active for the receipt date.");continue;}
-   var pct=Number(rate,"rate");if(!rates.Add(pct))Add("vat_duplicate","Aceeași cotă TVA este completată de două ori.","The same VAT percentage is entered twice.");
-   if(t.Base<0||t.Vat<0||t.Base!=Money(t.Base)||t.Vat!=Money(t.Vat)||pct==0&&t.Vat!=0||Math.Abs(Money(t.Base*pct/100)-t.Vat)*(d.TaxCurrency=="RON"?1:l.EstimatedRon/d.Amount)>1)Add("vat_arithmetic",$"Verifică baza și TVA la {pct}%: TVA așteptat {Money(t.Base*pct/100):0.00}, introdus {t.Vat:0.00}.",$"Check base and VAT at {pct}%: expected {Money(t.Base*pct/100):0.00}, entered {t.Vat:0.00}.");
-  }
-  if(Math.Abs(TaxTotal(d)-TaxExpected(l))>0.01m)Add("vat_total",$"Totalul recompus din baze + TVA ({TaxTotal(d):0.00} {d.TaxCurrency}) diferă de totalul bonului ({TaxExpected(l):0.00}).",$"Reconstructed base + VAT total ({TaxTotal(d):0.00} {d.TaxCurrency}) differs from the receipt total ({TaxExpected(l):0.00}).");
-  return l.VatOverrideReason==null?issues:issues.Select(p=>p.Code is "vat_arithmetic" or "vat_total"?p with{Blocking=false}:p).ToList();
- }
+ public static decimal TaxExpected(Line l)=>l.Data().Amount;
+ public static List<Problem> VatIssues(Line l,IReadOnlyList<Master> masters){if(!DateOnly.TryParse(l.Data().Date,out _))return [];return FinancialCalculations.Preview(l,masters.ToList(),FinancialCalculations.DefaultPolicy(l.Data().Currency),FinancialCalculations.OwnerPolicy).Issues;}
  public static Dictionary<string,string> FieldStates(ExpenseData d,IReadOnlyList<Master> masters){
   var fields=new Dictionary<string,string>{{"supplier",DomesticVat(d)?"REQUIRED":"NOT_APPLICABLE"},{"invoice",DomesticVat(d)?"REQUIRED":"OPTIONAL"},{"date","REQUIRED"},{"country","REQUIRED"},{"documentType","REQUIRED"},{"category","REQUIRED"},{"description","REQUIRED"},{"payment","REQUIRED"},{"costCenter","REQUIRED"},{"amount","REQUIRED"},{"currency","REQUIRED"},{"cui",DomesticVat(d)?"REQUIRED":"NOT_APPLICABLE"},{"cardId",d.Payment=="CompanyCard"?"REQUIRED":"NOT_APPLICABLE"},{"project","OPTIONAL"},{"taxes",DomesticVat(d)?"REQUIRED":"NOT_APPLICABLE"}};
   if(!DateOnly.TryParse(d.Date,out var date))return fields;
@@ -47,7 +33,7 @@ public static class Rules {
    if(!DateOnly.TryParse(d.Date,out var date)||date>DateOnly.FromDateTime(DateTime.UtcNow)){Add("date","Data documentului nu este validă.","Invalid document date.");continue;}
    var fields=FieldStates(d,masters);var data=JsonSerializer.SerializeToElement(d,Serialization.Options);
    var fieldNames=new Dictionary<string,(string Ro,string En)>{{"supplier",("denumire furnizor","supplier name")},{"invoice",("număr bon/document","document number")},{"date",("data documentului","document date")},{"country",("țară","country")},{"documentType",("tip document","document type")},{"category",("tip cheltuială","expense category")},{"description",("descriere","description")},{"payment",("metodă de plată","payment method")},{"costCenter",("centru de cost","cost centre")},{"amount",("sumă","amount")},{"currency",("monedă","currency")},{"cui",("CUI furnizor","supplier VAT ID")},{"cardId",("card companie","company card")},{"project",("proiect","project")},{"taxes",("baze și TVA","taxable bases and VAT")}};foreach(var p in fields.Where(p=>p.Value=="REQUIRED")){if(!data.TryGetProperty(p.Key,out var v)||v.ValueKind is JsonValueKind.Null||v.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(v.GetString())||v.ValueKind==JsonValueKind.Array&&v.GetArrayLength()==0)Add("required",$"Completează câmpul {fieldNames[p.Key].Ro}.",$"Complete {fieldNames[p.Key].En}.");}
-   if(d.Amount<=0)Add("amount","Suma trebuie să fie pozitivă.","The amount must be positive.");
+   if(d.Amount==0)Add("amount","Suma nu poate fi zero.","Amount cannot be zero.");
    if(d.Payment is not ("Personal" or "CompanyCard"))Add("payment","Metoda de plată nu este validă.","Invalid payment method.");
    if(d.DocumentType is not ("InvoiceWithCui" or "InvoiceWithoutCui" or "Receipt")&&!masters.Any(m=>m.Kind=="documentTypes"&&m.Code==d.DocumentType&&Effective(m,date)))Add("document_type","Tipul documentului nu este valid.","Invalid document type.");
    if(d.Currency.Length!=3||!d.Currency.All(char.IsAsciiLetterUpper)||d.Country.Length!=2||!d.Country.All(char.IsAsciiLetterUpper))Add("codes","Codul țării sau monedei nu este valid.","Invalid country or currency code.");
@@ -71,3 +57,4 @@ public static class Rules {
   }return issues;
  }
 }
+

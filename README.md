@@ -95,3 +95,7 @@ Category configuration may include `ocrKeywords` on active `expenseTypes`. Alloc
 
 **English:** Upload, scan, extract every PDF page, review and explicitly confirm. Configure company VAT ID, dated policies, masters, notification channels and SMTP internally. Card/master XLSX imports use preview before confirmation. Routing/accounting corrections and posted-export reopening are audited. Production ERP acceptance, infrastructure configuration and recovery/load testing remain company-environment gates.
 
+
+## Calcul Finance / Finance calculation update
+
+See [Finance decisions and bilingual operating guide](docs/council/FINANCE-DECISIONS-2026-11-05.md) and [PDF03 traceability](docs/council/BLUEPRINT-03-REQUIREMENTS.md). Run `--init` for schema release 7 before starting the upgraded server. Finance explicitly confirms final FX; estimates and manager approval remain preserved.

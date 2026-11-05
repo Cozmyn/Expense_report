@@ -19,7 +19,8 @@ public class Line {
  public string? VatOverrideReason {get;set;}public string? OverrideReason {get;set;}public string? DuplicateDisposition {get;set;}public string? FxVersion {get;set;}
  public List<Evidence> Evidence {get;set;}=[];
  public ExpenseData Data()=>Serialization.Read<ExpenseData>(Json);
- public decimal Final()=>Reconciled?SettledRon??EstimatedRon:EstimatedRon;
+ public decimal? FinanceRon {get;set;}public Guid? FxDecisionId {get;set;}public Guid? CalculationId {get;set;}public string? CalculatedJson {get;set;}public string? CalculationHash {get;set;}public decimal RoundingRon {get;set;}
+ public decimal Final()=>FinanceRon??EstimatedRon;
 }
 public record ExpenseData(string Supplier,string? Cui,string Invoice,string Date,string Country,string DocumentType,string Category,string Description,string Payment,Guid? CardId,string CostCenter,string? Project,decimal Amount,string Currency,List<TaxData> Taxes,bool? HasCompanyCui=null,bool SupplierConfirmed=false,string TaxCurrency="RON",AccountingOverride? Accounting=null);
 public record TaxData(Guid RateId,decimal Base,decimal Vat);
@@ -48,7 +49,7 @@ public class Session {public string Id {get;set;}="";public string UserId {get;s
 public class Review {public Guid Id {get;set;}=Guid.NewGuid();public Guid ReportId {get;set;}public int Revision {get;set;}public string Actor {get;set;}="";public string Checks {get;set;}="";public DateTime At {get;set;}=DateTime.UtcNow;}
 public class Idempotency {public string Id {get;set;}="";public string Actor {get;set;}="";public string RequestHash {get;set;}="";public string Response {get;set;}="";public DateTime At {get;set;}=DateTime.UtcNow;}
 public static class States {public const string Draft="DRAFT",Manager="MANAGER_REVIEW",Rejected="REJECTED",Returned="EMPLOYEE_CORRECTION",Finance="FINANCE_REVIEW",Reapproval="REAPPROVAL_REQUIRED",Ready="READY_FOR_ERP",Exported="ERP_EXPORTED",Posted="POSTED",Closed="CLOSED";public static bool EmployeeEdit(string s)=>s is Draft or Rejected or Returned;public static bool FinanceEdit(string s)=>s is Finance or Ready or "PENDING_VENDOR" or "PENDING_CARD_MATCH";}
-public static class Serialization {public static readonly JsonSerializerOptions Options=new(JsonSerializerDefaults.Web);public static string Write(object x)=>JsonSerializer.Serialize(x,Options);public static T Read<T>(string s)=>JsonSerializer.Deserialize<T>(s,Options)??throw new InvalidOperationException("Invalid persisted JSON");public static string Hash(string s)=>Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(s)));}
+public static class Serialization {public static readonly JsonSerializerOptions Options=new(JsonSerializerDefaults.Web){NumberHandling=System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString};public static string Write(object x)=>JsonSerializer.Serialize(x,Options);public static T Read<T>(string s)=>JsonSerializer.Deserialize<T>(s,Options)??throw new InvalidOperationException("Invalid persisted JSON");public static string Hash(string s)=>Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(s)));}
 public record Problem(string Code,string Ro,string En,Guid? LineId=null,bool Blocking=true);
 public sealed class DomainException(string code,string ro,string en,int status=422):Exception(ro) {public string Code=>code;public string En=>en;public int Status=>status;}
 public static class Guard {public static void Require(bool ok,string code,string ro,string en,int status=422){if(!ok)throw new DomainException(code,ro,en,status);}public static void Reason(string? reason)=>Require(!string.IsNullOrWhiteSpace(reason)&&reason.Trim().Length>=3,"reason","Completează un motiv.","Provide a reason.");}
