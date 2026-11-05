@@ -14,7 +14,7 @@ COPY --from=ui /src/server/wwwroot/ server/wwwroot/
 RUN dotnet publish server/Decont.Api.csproj -c Release -o /out --no-restore
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble
 USER root
-RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core tesseract-ocr tesseract-ocr-ron tesseract-ocr-eng tesseract-ocr-osd poppler-utils libheif-examples && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core tesseract-ocr tesseract-ocr-ron tesseract-ocr-eng tesseract-ocr-osd poppler-utils imagemagick libheif-examples && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /out/ ./
 RUN mkdir -p /app/.data && chown -R app:app /app

@@ -79,7 +79,7 @@ jobs:
           npm ci --prefix ui
           cd ui
           npx playwright install --with-deps chromium
-          sudo apt-get install -y fonts-dejavu-core tesseract-ocr tesseract-ocr-ron tesseract-ocr-eng tesseract-ocr-osd poppler-utils libheif-examples
+          sudo apt-get install -y fonts-dejavu-core tesseract-ocr tesseract-ocr-ron tesseract-ocr-eng tesseract-ocr-osd poppler-utils imagemagick libheif-examples
       - name: Start application
         run: |
           dotnet release/Decont.Api.dll --contentRoot "$PWD/release" --bootstrap
