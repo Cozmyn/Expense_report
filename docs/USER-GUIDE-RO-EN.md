@@ -117,3 +117,41 @@ RO: Deschide un decont aprobat de manager și fila **Calcul și FX**. Compară b
 EN: Open a manager-approved report and **Calculations & FX**. Compare entered and computed bases and verify gross against the original. For foreign currency, enter a reason and confirm the estimate/reconciled bank amount or propose a rate/RON amount. Applying Finance's amount does not return the report to the manager. History retains every decision. Rounding up to RON 2 needs no additional attachment and never creates zero-rated base; original evidence is still mandatory. Finance versions currency settings on this screen and configures real rounding accounts in ERP settings. Negative amounts show warnings and follow the same workflow.
 
 Detailed configuration, API routes, owner decisions, limitations and QA steps: [Finance operating guide](council/FINANCE-DECISIONS-2026-11-05.md).
+
+## Finalizare PDF03 / PDF03 completion
+
+### Română
+
+- **Politici TVA:** în fila „Calcul și FX”, deschide „Politici TVA și aprobare”. Alege compania, țara, tipul documentului, prezența CUI, categoria și perioada. „Orice tip/categorie” evită introducerea codurilor. Completează referința și motivul, apoi salvează ciorna. Alt utilizator Finance o aprobă. Politicile suprapuse/ambigue sau lipsa unei reguli aplicabile blochează verificarea; o ciornă nu schimbă calculele.
+- **Tratament special:** când documentul arată CUI-ul companiei, poți indica scutit/în afara sferei/TVA neprezentat și justificarea. Este necesară o politică aprobată corespunzătoare; „necunoscut” nu înseamnă zero și nu poate fi confirmat. Detaliile TVA permit indicarea stării și paginii din grupul verificat.
+- **Istoric:** „Compară versiunile calculate” arată versiunile acceptate și valorile înainte/după. Fișierele și bazele originale rămân disponibile separat de valorile contabile confirmate.
+- **Comisioane bancare:** în „Carduri și tranzacții”, deschide „Principal, comisioane și adaos FX”. Selectează tranzacția/decontul și extrasul scanat (atașat unui bon sau documentelor decontului), completează principalul/comisionul/adaosul și categoria/centrul de cost. Folosește „Recompune principalul” și confirmă. Confirmă explicit și cazurile fără comisioane. Costurile devin bonuri RON distincte, cu același card și document justificativ; la FX se alocă numai principalul. Pentru corecție, anulează întâi alocările, apoi clasificarea. Istoricul și originalul se păstrează.
+- **Golire reversibilă:** în „Istoric și aprobări”, deschide „Golire și restaurare”. Scrie numărul decontului și motivul. Golirea arhivează bonurile/grupurile și păstrează documentele. Poți restaura cât timp decontul este încă gol și editabil; calculele Finance vor necesita reconfirmare. Nu se modifică exporturile postate.
+- **Acceptanță reală:** în „Acceptanță Finance și ERP”, bifează numai verificările efectuate efectiv și înregistrează referința. Exportul de producție cere acceptanța configurării curente. O schimbare de curs pe un bon nu retrimite decontul managerului. Configurarea politicilor/mapărilor poate necesita o nouă acceptanță Finance.
+
+### English
+
+Use **Calculations & FX → VAT policies & approval** to scope and draft a policy; a different Finance user approves it. Drafts remain inactive. Policy gaps and equal-priority ties block verification. Special VAT treatment needs an approved matching policy and an explanation; unknown never becomes zero. **Compare calculated versions** shows accepted before/after values and source provenance.
+
+In **Cards & transactions → Principal, fees & FX markup**, choose the transaction/report and scanned statement (attached to a receipt or report), separate and reconcile principal/fees/markup, and select charge category/cost centre. Explicitly confirm no-charge cases too. Charges become separate RON expenses; only principal is allocated for FX. Undo associated allocations before correcting classification; originals/history are retained.
+
+In **History & approvals → Reset & restore**, confirm the report number and reason. Reset archives receipts/groups without deleting sources; restore is allowed only into an empty editable report. Finance confirmations must be repeated. Posted exports remain unchanged.
+
+**Finance & ERP acceptance** records checks actually performed against real configuration/documents/ERP. Production export requires a current acceptance record. Receipt FX changes never request manager reapproval; configuration changes may require fresh Finance acceptance.
+
+Full contracts and migration: [API03](council/API-03.md), [ADR03](council/ADR-03.md), [source-to-rule register](council/PDF03-SOURCE-RULE-REGISTER.md).
+
+### Glosar suplimentar / Additional glossary
+
+| RO | EN |
+|---|---|
+| Ciornă de politică | Policy draft |
+| Autor / aprobator distinct | Author / independent approver |
+| Bază documentată | Documented taxable base |
+| Zero explicit / necunoscut | Explicit zero / unknown |
+| Scutit / în afara sferei | Exempt / outside scope |
+| Principal bancar | Bank principal |
+| Comision / adaos valutar | Fee / FX markup |
+| Golire reversibilă / restaurare | Reversible reset / restore |
+| Versiune acceptată / diferență | Accepted version / difference |
+| Acceptanță Finance | Finance acceptance |

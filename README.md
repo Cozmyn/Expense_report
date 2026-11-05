@@ -101,3 +101,5 @@ Category configuration may include `ocrKeywords` on active `expenseTypes`. Alloc
 See [Finance decisions and bilingual operating guide](docs/council/FINANCE-DECISIONS-2026-11-05.md) and [PDF03 traceability](docs/council/BLUEPRINT-03-REQUIREMENTS.md). Run `--init` for schema release 7 before starting the upgraded server. Finance explicitly confirms final FX; estimates and manager approval remain preserved.
 
 Finance implementation verification: [tested commit and CI evidence](docs/council/BLUEPRINT-03-VERIFICATION.md).
+
+PDF03 completion controls: [API and migration](docs/council/API-03.md), [architecture](docs/council/ADR-03.md), [traceability](docs/council/BLUEPRINT-03-REQUIREMENTS.md). Run `--init` for schema release 8. Actual Finance/ERP acceptance is required for production export; it is never created automatically by tests or deployment.

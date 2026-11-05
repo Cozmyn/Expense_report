@@ -1,5 +1,17 @@
 # Modificări / Changelog
 
+## 2026-11-05 — PDF03 completion controls
+
+- Independent Finance tax-policy approval/retirement and scoped effective-date resolution with explicit ambiguity/gap blocking.
+- Typed VAT evidence and policy-backed exemption/outside-scope treatment; normalized immutable component/source records.
+- Full accepted calculation/mapping/FX snapshots and paginated before/after comparisons; cross-receipt calculation reuse blocked.
+- Exact monetary browser transport and BigInt arithmetic, lossless legacy snapshot parsing, preserved statement precision and configured allocation rounding.
+- Explicit bank principal/fees/markup separation, source-linked charge expenses and guarded append-only corrections.
+- Confirmed reversible report reset/restore with original/source preservation.
+- Configuration-hashed real Finance/ERP acceptance screen and production export gate; no fabricated human sign-off.
+- Schema release8, API/architecture/source-rule register, bilingual guide and expanded regression/browser workflows.
+
+
 ## 2026-11-05 — Owner-confirmed Finance calculation flow
 
 - Reconstructed original-currency VAT bases, gross reconciliation and separate signed RON rounding entries; no inferred 0% residual or suppression of small documented zero-rate bases.
