@@ -72,7 +72,7 @@ Status reflects implementation of owner decisions D01–D05. Broader PDF03 gaps 
 2. Owner D01–D05 decisions recorded; conflicting provisional proposals superseded explicitly.
 3. Live calculations, immutable ledgers, Finance FX decisions, invalidation and migration implemented.
 4. RO/EN Finance workspace, signed receipt editing and accounting export connected.
-5. Local database/unit and UI regression execution completed; CI SQLite/PostgreSQL/browser/container verification follows on the implementation branch. Actual Finance/ERP acceptance remains external.
+5. Local database/unit and UI regression execution completed; CI run 41991342254 passed: 179 tests per database, 5 UI unit tests, 4 browser workflows and container launch. See BLUEPRINT-03-VERIFICATION.md. Actual Finance/ERP acceptance remains external.
 
 The five owner decisions are implemented. Full PDF03 coverage is not asserted while Partial/Missing entries remain. No separate credit-note, OIDC, card-owner or FX manager-reapproval workflow is introduced.
 

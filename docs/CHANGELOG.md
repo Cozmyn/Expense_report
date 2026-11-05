@@ -1,5 +1,16 @@
 # Modificări / Changelog
 
+## 2026-11-05 — Owner-confirmed Finance calculation flow
+
+- Reconstructed original-currency VAT bases, gross reconciliation and separate signed RON rounding entries; no inferred 0% residual or suppression of small documented zero-rate bases.
+- Finance-only currency precision, rounding tolerance/method and estimated rates; immutable expense FX proposals/decisions with explicit estimate/bank/manual selection.
+- Entry-time approval estimates retained; FX-only Finance changes do not alter manager revision or request reapproval.
+- Negative receipt and statement amounts follow normal entry, approval, matching and posting with warnings; export reverses debit/credit sides.
+- Immutable accepted calculation ledger with input/source/mapping/policy fingerprints, invalidation and ERP preflight; historical entered values remain separate from confirmed posting values.
+- RO/EN calculation workspace, histories, accessible mobile menu, accounting calculation worksheet and schema release 7.
+- Original gross is never silently rounded on entry; excess currency precision requires correction or Finance policy review. Full PDF03 gaps remain explicit in the traceability register.
+
+
 ## 2026-11-05 — PDF 02 implementation
 
 - Signed, bounded and resumable intake, clean-scan gate, PDF text-layer/Tesseract orientation and per-page progress.

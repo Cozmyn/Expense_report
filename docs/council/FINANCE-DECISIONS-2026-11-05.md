@@ -70,3 +70,5 @@ Do not read this delivery as 100% completion of the entire PDF. The traceability
 - No per-expense accepted financial ledger → immutable calculation/FX/policy histories and stale-export checks.
 
 Local regression: 178 backend tests pass; 5 UI tests pass; TypeScript/production build passes. The initial integrated commit also passed SQLite and PostgreSQL suites, desktop/mobile browser workflows, and container launch. Final browser coverage includes explicit Finance adjustments and verification on the new RO/EN screen; final run evidence is recorded separately after completion.
+
+Final runtime verification: **179 backend tests per database, 5 UI tests, 4 browser workflows and container launch passed**. See [verification evidence](BLUEPRINT-03-VERIFICATION.md).

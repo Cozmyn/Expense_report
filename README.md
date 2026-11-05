@@ -99,3 +99,5 @@ Category configuration may include `ocrKeywords` on active `expenseTypes`. Alloc
 ## Calcul Finance / Finance calculation update
 
 See [Finance decisions and bilingual operating guide](docs/council/FINANCE-DECISIONS-2026-11-05.md) and [PDF03 traceability](docs/council/BLUEPRINT-03-REQUIREMENTS.md). Run `--init` for schema release 7 before starting the upgraded server. Finance explicitly confirms final FX; estimates and manager approval remain preserved.
+
+Finance implementation verification: [tested commit and CI evidence](docs/council/BLUEPRINT-03-VERIFICATION.md).

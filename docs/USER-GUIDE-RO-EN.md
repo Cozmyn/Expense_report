@@ -109,3 +109,11 @@ Admins manage users, assignments and delegation. Review effective dates and impo
 | Centru de cost | Cost centre | Alocare din nomenclator / Controlled allocation dimension |
 | Valoare extrasă | Extracted value | Propunere OCR cu sursă / Source-linked OCR proposal |
 | Valoare verificată | Verified value | Valoare confirmată de utilizator și validată de server / Human-confirmed, server-validated value |
+
+## Actualizare Finance / Finance update — 05.11.2026
+
+RO: Deschide un decont aprobat de manager și fila **Calcul și FX**. Compară baza introdusă cu baza calculată și verifică totalul pe original. Pentru valută, completează motivul și confirmă estimarea, suma bancară reconciliată sau propune un curs/o sumă RON. Aplicarea valorii Finance nu retrimite decontul managerului. Istoricul păstrează fiecare decizie. Diferențele de rotunjire de cel mult 2 RON nu cer un atașament suplimentar și nu creează bază 0%. Documentul original rămâne obligatoriu. Finance administrează versiunile monedei din aceeași filă; conturile reale de rotunjire se configurează în setările ERP. Sumele negative au avertizare și urmează fluxul obișnuit.
+
+EN: Open a manager-approved report and **Calculations & FX**. Compare entered and computed bases and verify gross against the original. For foreign currency, enter a reason and confirm the estimate/reconciled bank amount or propose a rate/RON amount. Applying Finance's amount does not return the report to the manager. History retains every decision. Rounding up to RON 2 needs no additional attachment and never creates zero-rated base; original evidence is still mandatory. Finance versions currency settings on this screen and configures real rounding accounts in ERP settings. Negative amounts show warnings and follow the same workflow.
+
+Detailed configuration, API routes, owner decisions, limitations and QA steps: [Finance operating guide](council/FINANCE-DECISIONS-2026-11-05.md).

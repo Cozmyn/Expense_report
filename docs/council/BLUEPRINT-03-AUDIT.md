@@ -11,7 +11,7 @@ Finance domain, financial architecture, data integrity, bilingual UX and QA. The
 - PDF p4 T13 replacement mentions card holder. The user explicitly chose Worker=expense employee and excluded a card-owner workflow. Keep employee Worker; regression covers every original row13–99 with a different card owner.
 - Keep max50 active receipts, separate personal/card reports, report-header identity/payment, and existing application-managed authentication.
 
-## Prioritized gaps
+## Initial findings — before implementation
 
 **Critical:** bank settlement currently becomes final after Finance matching, without a separate immutable FX decision/policy selection; accepted per-expense calculation ledger is absent; reason-only VAT override is not a named approved exception policy; live posting consumes entered bases rather than a canonical derived-base snapshot.
 
@@ -33,7 +33,7 @@ D05 — **Credits.** Proposed: keep negative documents blocked until a separatel
 
 Fuel/car deductibility is not reinterpreted as legislation. Existing branches remain in place; new policy versions must carry actual Accounting authorization before acceptance. Fees/reversals/unexplained differences remain unresolved review cases, not automatic divisions or invented0% amounts.
 
-## Concrete work done
+## Initial arithmetic foundation — historical snapshot
 
 `server/InvoiceArithmetic.cs`: policy-neutral decimal string contract, current-rate guards, exact and rounded original-currency bases, documented zero-base handling, typed evidence states/reasons, precision/sign validation, explicit rounding/tolerance inputs, stable input/policy/output hashes. It cannot mark an expense ready for booking, has no activation API and changes no live financial path.
 
