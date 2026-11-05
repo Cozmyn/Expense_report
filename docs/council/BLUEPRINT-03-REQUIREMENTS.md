@@ -59,7 +59,7 @@ Status reflects implementation of owner decisions D01–D05. Broader PDF03 gaps 
 | PDF03-051 | §8–11 formulas E:AM | Maintain source-to-rule registry; do not execute Excel in production | Partial | Integrated Finance calculation/FX/API/UI/export layer is implemented; see decision document. Original requirement still has broader provenance/diff/policy/acceptance work; retained Partial. |
 | PDF03-052 | §11 VerificaTVA | Do not turn workbook green/amber colors into approval; exact decimal recon | Partial | Integrated Finance calculation/FX/API/UI/export layer is implemented; see decision document. Original requirement still has broader provenance/diff/policy/acceptance work; retained Partial. |
 | PDF03-053 | §12 preview | Scoped provisional calculate-preview endpoint and bilingual financial UI | Done | Scoped calculation preview plus bilingual FinancialWorkspace |
-| PDF03-054 | §12 verify/history | Transactional accepted finance snapshot and readable version/source diffs | Missing | Integrated Finance calculation/FX/API/UI/export layer is implemented; see decision document. Original requirement still has broader provenance/diff/policy/acceptance work; retained Partial. |
+| PDF03-054 | §12 verify/history | Transactional accepted finance snapshot and readable version/source diffs | Partial | Integrated Finance calculation/FX/API/UI/export layer is implemented; see decision document. Original requirement still has broader provenance/diff/policy/acceptance work; retained Partial. |
 | PDF03-055 | §12 policy author/approve | Draft policy and controlled activation with separation of duties | Missing | Operational Finance currency versions are implemented. Separate multi-dimensional VAT-policy author/approver lifecycle remains outstanding; owner decisions are not fabricated tax sign-off. |
 | PDF03-056 | §12 FX APIs/history | Manual/bank proposals, Accounting decision and histories | Done | FX proposals/decisions/history endpoints and Finance workspace |
 | PDF03-057 | §12 invalidation | Changing inputs invalidates calculation/dependent export candidates | Done | Input, evidence, FX and mapping/policy context invalidate accepted calculations |
@@ -76,4 +76,5 @@ Status reflects implementation of owner decisions D01–D05. Broader PDF03 gaps 
 
 The five owner decisions are implemented. Full PDF03 coverage is not asserted while Partial/Missing entries remain. No separate credit-note, OIDC, card-owner or FX manager-reapproval workflow is introduced.
 
-Current implementation coverage: 42 Done, 12 Partial, 5 Missing, 0 Broken. These are requirement-group statuses, not an invented 100% acceptance score.
+
+Current implementation coverage: 42 Done, 13 Partial, 4 Missing, 0 Broken. Requirement groups are not a substitute for production acceptance.
