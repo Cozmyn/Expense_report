@@ -6,13 +6,14 @@ type Props={document:Doc;t:(ro:string,en:string)=>string;regions?:Region[];focus
 /** View/crop coordinates refer to the original rendered page; originals are never modified. */
 export default function DocumentViewer({document:doc,t,regions=[],focus,focusPage,focusToken,onRegionSelect}:Props){
  const[zoom,Z]=useState(100),[rotation,R]=useState(0),[loaded,L]=useState(false),[failed,F]=useState(false),[attempt,A]=useState(0),[ratio,Ratio]=useState(1),[page,P]=useState(doc.initialPage||Number(doc.url.match(/#page=(\d+)/)?.[1])||1),[pages,Pages]=useState(doc.pageCount||1),[crop,Crop]=useState(false),[draft,Draft]=useState<Region|null>(null);
+ const[viewer,Viewer]=useState('');
  const start=useRef<{x:number;y:number}|null>(null);
  const pdf=doc.mime==='application/pdf',paged=pdf&&!!doc.reportId&&!!doc.id,nativePdf=pdf&&!paged;
  const unsupported=doc.mime?.includes('heic')&&!doc.previewUrl;
- useEffect(()=>{let active=true;if(paged&&!doc.pageCount)api('/reports/'+doc.reportId+'/documents/'+doc.id+'/preview-info').then(info=>{if(active){Pages(info.pages);P(n=>Math.min(n,info.pages));}}).catch(()=>{if(active)F(true);});return()=>{active=false;};},[doc.reportId,doc.id,attempt]);
+ useEffect(()=>{let active=true;if(paged)api('/reports/'+doc.reportId+'/documents/'+doc.id+'/preview-info').then(info=>{if(active){Viewer(info.viewer||'');Pages(info.pages);P(n=>Math.min(n,info.pages));}}).catch(()=>{if(active)F(true);});return()=>{active=false;};},[doc.reportId,doc.id,attempt]);
  useEffect(()=>{const target=focus?.page||focusPage;if(target&&target!==page){P(target);L(false);F(false);}},[focus,focusPage,focusToken]);
  const pageChange=(value:number)=>{P(Math.max(1,Math.min(pages,value)));L(false);F(false);Draft(null);};
- const src=paged?'/api/reports/'+doc.reportId+'/documents/'+doc.id+'/pages/'+page+'/preview':doc.previewUrl||doc.url;
+ const src=paged?'/api/reports/'+doc.reportId+'/documents/'+doc.id+'/pages/'+page+'/preview'+(viewer?'?viewer='+encodeURIComponent(viewer):''):doc.previewUrl||doc.url;
  const odd=rotation%180!==0;const displayRatio=odd?1/ratio:ratio;
  const layer:React.CSSProperties={position:'absolute',width:(odd?ratio*100:100)+'%',height:(odd?100/ratio:100)+'%',left:(odd?(1-ratio)*50:0)+'%',top:(odd?(1-1/ratio)*50:0)+'%',transform:'rotate('+rotation+'deg)'};
  const point=(e:React.PointerEvent<HTMLDivElement>)=>{const rect=e.currentTarget.getBoundingClientRect();return{x:Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width)),y:Math.max(0,Math.min(1,(e.clientY-rect.top)/rect.height))};};
@@ -31,3 +32,4 @@ export default function DocumentViewer({document:doc,t,regions=[],focus,focusPag
  </div></div>}</>}
  <a href={doc.url} target="_blank" rel="noopener noreferrer">{t('Deschide originalul','Open original')}</a></section>;
 }
+

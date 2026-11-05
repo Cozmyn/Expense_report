@@ -26,11 +26,11 @@ public record TaxData(Guid RateId,decimal Base,decimal Vat);
 public interface IOriginalDocument {Guid Id {get;}string Name {get;}string Key {get;}string Mime {get;}long Size {get;}string Hash {get;}string Scan {get;set;}bool Archived {get;}string? Ocr {get;set;}}
 public class ReportAttachment:IOriginalDocument {
  public bool Capture {get;set;}public string UploadedBy {get;set;}="";
- public Guid Id {get;set;}=Guid.NewGuid();public Guid ReportId {get;set;}public string CoveredLines {get;set;}="[]";public string Name {get;set;}="";public string Key {get;set;}="";public string Mime {get;set;}="";public long Size {get;set;}public string Hash {get;set;}="";public string Scan {get;set;}="Pending";public bool Archived {get;set;}public string? Ocr {get;set;}public DateTime Created {get;set;}=DateTime.UtcNow;
+ public Guid Id {get;set;}=Guid.NewGuid();public Guid ReportId {get;set;}public string CoveredLines {get;set;}="[]";public string Name {get;set;}="";[System.Text.Json.Serialization.JsonIgnore]public string Key {get;set;}="";public string Mime {get;set;}="";public long Size {get;set;}public string Hash {get;set;}="";public string Scan {get;set;}="Pending";public bool Archived {get;set;}public string? Ocr {get;set;}public DateTime Created {get;set;}=DateTime.UtcNow;
  public bool Covers(Guid line)=>Serialization.Read<List<Guid>>(CoveredLines).Contains(line);
 }
 public class Evidence:IOriginalDocument {
- public Guid Id {get;set;}=Guid.NewGuid();public Guid LineId {get;set;}public string Name {get;set;}="";public string Key {get;set;}="";public string Mime {get;set;}="";public long Size {get;set;}
+ public Guid Id {get;set;}=Guid.NewGuid();public Guid LineId {get;set;}public string Name {get;set;}="";[System.Text.Json.Serialization.JsonIgnore]public string Key {get;set;}="";public string Mime {get;set;}="";public long Size {get;set;}
  public string Hash {get;set;}="";public string Scan {get;set;}="Pending";public bool Archived {get;set;}public string? Ocr {get;set;}public DateTime Created {get;set;}=DateTime.UtcNow;
 }
 public class Snapshot {public Guid Id {get;set;}=Guid.NewGuid();public Guid ReportId {get;set;}public int Revision {get;set;}public string Json {get;set;}="";public string Hash {get;set;}="";public string Actor {get;set;}="";public DateTime At {get;set;}=DateTime.UtcNow;}
@@ -52,3 +52,4 @@ public static class Serialization {public static readonly JsonSerializerOptions 
 public record Problem(string Code,string Ro,string En,Guid? LineId=null,bool Blocking=true);
 public sealed class DomainException(string code,string ro,string en,int status=422):Exception(ro) {public string Code=>code;public string En=>en;public int Status=>status;}
 public static class Guard {public static void Require(bool ok,string code,string ro,string en,int status=422){if(!ok)throw new DomainException(code,ro,en,status);}public static void Reason(string? reason)=>Require(!string.IsNullOrWhiteSpace(reason)&&reason.Trim().Length>=3,"reason","Completează un motiv.","Provide a reason.");}
+

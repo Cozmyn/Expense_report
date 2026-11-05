@@ -40,6 +40,12 @@ services:
       db: {condition: service_healthy}
       scanner: {condition: service_started}
     restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:size=536870912,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 1536m
+    pids_limit: 256
   init:
     profiles: [setup]
     build:
@@ -62,3 +68,4 @@ volumes:
   database:
   data:
   scanner:
+

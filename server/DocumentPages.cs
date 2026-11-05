@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 namespace Decont;
 public static class DocumentPages {
  static async Task<(IOriginalDocument File,byte[] Bytes)> Source(Guid id,Guid document,Reports svc,IStore store,HttpContext c){
-  var report=await svc.Get(id,c.User);IOriginalDocument? file=report.Attachments.FirstOrDefault(a=>a.Id==document)??(IOriginalDocument?)report.Lines.SelectMany(l=>l.Evidence).FirstOrDefault(e=>e.Id==document);
+  var report=await svc.Get(id,c.User);DocumentPreviewTokens.Validate(c,id,document);IOriginalDocument? file=report.Attachments.FirstOrDefault(a=>a.Id==document)??(IOriginalDocument?)report.Lines.SelectMany(l=>l.Evidence).FirstOrDefault(e=>e.Id==document);
   Guard.Require(file!=null,"missing","Document inexistent.","Document not found.",404);Guard.Require(file!.Scan=="Clean","quarantine","Așteaptă scanarea documentului.","Wait for document scanning.");
   var bytes=await store.Get(file.Key,c.RequestAborted);Guard.Require(Convert.ToHexString(SHA256.HashData(bytes))==file.Hash,"integrity","Documentul original a fost modificat.","Original document integrity check failed.");
   c.Response.Headers.CacheControl="private, no-store";c.Response.Headers["X-Content-Type-Options"]="nosniff";return(file,bytes);
@@ -16,7 +16,7 @@ public static class DocumentPages {
  public static void Map(RouteGroupBuilder api){
   api.MapGet("/reports/{id:guid}/documents/{document:guid}/preview-info",async(Guid id,Guid document,Reports svc,IStore store,Db db,IConfiguration config,HttpContext c)=>{
    var source=await Source(id,document,svc,store,c);var review=await db.DocumentReviews.FindAsync(document);var pages=source.File.Mime=="application/pdf"?(review?.PageCount??await PdfPages(source.Bytes,config,c.RequestAborted)):1;
-   return Results.Ok(new{pages,source.File.Name,source.File.Mime});
+   return Results.Ok(new{pages,source.File.Name,source.File.Mime,viewer=DocumentPreviewTokens.Issue(c,id,document),expiresInSeconds=300});
   }).RequireRateLimiting("document-preview");
   api.MapGet("/reports/{id:guid}/documents/{document:guid}/pages/{page:int}/preview",async(Guid id,Guid document,int page,Reports svc,IStore store,Db db,IConfiguration config,HttpContext c)=>{
    var source=await Source(id,document,svc,store,c);var file=source.File;var review=await db.DocumentReviews.FindAsync(document);
@@ -31,3 +31,4 @@ public static class DocumentPages {
   }).RequireRateLimiting("document-preview");
  }
 }
+
