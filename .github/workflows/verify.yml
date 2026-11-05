@@ -32,12 +32,13 @@ jobs:
       - run: npm ci --prefix ui && npm audit --prefix ui --audit-level=high && npm test --prefix ui && npm run build --prefix ui
       - name: Backend tests
         env:
+          OCR_QUALITY_OUTPUT: tests/TestResults/ocr-quality.json
           TEST_POSTGRES: ${{ matrix.database == 'postgres' && 'Host=localhost;Database=postgres;Username=postgres;Password=ci-test-only' || '' }}
         run: dotnet test tests/Decont.Tests.csproj --configuration Release --logger "trx;LogFileName=backend.trx"
       - run: dotnet publish server/Decont.Api.csproj --configuration Release --output release
       - uses: actions/upload-artifact@v4
         if: always()
-        with: {name: 'verification-${{ matrix.database }}', path: 'tests/TestResults/*.trx'}
+        with: {name: 'verification-${{ matrix.database }}', path: 'tests/TestResults/*'}
       - uses: actions/upload-artifact@v4
         if: matrix.database == 'postgres'
         with: {name: application, path: release/}
@@ -138,3 +139,4 @@ jobs:
       - name: Container logs
         if: always()
         run: docker logs decont-ci || true
+
