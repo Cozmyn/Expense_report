@@ -19,7 +19,7 @@ public class Line {
  public string? VatOverrideReason {get;set;}public string? OverrideReason {get;set;}public string? DuplicateDisposition {get;set;}public string? FxVersion {get;set;}
  public List<Evidence> Evidence {get;set;}=[];
  public ExpenseData Data()=>Serialization.Read<ExpenseData>(Json);
- public decimal? FinanceRon {get;set;}public Guid? FxDecisionId {get;set;}public Guid? CalculationId {get;set;}public string? CalculatedJson {get;set;}public string? CalculationHash {get;set;}public decimal RoundingRon {get;set;}
+ public decimal? FinanceRon {get;set;}public Guid? FxDecisionId {get;set;}public Guid? CalculationId {get;set;}public string? CalculatedJson {get;set;}public string? CalculationHash {get;set;}public decimal RoundingRon {get;set;}public InvoiceRounding? FinancialRounding {get;set;}
  public decimal Final()=>FinanceRon??EstimatedRon;
 }
 public record ExpenseData(string Supplier,string? Cui,string Invoice,string Date,string Country,string DocumentType,string Category,string Description,string Payment,Guid? CardId,string CostCenter,string? Project,decimal Amount,string Currency,List<TaxData> Taxes,bool? HasCompanyCui=null,bool SupplierConfirmed=false,string TaxCurrency="RON",AccountingOverride? Accounting=null);
