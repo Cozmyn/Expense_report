@@ -1,0 +1,272 @@
+{
+  "sourceSha256": "a37f9fd3e8e09d8db93c40e780d3d0f4c7eb9e8b8c4286c375b8740a147f5038",
+  "status": "SOURCE_CONFIRMED_NOT_PRODUCTION_APPROVED",
+  "glMappings": [
+    {
+      "sourceRow": 2,
+      "category": "Flight tickets",
+      "localAccount": "625.TRAVEL.EXPENSES",
+      "mainAccount": "592010",
+      "subAccount": "591",
+      "worker": "Yes"
+    },
+    {
+      "sourceRow": 3,
+      "category": "Hotel/Accomodation",
+      "localAccount": "625.TRAVEL.EXPENSES",
+      "mainAccount": "592010",
+      "subAccount": "590",
+      "worker": "Yes"
+    },
+    {
+      "sourceRow": 4,
+      "category": "Taxi",
+      "localAccount": "625.TRAVEL.EXPENSES",
+      "mainAccount": "592010",
+      "subAccount": "593",
+      "worker": "Yes"
+    },
+    {
+      "sourceRow": 5,
+      "category": "Train/Metro",
+      "localAccount": "625.TRAVEL.EXPENSES",
+      "mainAccount": "592010",
+      "subAccount": "592",
+      "worker": "Yes"
+    },
+    {
+      "sourceRow": 6,
+      "category": "Fuel car",
+      "localAccount": "6022.FUEL.CARS",
+      "mainAccount": "727011",
+      "subAccount": "100",
+      "worker": "Yes"
+    },
+    {
+      "sourceRow": 7,
+      "category": "Other car expenses",
+      "localAccount": "611.REPAIRS.OTH.DED",
+      "mainAccount": "536010",
+      "subAccount": "100",
+      "worker": "Yes"
+    },
+    {
+      "sourceRow": 8,
+      "category": "Parking",
+      "localAccount": "625.TRAVEL.EXPENSES",
+      "mainAccount": "592010",
+      "subAccount": "594",
+      "worker": "Yes"
+    },
+    {
+      "sourceRow": 9,
+      "category": "Meal - delegation",
+      "localAccount": "6231.PROTOCOL",
+      "mainAccount": "686010",
+      "subAccount": "",
+      "worker": "Yes"
+    },
+    {
+      "sourceRow": 10,
+      "category": "Office supplies",
+      "localAccount": "604.OTH",
+      "mainAccount": "544510",
+      "subAccount": "",
+      "worker": "Yes"
+    },
+    {
+      "sourceRow": 11,
+      "category": "Postal services",
+      "localAccount": "628.OTH.EXP.DED",
+      "mainAccount": "682510",
+      "subAccount": "",
+      "worker": "Yes"
+    },
+    {
+      "sourceRow": 12,
+      "category": "Consumable equipment",
+      "localAccount": "604.OTH",
+      "mainAccount": "544510",
+      "subAccount": "",
+      "worker": "Yes"
+    },
+    {
+      "sourceRow": 13,
+      "category": "Other services",
+      "localAccount": "628.OTH.EXP.DED",
+      "mainAccount": "682510",
+      "subAccount": "",
+      "worker": "Yes"
+    },
+    {
+      "sourceRow": 14,
+      "category": "Internal meeting, restaurant (only employees)",
+      "localAccount": "6231.PROTOCOL",
+      "mainAccount": "686010",
+      "subAccount": "",
+      "worker": "Yes"
+    },
+    {
+      "sourceRow": 15,
+      "category": "External meeting, restaurant",
+      "localAccount": "6231.PROTOCOL",
+      "mainAccount": "686010",
+      "subAccount": "",
+      "worker": "Yes"
+    },
+    {
+      "sourceRow": 16,
+      "category": "Other equipment ",
+      "localAccount": "604.OTH",
+      "mainAccount": "544510",
+      "subAccount": "",
+      "worker": "Yes"
+    },
+    {
+      "sourceRow": 17,
+      "category": "Mostre",
+      "localAccount": "604.OTH",
+      "mainAccount": "544510",
+      "subAccount": "",
+      "worker": "Yes"
+    },
+    {
+      "sourceRow": 18,
+      "category": "Other travel expenses",
+      "localAccount": "625.TRAVEL.EXPENSES",
+      "mainAccount": "592010",
+      "subAccount": "597",
+      "worker": "Yes"
+    },
+    {
+      "sourceRow": 19,
+      "category": "Glasses",
+      "localAccount": "6588.OTH.OPEX",
+      "mainAccount": "689010",
+      "subAccount": "",
+      "worker": "Yes"
+    }
+  ],
+  "importColumns": [
+    {
+      "column": "A",
+      "header": "Date",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "B",
+      "header": "Account type",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "C",
+      "header": "Account",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "D",
+      "header": "Business unit",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "E",
+      "header": "Cost center",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "F",
+      "header": "Objective",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "G",
+      "header": "Site",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "H",
+      "header": "Local account",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "I",
+      "header": "Production line",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "J",
+      "header": "Project",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "K",
+      "header": "Sub account",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "L",
+      "header": "Worker",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "M",
+      "header": "Description",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "N",
+      "header": "Debit",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "O",
+      "header": "Credit",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "P",
+      "header": "Currency",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "Q",
+      "header": "Sales Tax Group",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "R",
+      "header": "Item sales tax group",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "S",
+      "header": "Offset Account type",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "T",
+      "header": "Offset account",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "U",
+      "header": "Invoice nr",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "V",
+      "header": "Invoice date",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "W",
+      "header": "Document nr",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    },
+    {
+      "column": "X",
+      "header": "Due date",
+      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+    }
+  ]
+}
