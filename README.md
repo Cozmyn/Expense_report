@@ -113,3 +113,6 @@ PDF03 completion controls: [API and migration](docs/council/API-03.md), [archite
 ## PDF04 — contabilizare / posting
 
 [Owner decisions](docs/council/PDF04-OWNER-DECISIONS.md), [API/migration](docs/council/API-04.md), [architecture](docs/council/ADR-04.md). Finance-only accounting XLSX, source-preserving workbook-style amounts, editable default50 vehicle percentage, traceable posting review/history and accounting overview. Run init for schema9. Automated checks and real company/ERP acceptance remain distinct.
+
+
+PDF04: [final verification,241 tests per database,9 UI tests,6 browser workflows and owner QA](docs/council/PDF04-VERIFICATION.md) · [100-item traceability](docs/council/PDF04-REQUIREMENTS.md) · [posting decision table](docs/council/PDF04-DECISION-TABLE.md). Automated gates pass; real company/ERP acceptance remains explicit.

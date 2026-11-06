@@ -21,3 +21,6 @@ Mutation routes retain CSRF, request idempotency, object scope, reason/version c
 Run the normal init command (`--init`) before upgraded server startup. Additive upgrades create `PostingLines` and `PostingReviews`; extend `Batches` with pre-export report version, Finance hash, business key, posting fingerprint, reconciliation and captured report header. Legacy files/hashes/rows remain untouched; legacy traces are explicitly unavailable rather than reconstructed from current masters.
 
 Posting lines have batch/expense/calculation/FX/VAT-component/mapping foreign keys, unique sequence and stable ID per batch, nonnegative one-sided debit/credit minor-unit constraints and one summary row per source expense. EF and database triggers protect posting lines/reviews and batch payloads. Batch lifecycle State/Reference/PostedAt remains writable only through existing authorised commands. Business keys are unique; corrections use explicit cycles. Source and posting fingerprints canonicalise decimal representations so database scale changes cannot create false stale decisions.
+
+
+Final security review: vehicle policy codes are trimmed before authorisation, matching master-code normalisation; surrounding whitespace cannot bypass Finance-only writes. Null tax-code values return validation. [Final evidence](PDF04-VERIFICATION.md).

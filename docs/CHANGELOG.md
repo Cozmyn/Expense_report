@@ -57,3 +57,5 @@ No production deployment, database migration, full OCR redesign, full WCAG certi
 ## 06.11.2026 — PDF04 owner-approved posting contract
 
 Finance-only accounting XLSX; Auditor evidence/PDF retained. Preserve printed VAT bases after validation, source-like A:X rows, default50 vehicle treatment with Finance-only dated percentage versions, exact source/output reconciliation, immutable per-line provenance and preview review, business export retry, frozen historical preview, SQL-backed accounting dashboard, additive schema9 and canonical monetary fingerprints. Owner expressly excludes an extra ERP VAT-calculation model and automatic amount rebalance. ERP-001–014 synthetic fixtures include honest pending real approval dates; disabled5/19 and50 cap remain. Actual verification is recorded separately after gates finish.
+
+Final verification:241 backend tests per database,9 UI tests,6 desktop/mobile workflows and container gates passed. Fixed policy-code whitespace bypass, malformed code validation, mobile preview action wrapping and reproducible browser dependency setup. See PDF04-VERIFICATION.md for exact commit/run and acceptance limits.

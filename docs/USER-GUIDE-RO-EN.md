@@ -185,3 +185,6 @@ Check printed bases/paid VAT in **Calculations & FX**, then complete Finance rev
 Finance can accept/reject a fingerprinted preview with a reason. Export stores an immutable file; equivalent retries reuse the batch. Saved preview/history never adopts later master changes. **Accounting overview** filters batches and shows once-per-expense aggregates excluding void/reversed files. Finance alone downloads accounting Excel; authorised Auditors retain original/PDF access. No additional ERP VAT model or silent amount adjustment is introduced.
 
 [Owner decisions](council/PDF04-OWNER-DECISIONS.md) · [API/migration](council/API-04.md) · [Architecture](council/ADR-04.md).
+
+
+[PDF04: verificare finală și lista QA / final verification and QA checklist](council/PDF04-VERIFICATION.md).

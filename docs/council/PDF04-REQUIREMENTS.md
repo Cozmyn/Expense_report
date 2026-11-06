@@ -2,7 +2,7 @@
 
 06.11.2026. Owner decisions D04-01/02/03 supersede conflicting PDF design/open proposals. This matrix covers100 source obligations, including24 columns,18 GL records,14 fixture cases and9 macro replacements. Implementation statuses are recorded separately from actual company/ERP acceptance. CI evidence is recorded in [verification](PDF04-VERIFICATION.md).
 
-Software is implemented; verification in progress. Local baseline:237 backend tests,9 UI tests and frontend build pass. Real fixture/ERP acceptance remains pending; no real approval date or production deployment claimed.
+Software implementation and automated verification are complete on `355a3bf43838854d1b4a8585a3fe4e3b7d053a78`. [CI run 42289410204](https://github.com/Cozmyn/Expense_report/actions/runs/42289410204) passed241 backend tests on each database,9 UI tests,6 desktop/mobile workflows, build/audit and the container gate. Real fixture/ERP acceptance remains pending; no real approval date or production deployment claimed.
 
 | ID | Requirement | Source | Status | Fix / disposition | Test / evidence |
 |---|---|---|---|---|---|

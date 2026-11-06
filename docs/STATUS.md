@@ -1,5 +1,11 @@
 # Starea curentă / Current status
 
+## PDF04 — implementare verificată / verified implementation — 06.11.2026
+
+Implementarea PDF04 respectă deciziile beneficiarului: numai Finance descarcă Excelurile contabile; Auditor păstrează accesul autorizat la originale/PDF; Import păstrează structura Excel fără un model TVA ERP suplimentar; deductibilitatea auto are implicit50%, editabilă de Finance, indiferent de plată. Rulează init pentru schema9.
+
+[Final verification and owner QA](council/PDF04-VERIFICATION.md):241 tests per database,9 UI tests,6 desktop/mobile workflows and container/build/audit gates passed on `355a3bf43838854d1b4a8585a3fe4e3b7d053a78`, [run 42289410204](https://github.com/Cozmyn/Expense_report/actions/runs/42289410204). [Matrix](council/PDF04-REQUIREMENTS.md):100 mapped,98 implementation Done,2 Partial for actual human/ERP acceptance. No real ERP posting or live production deployment claimed. Earlier premium-platform scope remains tracked separately below.
+
 ## PDF03 — închidere implementare / implementation closure — 06.11.2026
 
 Implementarea software PDF03 este integrată în `main`, commit `5ef829733d067d7936872f278c6304a4c6f2bccf`. [Verificarea pe main](https://github.com/Cozmyn/Expense_report/actions/runs/42040036179) a trecut: 200 teste backend pe SQLite și 200 pe PostgreSQL (fără eșecuri sau omiteri), 9 teste UI, 6 fluxuri desktop/mobil, TypeScript/build/audit dependențe și verificarea containerului. Migrarea necesită `--init`, schema release 8.
