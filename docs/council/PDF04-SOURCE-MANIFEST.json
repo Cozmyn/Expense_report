@@ -151,122 +151,122 @@
     {
       "column": "A",
       "header": "Date",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "B",
       "header": "Account type",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "C",
       "header": "Account",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "D",
       "header": "Business unit",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "E",
       "header": "Cost center",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "F",
       "header": "Objective",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "G",
       "header": "Site",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "H",
       "header": "Local account",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "I",
       "header": "Production line",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "J",
       "header": "Project",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "K",
       "header": "Sub account",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "L",
       "header": "Worker",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "M",
       "header": "Description",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "N",
       "header": "Debit",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "O",
       "header": "Credit",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "P",
       "header": "Currency",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "Q",
       "header": "Sales Tax Group",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "R",
       "header": "Item sales tax group",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "S",
       "header": "Offset Account type",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "T",
       "header": "Offset account",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "U",
       "header": "Invoice nr",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "V",
       "header": "Invoice date",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "W",
       "header": "Document nr",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     },
     {
       "column": "X",
       "header": "Due date",
-      "status": "ERP_SEMANTICS_REQUIRE_APPROVAL"
+      "status": "OWNER_D04_02_PRESERVE_WORKBOOK_HEADER_AND_VALUES"
     }
   ]
 }

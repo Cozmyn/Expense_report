@@ -21,11 +21,11 @@ Front office: generated journals should remain read-only; errors should link to 
 
 50 active receipts/report (not87+), separate personal/company-card reports, 5%/19% disabled, Worker is expense employee (no card-owner feature), no enterprise OIDC, documented zero base, Finance-only FX/rounding, no manager reapproval for FX-only changes, no extra rounding attachment≤2RON, signed same-flow documents with warnings. ERP-003/005 must explicitly reject5%; ERP-011 tests the50 boundary and dynamic output capacity without raising the receipt cap. PDF SQL is a design example, not authority to add unrequested tenancy or change signed flows.
 
-## Questions blocking posting-policy changes
+## Owner decisions — resolved on 06.11.2026
 
-1. Role: use existing Finance as PDF ACCOUNTING and retain scoped Auditor downloads, or restrict ERP downloads to Finance? No new role is silently created.
-2. ERP tax/interface contract: may Finance select and approve ERP-generated VAT versus explicit VAT rows, all24 column semantics and required fields, with no production export until approved? Actual ERP behavior is not supplied.
-3. Settlement and vehicle policy: may Finance configure separate personal/card clearing accounts and dated50% treatments for fuel/repairs/foreign expenses? No account number, special split or legal approval will be invented.
+See [confirmed decisions](PDF04-OWNER-DECISIONS.md). Finance alone downloads accounting Excel; Auditors retain source/PDF access. Preserve workbook Import and source amounts, without a new ERP VAT model or extra splits. All vehicle expenses default50 independent of payment; Finance may version the percentage.
+
+The findings below are the initial audit, preserved as history. See [current implementation matrix](PDF04-REQUIREMENTS.md) for current status.
 
 ## Phase 2 — five-step delivery plan
 
