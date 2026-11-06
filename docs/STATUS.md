@@ -1,5 +1,13 @@
 # Starea curentă / Current status
 
+## PDF03 — închidere implementare / implementation closure — 06.11.2026
+
+Implementarea software PDF03 este integrată în `main`, commit `5ef829733d067d7936872f278c6304a4c6f2bccf`. [Verificarea pe main](https://github.com/Cozmyn/Expense_report/actions/runs/42040036179) a trecut: 200 teste backend pe SQLite și 200 pe PostgreSQL (fără eșecuri sau omiteri), 9 teste UI, 6 fluxuri desktop/mobil, TypeScript/build/audit dependențe și verificarea containerului. Migrarea necesită `--init`, schema release 8.
+
+The PDF03 software implementation is merged and the main-branch checks passed. [Final verification and owner QA](council/PDF03-COMPLETION-VERIFICATION.md) and [PDF03 traceability](council/BLUEPRINT-03-REQUIREMENTS.md) record 59/59 mapped groups: 56 Done, 3 Partial for actual production reference data, representative-document validation and Finance/ERP acceptance. These require company evidence and authenticated human acceptance; they cannot be completed with fabricated sign-off. Live production deployment and actual ERP import have not been performed.
+
+Această închidere privește PDF03. Starea cererii premium originale și constatările istorice sunt păstrate mai jos; nu sunt declarate automat rezolvate prin livrarea PDF03. / This closure concerns PDF03; it does not mark every earlier premium-platform requirement complete.
+
 **PDF 02 update (05.11.2026):** current implementation/evidence is in `council/BLUEPRINT-02-CURRENT-MATRIX.md` and `council/VERIFICATION-02.json`. Earlier slice findings below are historical; external acceptance remains explicit.
 
 **Implementarea completă a cererii premium nu este terminată. / The full premium request is not complete.**

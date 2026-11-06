@@ -12,6 +12,10 @@ Tested runtime: **b4efb248b13e68c6b049688c2d89990aa0f060ed**.
 | Desktop + phone browsers | PASS: 6 workflows, 3.9 minutes | Job127280570348 |
 | Constrained container startup | PASS | Job127280570402 |
 
+## Verification after merge / Verificare după integrare
+
+Rechecked on 06.11.2026: merged commit `5ef829733d067d7936872f278c6304a4c6f2bccf` passed [main-branch run42040036179](https://github.com/Cozmyn/Expense_report/actions/runs/42040036179). Both database suites passed 200 tests with zero failures/skips; UI tests passed 9; browser workflows passed 6. Container launch and build/type/dependency gates passed. Jobs: PostgreSQL `127288125820`, SQLite `127288126011`, browser `127289918315`, container `127289918304`. The remaining changes recording this result are documentation only.
+
 ## What the tests prove
 
 The inherited OCR/source-group/receipt-to-ERP workflows still work. New flows exercise reversible reset and restoration without losing originals; source-linked bank principal/fees/markup; explicit Finance bank FX with preserved estimate/manager revision; accepted calculation provenance and comparison; draft/independent policy approval; and the central Finance configuration screen on desktop and phone widths.
