@@ -1,0 +1,110 @@
+{
+  "id": "ERP-005",
+  "status": "SYNTHETIC_REGRESSION_NOT_REAL_ERP_ACCEPTANCE",
+  "accountingApprovalDate": null,
+  "erpApprovalDate": null,
+  "ownerAuthority": "Owner clarification 06.11.2026: exact workbook Import; no extra ERP tax model; default editable50%; expense employee Worker; disabled5/19; max50",
+  "explanation": "Original5+11 pass superseded: 5% must be rejected; supported mixed vehicle case tested separately",
+  "inputs": [
+    {
+      "id": "00000000-0000-0000-0000-000000002000",
+      "position": 1,
+      "estimatedRon": "216.00",
+      "data": {
+        "supplier": "Synthetic supplier",
+        "cui": "18546294",
+        "invoice": "ERP-005",
+        "date": "2026-01-01",
+        "country": "RO",
+        "documentType": "Receipt",
+        "category": "CAR",
+        "description": "Synthetic posting fixture",
+        "payment": "Personal",
+        "cardId": null,
+        "costCenter": "CC",
+        "project": null,
+        "amount": "216.00",
+        "currency": "RON",
+        "taxes": [
+          {
+            "rateId": "00000000-0000-0000-0000-000000001005",
+            "base": "100.00",
+            "vat": "5.00"
+          },
+          {
+            "rateId": "00000000-0000-0000-0000-000000001011",
+            "base": "100.00",
+            "vat": "11.00"
+          }
+        ],
+        "hasCompanyCui": true,
+        "supplierConfirmed": true,
+        "taxCurrency": "RON",
+        "vatTreatment": "STANDARD"
+      }
+    }
+  ],
+  "syntheticAcceptedPostingData": [
+    {
+      "supplier": "Synthetic supplier",
+      "cui": "18546294",
+      "invoice": "ERP-005",
+      "date": "2026-01-01",
+      "country": "RO",
+      "documentType": "Receipt",
+      "category": "CAR",
+      "description": "Synthetic posting fixture",
+      "payment": "Personal",
+      "cardId": null,
+      "costCenter": "CC",
+      "project": null,
+      "amount": "216.00",
+      "currency": "RON",
+      "taxes": [
+        {
+          "rateId": "00000000-0000-0000-0000-000000001005",
+          "base": "100.00",
+          "vat": "5.00"
+        },
+        {
+          "rateId": "00000000-0000-0000-0000-000000001011",
+          "base": "100.00",
+          "vat": "11.00"
+        }
+      ],
+      "hasCompanyCui": true,
+      "supplierConfirmed": true,
+      "taxCurrency": "RON",
+      "vatTreatment": "STANDARD"
+    }
+  ],
+  "expectedHeaders": [
+    "Date",
+    "Account type",
+    "Account",
+    "Business unit",
+    "Cost center",
+    "Objective",
+    "Site",
+    "Local account",
+    "Production line",
+    "Project",
+    "Sub account",
+    "Worker",
+    "Description",
+    "Debit",
+    "Credit",
+    "Currency",
+    "Sales Tax Group",
+    "Item sales tax group",
+    "Offset Account type",
+    "Offset account",
+    "Invoice nr",
+    "Invoice date",
+    "Document nr",
+    "Due date"
+  ],
+  "expectedError": "vat_rate",
+  "expectedPostingLines": [],
+  "expectedAtoX": []
+}

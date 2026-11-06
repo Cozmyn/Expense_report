@@ -162,3 +162,26 @@ Full contracts and migration: [API03](council/API-03.md), [ADR03](council/ADR-03
 **EN:** **Finance settings** is available without opening a report. Manage currencies, tax policies and Finance/ERP acceptance here. Unapproved drafts never change active rules. The estimate uses the latest valid Finance entry across both supported rate configuration paths, ordered by recorded entry time.
 
 [Final verification and owner QA / Verificare finală și pași pentru beneficiar](council/PDF03-COMPLETION-VERIFICATION.md).
+
+
+## PDF04 — contabilizare și export / posting and export
+
+### Română
+
+1. **Configurare Finance → Deductibilitate auto:** implicit50%, pentru toate categoriile marcate auto, indiferent de metoda de plată. Introdu procentul, data aplicării și motivul. Se creează o versiune nouă; versiunile anterioare rămân în istoric. Pentru alt procent, completează codurile TVA contabile necesare; lipsa lor blochează exportul.
+2. Verifică documentul, baza și TVA-ul tipărit în **Calcul și FX**. Aplicația compară calculele fără să înlocuiască automat baza copiată de pe bon. O diferență necesită corectare/verificare Finance; nu este ascunsă în credit.
+3. Finalizează verificarea Finance, apoi deschide **ERP**. Verifică tabelul document→export și rândurile generate. **Sursă și mapare → Vezi documentul sursă** deschide originalul cu pagini, zoom și rotire. **Fișierul Import — toate cele24 de coloane** arată exact celulele exportului.
+4. Finance poate confirma sau respinge previzualizarea cu motiv. O respingere rămâne în verificarea Finance; nu cere automat o nouă aprobare managerială. Modificările FX păstrează regula deja aprobată de beneficiar.
+5. **Generează export** salvează fișierul original și istoricul. Reîncercarea aceleiași generări nu creează un al doilea export. După generare, previzualizarea arată datele istorice chiar dacă nomenclatoarele se schimbă ulterior.
+6. **Situație contabilă:** filtrează perioada/starea, deschide decontul, rândurile salvate sau XLSX. Totalurile pe departament/furnizor/categorie numără fiecare cheltuială o singură dată; exporturile anulate/reversate sunt excluse din aceste totaluri.
+7. Numai Finance/contabilitate descarcă Excelurile contabile. Auditorii pot vedea originalele și PDF-urile în limita accesului acordat. Exportul nu adaugă un calcul TVA al ERP și nu schimbă sumele pentru o egalitate artificială debit/credit. Dacă Excel nu poate păstra exact o sumă numerică, exportul se oprește cu explicație.
+
+### English
+
+In **Finance settings → Vehicle deductibility**, default50 applies to all vehicle mappings regardless of payment. Save a dated percentage and reason; history is preserved. Non50 requires corresponding accounting VAT codes before export.
+
+Check printed bases/paid VAT in **Calculations & FX**, then complete Finance review. **ERP** shows document→export reconciliation and traceable lines. **Source & mapping → View source document** opens original evidence. Expand **Import file — all24 columns** to inspect the exact serialized cells.
+
+Finance can accept/reject a fingerprinted preview with a reason. Export stores an immutable file; equivalent retries reuse the batch. Saved preview/history never adopts later master changes. **Accounting overview** filters batches and shows once-per-expense aggregates excluding void/reversed files. Finance alone downloads accounting Excel; authorised Auditors retain original/PDF access. No additional ERP VAT model or silent amount adjustment is introduced.
+
+[Owner decisions](council/PDF04-OWNER-DECISIONS.md) · [API/migration](council/API-04.md) · [Architecture](council/ADR-04.md).

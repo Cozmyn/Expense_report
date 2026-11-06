@@ -52,3 +52,8 @@ No production deployment, database migration, full OCR redesign, full WCAG certi
 - Desktop/mobile regression assertions for the image controls.
 - Historical first slice: superseded by PDF 02 page navigation and geometry; see council/BLUEPRINT-02-CURRENT-MATRIX.md.
 
+
+
+## 06.11.2026 — PDF04 owner-approved posting contract
+
+Finance-only accounting XLSX; Auditor evidence/PDF retained. Preserve printed VAT bases after validation, source-like A:X rows, default50 vehicle treatment with Finance-only dated percentage versions, exact source/output reconciliation, immutable per-line provenance and preview review, business export retry, frozen historical preview, SQL-backed accounting dashboard, additive schema9 and canonical monetary fingerprints. Owner expressly excludes an extra ERP VAT-calculation model and automatic amount rebalance. ERP-001–014 synthetic fixtures include honest pending real approval dates; disabled5/19 and50 cap remain. Actual verification is recorded separately after gates finish.

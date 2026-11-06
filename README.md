@@ -108,3 +108,8 @@ PDF03 completion controls: [API and migration](docs/council/API-03.md), [archite
 ## PDF03 — verificare finală / final verification
 
 [Rezultate, matrice și verificări pentru beneficiar / Results, traceability and owner QA](docs/council/PDF03-COMPLETION-VERIFICATION.md): 200 backend tests per database (SQLite and PostgreSQL), 9 UI tests, 6 desktop/mobile workflows and container verification passed on runtime commit `b4efb248b13e68c6b049688c2d89990aa0f060ed`. Finance has dedicated **Configurare Finance / Finance settings** navigation independent of reports. All 59 PDF03 groups are mapped; 56 Done and 3 Partial for real production data/corpus and Finance/ERP acceptance. These results do not close every earlier premium-platform requirement or claim live production deployment.
+
+
+## PDF04 — contabilizare / posting
+
+[Owner decisions](docs/council/PDF04-OWNER-DECISIONS.md), [API/migration](docs/council/API-04.md), [architecture](docs/council/ADR-04.md). Finance-only accounting XLSX, source-preserving workbook-style amounts, editable default50 vehicle percentage, traceable posting review/history and accounting overview. Run init for schema9. Automated checks and real company/ERP acceptance remain distinct.
