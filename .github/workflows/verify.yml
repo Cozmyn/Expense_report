@@ -77,6 +77,12 @@ jobs:
         with: {name: application, path: release}
       - name: Configure bounded dependency downloads
         run: |
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf 'https://archive.ubuntu.com/ubuntu\n' | sudo tee /etc/apt/apt-mirrors.txt
+          fi
+          if [ -f /etc/apt/apt-mirrors-security.txt ]; then
+            printf 'https://security.ubuntu.com/ubuntu\n' | sudo tee /etc/apt/apt-mirrors-security.txt
+          fi
           printf 'Acquire::Retries "2";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' | sudo tee /etc/apt/apt.conf.d/99-expense-ci
       - name: Install browser test packages
         timeout-minutes: 3
@@ -107,7 +113,7 @@ jobs:
       - name: Failure context
         if: failure()
         run: |
-          python -c "from pathlib import Path; s=Path('application.log').read_text(); print('\n'.join(s.splitlines()[max(0,s[:s.find('failed')].count(chr(10))-3):][:90]) if 'failed' in s else s[-20000:])"
+          python -c "from pathlib import Path; p=Path('application.log'); s=p.read_text() if p.exists() else 'Application did not start; inspect dependency setup steps.'; print('\n'.join(s.splitlines()[max(0,s[:s.find('failed')].count(chr(10))-3):][:90]) if 'failed' in s else s[-20000:])"
           python -c "from pathlib import Path; [print(p.read_text()) for p in Path('ui/test-results').rglob('error-context.md')]"
       - uses: actions/upload-artifact@v4
         if: always()
