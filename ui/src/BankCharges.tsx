@@ -1,3 +1,240 @@
-import React,{useEffect,useState}from'react';import{api}from'./api';import{Field}from'./Fields';import{add,sub,formatMoney}from'./decimal.mjs';
-type Any=Record<string,any>;
-export default function BankCharges({t,run,masters,refresh}:Any){const[transactions,T]=useState<Any[]>([]),[lines,L]=useState<Any[]>([]),[history,H]=useState<Any[]>([]),[revocations,RV]=useState<Any[]>([]),[tx,Tx]=useState(''),[report,R]=useState<Any|null>(null),[form,F]=useState<Any>({reportId:'',kind:'SEPARATE_CHARGES',principalRon:'',feeRon:'0',markupRon:'0',evidenceId:'',category:'',costCenter:'',reason:''});const load=async()=>{T((await api('/finance/transactions')).transactions);L(await api('/finance/lines'));const classification=await api('/finance/bank-treatments');H(classification.treatments);RV(classification.revocations);};useEffect(()=>{run(load);},[]);const set=(key:string,value:any)=>F({...form,[key]:value});const transaction=transactions.find(x=>x.id===tx);const reports=Array.from(new Map(lines.filter(l=>['FINANCE_REVIEW','READY_FOR_ERP','PENDING_VENDOR','PENDING_CARD_MATCH'].includes(l.state)&&(!transaction||l.data.cardId===transaction.cardId)).map(l=>[l.reportId,l])).values());const save=()=>run(async()=>{const current=(await api('/reports/'+form.reportId)).report;await api('/finance/transactions/'+tx+'/treatment','POST',{...form,version:current.version});await load();await refresh();});return <details className="panel"><summary>{t('Principal, comisioane și adaos FX','Principal, fees & FX markup')}</summary><p>{t('Separă costurile extrasului înainte de alocare. Principalul se folosește la FX; comisioanele și adaosul devin cheltuieli RON distincte, legate de extras.','Separate statement costs before allocation. Principal is used for FX; fees and markup become separate RON expenses linked to the statement.')}</p><div className="form-grid"><Field name={t('Tranzacție de clasificat','Transaction to classify')}><select value={tx} onChange={e=>{Tx(e.target.value);const selected=transactions.find(x=>x.id===e.target.value);F({...form,reportId:'',principalRon:selected?.settledRon||'',feeRon:'0',markupRon:'0',evidenceId:''});R(null);}}><option value="">{t('Selectează','Select')}</option>{transactions.map(x=><option value={x.id} key={x.id}>{x.reference} · {formatMoney(x.settledRon)} RON</option>)}</select></Field><Field name={t('Decont pentru costuri','Report for charges')}><select value={form.reportId} onChange={e=>{set('reportId',e.target.value);run(async()=>R((await api('/reports/'+e.target.value)).report));}}><option value="">{t('Selectează','Select')}</option>{reports.map((l:Any)=><option key={l.reportId} value={l.reportId}>{l.reportNumber}</option>)}</select></Field><Field name={t('Tratament extras','Statement treatment')}><select value={form.kind} onChange={e=>set('kind',e.target.value)}><option value="SEPARATE_CHARGES">{t('Costuri separate','Separate charges')}</option><option value="NORMAL">{t('Fără costuri suplimentare','No additional charges')}</option><option value="REVERSAL">{t('Sumă negativă / reversare','Negative amount / reversal')}</option></select></Field>{[['principalRon',t('Principal RON','Principal RON')],['feeRon',t('Comision RON','Fee RON')],['markupRon',t('Adaos FX RON','FX markup RON')]].map(([key,name])=><Field name={name} key={key}><input type="number" step="0.01" value={form[key]} onChange={e=>set(key,e.target.value)}/></Field>)}<Field name={t('Extras justificativ','Supporting statement')}><select value={form.evidenceId} onChange={e=>set('evidenceId',e.target.value)}><option value="">{t('Selectează fișierul scanat','Select scanned file')}</option>{[...(report?.attachments||[]),...(report?.lines||[]).flatMap((l:Any)=>l.evidence)].filter((a:Any)=>a.scan==='Clean').map((a:Any)=><option key={a.id} value={a.id}>{a.name}</option>)}</select></Field><Field name={t('Categorie costuri bancare','Bank-charge category')}><select value={form.category} onChange={e=>set('category',e.target.value)}><option value="">{t('Selectează','Select')}</option>{masters.filter((m:Any)=>m.kind==='expenseTypes'&&m.active).map((m:Any)=><option key={m.id} value={m.code}>{t(m.nameRo,m.nameEn)}</option>)}</select></Field><Field name={t('Centru costuri bancare','Bank-charge cost centre')}><select value={form.costCenter} onChange={e=>set('costCenter',e.target.value)}><option value="">{t('Selectează','Select')}</option>{masters.filter((m:Any)=>m.kind==='costCenters'&&m.active).map((m:Any)=><option key={m.id} value={m.code}>{t(m.nameRo,m.nameEn)}</option>)}</select></Field><Field name={t('Motiv clasificare','Classification reason')}><input value={form.reason} onChange={e=>set('reason',e.target.value)}/></Field></div><div className="actions"><button className="secondary" disabled={!transaction} onClick={()=>set('principalRon',sub(transaction!.settledRon,add(form.feeRon||'0',form.markupRon||'0')))}>{t('Recompune principalul','Reconcile principal')}</button><button className="primary" disabled={!tx||!form.reportId||!form.evidenceId||form.reason.trim().length<3} onClick={save}>{t('Confirmă clasificarea','Confirm classification')}</button></div><p>{t('Atașează extrasul unui bon sau documentelor decontului, apoi selectează-l aici după scanare.','Attach the statement to a receipt or report documents, then select it here after scanning.')}</p>{history.map(h=><div className="expense" key={h.id}><strong>{transactions.find(x=>x.id===h.transactionId)?.reference}</strong><p>{t('Principal / comision / adaos','Principal / fee / markup')}: {formatMoney(h.principalRon)} / {formatMoney(h.feeRon)} / {formatMoney(h.markupRon)} RON</p><p>{h.reason} · {h.actor}</p>{revocations.some((r:Any)=>r.treatmentId===h.id)?<p>{t('Anulată — păstrată în istoric','Undone — retained in history')}</p>:<button className="secondary danger" disabled={form.reason.trim().length<3} onClick={()=>run(async()=>{const current=(await api('/reports/'+h.reportId)).report;await api('/finance/bank-treatments/'+h.id+'/undo','POST',{version:current.version,reason:form.reason});await load();await refresh();})}>{t('Anulează clasificarea','Undo classification')}</button>}</div>)}</details>;}
+import React, { useEffect, useState } from 'react';
+import { api } from './api';
+import { Field } from './Fields';
+import { add, sub, formatMoney } from './decimal.mjs';
+type Any = Record<string, any>;
+export default function BankCharges({ t, run, masters, refresh }: Any) {
+  const [transactions, T] = useState<Any[]>([]),
+    [lines, L] = useState<Any[]>([]),
+    [history, H] = useState<Any[]>([]),
+    [revocations, RV] = useState<Any[]>([]),
+    [tx, Tx] = useState(''),
+    [report, R] = useState<Any | null>(null),
+    [form, F] = useState<Any>({
+      reportId: '',
+      kind: 'SEPARATE_CHARGES',
+      principalRon: '',
+      feeRon: '0',
+      markupRon: '0',
+      evidenceId: '',
+      category: '',
+      costCenter: '',
+      reason: '',
+    });
+  const load = async () => {
+    T((await api('/finance/transactions')).transactions);
+    L(await api('/finance/lines'));
+    const classification = await api('/finance/bank-treatments');
+    H(classification.treatments);
+    RV(classification.revocations);
+  };
+  useEffect(() => {
+    run(load);
+  }, []);
+  const set = (key: string, value: any) => F({ ...form, [key]: value });
+  const transaction = transactions.find((x) => x.id === tx);
+  const reports = Array.from(
+    new Map(
+      lines
+        .filter(
+          (l) =>
+            ['FINANCE_REVIEW', 'READY_FOR_ERP', 'PENDING_VENDOR', 'PENDING_CARD_MATCH'].includes(
+              l.state,
+            ) &&
+            (!transaction || l.data.cardId === transaction.cardId),
+        )
+        .map((l) => [l.reportId, l]),
+    ).values(),
+  );
+  const save = () =>
+    run(async () => {
+      const current = (await api('/reports/' + form.reportId)).report;
+      await api('/finance/transactions/' + tx + '/treatment', 'POST', {
+        ...form,
+        version: current.version,
+      });
+      await load();
+      await refresh();
+    });
+  return (
+    <details className="panel">
+      <summary>{t('Principal, comisioane și adaos FX', 'Principal, fees & FX markup')}</summary>
+      <p>
+        {t(
+          'Separă costurile extrasului înainte de alocare. Principalul se folosește la FX; comisioanele și adaosul devin cheltuieli RON distincte, legate de extras.',
+          'Separate statement costs before allocation. Principal is used for FX; fees and markup become separate RON expenses linked to the statement.',
+        )}
+      </p>
+      <div className="form-grid">
+        <Field name={t('Tranzacție de clasificat', 'Transaction to classify')}>
+          <select
+            value={tx}
+            onChange={(e) => {
+              Tx(e.target.value);
+              const selected = transactions.find((x) => x.id === e.target.value);
+              F({
+                ...form,
+                reportId: '',
+                principalRon: selected?.settledRon || '',
+                feeRon: '0',
+                markupRon: '0',
+                evidenceId: '',
+              });
+              R(null);
+            }}
+          >
+            <option value="">{t('Selectează', 'Select')}</option>
+            {transactions.map((x) => (
+              <option value={x.id} key={x.id}>
+                {x.reference} · {formatMoney(x.settledRon)} RON
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field name={t('Decont pentru costuri', 'Report for charges')}>
+          <select
+            value={form.reportId}
+            onChange={(e) => {
+              set('reportId', e.target.value);
+              run(async () => R((await api('/reports/' + e.target.value)).report));
+            }}
+          >
+            <option value="">{t('Selectează', 'Select')}</option>
+            {reports.map((l: Any) => (
+              <option key={l.reportId} value={l.reportId}>
+                {l.reportNumber}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field name={t('Tratament extras', 'Statement treatment')}>
+          <select value={form.kind} onChange={(e) => set('kind', e.target.value)}>
+            <option value="SEPARATE_CHARGES">{t('Costuri separate', 'Separate charges')}</option>
+            <option value="NORMAL">
+              {t('Fără costuri suplimentare', 'No additional charges')}
+            </option>
+            <option value="REVERSAL">
+              {t('Sumă negativă / reversare', 'Negative amount / reversal')}
+            </option>
+          </select>
+        </Field>
+        {[
+          ['principalRon', t('Principal RON', 'Principal RON')],
+          ['feeRon', t('Comision RON', 'Fee RON')],
+          ['markupRon', t('Adaos FX RON', 'FX markup RON')],
+        ].map(([key, name]) => (
+          <Field name={name} key={key}>
+            <input
+              type="number"
+              step="0.01"
+              value={form[key]}
+              onChange={(e) => set(key, e.target.value)}
+            />
+          </Field>
+        ))}
+        <Field name={t('Extras justificativ', 'Supporting statement')}>
+          <select value={form.evidenceId} onChange={(e) => set('evidenceId', e.target.value)}>
+            <option value="">{t('Selectează fișierul scanat', 'Select scanned file')}</option>
+            {[
+              ...(report?.attachments || []),
+              ...(report?.lines || []).flatMap((l: Any) => l.evidence),
+            ]
+              .filter((a: Any) => a.scan === 'Clean')
+              .map((a: Any) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+          </select>
+        </Field>
+        <Field name={t('Categorie costuri bancare', 'Bank-charge category')}>
+          <select value={form.category} onChange={(e) => set('category', e.target.value)}>
+            <option value="">{t('Selectează', 'Select')}</option>
+            {masters
+              .filter((m: Any) => m.kind === 'expenseTypes' && m.active)
+              .map((m: Any) => (
+                <option key={m.id} value={m.code}>
+                  {t(m.nameRo, m.nameEn)}
+                </option>
+              ))}
+          </select>
+        </Field>
+        <Field name={t('Centru costuri bancare', 'Bank-charge cost centre')}>
+          <select value={form.costCenter} onChange={(e) => set('costCenter', e.target.value)}>
+            <option value="">{t('Selectează', 'Select')}</option>
+            {masters
+              .filter((m: Any) => m.kind === 'costCenters' && m.active)
+              .map((m: Any) => (
+                <option key={m.id} value={m.code}>
+                  {t(m.nameRo, m.nameEn)}
+                </option>
+              ))}
+          </select>
+        </Field>
+        <Field name={t('Motiv clasificare', 'Classification reason')}>
+          <input value={form.reason} onChange={(e) => set('reason', e.target.value)} />
+        </Field>
+      </div>
+      <div className="actions">
+        <button
+          className="secondary"
+          disabled={!transaction}
+          onClick={() =>
+            set(
+              'principalRon',
+              sub(transaction!.settledRon, add(form.feeRon || '0', form.markupRon || '0')),
+            )
+          }
+        >
+          {t('Recompune principalul', 'Reconcile principal')}
+        </button>
+        <button
+          className="primary"
+          disabled={!tx || !form.reportId || !form.evidenceId || form.reason.trim().length < 3}
+          onClick={save}
+        >
+          {t('Confirmă clasificarea', 'Confirm classification')}
+        </button>
+      </div>
+      <p>
+        {t(
+          'Atașează extrasul unui bon sau documentelor decontului, apoi selectează-l aici după scanare.',
+          'Attach the statement to a receipt or report documents, then select it here after scanning.',
+        )}
+      </p>
+      {history.map((h) => (
+        <div className="expense" key={h.id}>
+          <strong>{transactions.find((x) => x.id === h.transactionId)?.reference}</strong>
+          <p>
+            {t('Principal / comision / adaos', 'Principal / fee / markup')}:{' '}
+            {formatMoney(h.principalRon)} / {formatMoney(h.feeRon)} / {formatMoney(h.markupRon)} RON
+          </p>
+          <p>
+            {h.reason} · {h.actor}
+          </p>
+          {revocations.some((r: Any) => r.treatmentId === h.id) ? (
+            <p>{t('Anulată — păstrată în istoric', 'Undone — retained in history')}</p>
+          ) : (
+            <button
+              className="secondary danger"
+              disabled={form.reason.trim().length < 3}
+              onClick={() =>
+                run(async () => {
+                  const current = (await api('/reports/' + h.reportId)).report;
+                  await api('/finance/bank-treatments/' + h.id + '/undo', 'POST', {
+                    version: current.version,
+                    reason: form.reason,
+                  });
+                  await load();
+                  await refresh();
+                })
+              }
+            >
+              {t('Anulează clasificarea', 'Undo classification')}
+            </button>
+          )}
+        </div>
+      ))}
+    </details>
+  );
+}
