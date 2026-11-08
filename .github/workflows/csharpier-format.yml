@@ -22,7 +22,8 @@ jobs:
       - name: Format only C# source and tests
         run: |
           export PATH="$PATH:$HOME/.dotnet/tools"
-          dotnet csharpier format server tests
+          csharpier format server
+          csharpier format tests
       - name: Verify resulting C# compiles and tests pass on SQLite
         run: dotnet test tests/Decont.Tests.csproj --configuration Release
       - name: Verify changes and commit
