@@ -3,6 +3,7 @@ WORKDIR /src/ui
 COPY ui/package*.json ./
 RUN npm ci
 COPY ui/ ./
+COPY deploy/check-release.mjs /src/deploy/check-release.mjs
 RUN npm test && npm run build
 FROM mcr.microsoft.com/dotnet/sdk:10.0-noble AS build
 RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core && rm -rf /var/lib/apt/lists/*

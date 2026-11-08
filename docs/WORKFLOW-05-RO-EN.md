@@ -43,7 +43,7 @@ O corecție a angajatului rămâne un flux Finance controlat și cere reaprobare
 
 ## Admin
 
-**Utilizatori și acces:** gestionează conturi și LantID. Pentru un cont cu manager, se creează și alocarea datată. Contul tehnic de bootstrap poate să nu aibă LantID; înainte de a depune deconturi trebuie completată o identitate validă.
+**Utilizatori și acces:** gestionează conturi și LantID. Pentru un cont cu manager, se creează și alocarea datată. Departamentul se selectează o dată în profil, din nomenclator, apoi se preia automat în decont. Contul tehnic de bootstrap poate să nu aibă LantID; înainte de a depune deconturi trebuie completată o identitate validă.
 
 **Alocări organizaționale:** verifică arborele, angajații fără manager și aprobările vechi care necesită confirmare. Creează/închide perioade; nu suprapune alocările. Pentru schimbări viitoare existente, actualizează explicit perioadele în locul unei suprascrieri generale din cont.
 
@@ -55,7 +55,7 @@ Admin controls employee identities and effective-dated organisation assignments.
 
 ## Actualizare / Upgrade
 
-Back up database and original-document storage together, stop the previous application, build the new image, run `--init` using the documented setup service, then start the web service. Schema release **10** adds typed approval routes/tasks, audit correlation and case-insensitive LantID uniqueness. Upgrades are additive and repeatable. Duplicate historical LantIDs must be resolved by Admin before the unique index can be installed; no identity is silently renamed.
+Back up database and original-document storage together, stop the previous application, build the new image, run `--init` using the documented setup service, then start the web service. Schema release **10** adds typed approval routes/tasks, audit correlation, case-insensitive LantID uniqueness and a superseded marker preserving same-day assignment history. Upgrades are additive and repeatable. Duplicate historical LantIDs must be resolved by Admin before the unique index can be installed; no identity is silently renamed.
 
 Pending legacy reports without a typed approval task are shown in Admin's issue queue. Admin must confirm the organisation assignment and reassign the task before a manager can decide. Historical decisions and exports are not fabricated, rewritten or removed.
 

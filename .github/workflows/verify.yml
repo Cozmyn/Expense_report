@@ -36,6 +36,11 @@ jobs:
           ERP_REFERENCE_OUTPUT: tests/TestResults/erp-reference
           TEST_POSTGRES: ${{ matrix.database == 'postgres' && 'Host=localhost;Database=postgres;Username=postgres;Password=ci-test-only' || '' }}
         run: dotnet test tests/Decont.Tests.csproj --configuration Release --logger "trx;LogFileName=backend.trx"
+      - name: Generate dependency SBOM
+        run: |
+          dotnet list server/Decont.Api.csproj package --include-transitive --format json > /tmp/nuget-inventory.json
+          npm ls --prefix ui --all --json > /tmp/npm-inventory.json
+          node deploy/sbom.mjs /tmp/nuget-inventory.json /tmp/npm-inventory.json tests/TestResults/dependencies.cdx.json
       - run: dotnet publish server/Decont.Api.csproj --configuration Release --output release
       - uses: actions/upload-artifact@v4
         continue-on-error: true # Evidence transfer must not prevent independent validation when account quota is exhausted.
@@ -76,6 +81,8 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with: {dotnet-version: '10.0.x'}
       - uses: actions/download-artifact@v4
+        id: application-artifact
+        continue-on-error: true
         with: {name: application, path: release}
       - name: Configure bounded dependency downloads
         run: |
@@ -89,6 +96,12 @@ jobs:
       - name: Install browser test packages
         timeout-minutes: 3
         run: npm ci --prefix ui --fetch-retries=2 --fetch-timeout=60000
+      - name: Build identical source when artifact transfer is unavailable
+        if: steps.application-artifact.outcome != 'success'
+        timeout-minutes: 5
+        run: |
+          npm run build --prefix ui
+          dotnet publish server/Decont.Api.csproj --configuration Release --output release
       - name: Install browser system and OCR dependencies
         timeout-minutes: 5
         working-directory: ui

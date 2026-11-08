@@ -1,0 +1,211 @@
+openapi: 3.1.0
+info:
+  title: Decont — organisation and approval API
+  version: '5.0'
+  description: Single-company authenticated workflow extension. Existing receipt, OCR, calculation and export APIs are documented in the preceding API guides.
+servers:
+  - url: /api
+security:
+  - session: []
+paths:
+  /org/me/manager:
+    get:
+      operationId: resolveOwnManager
+      parameters:
+        - {name: as_of, in: query, schema: {type: string, format: date}}
+      responses:
+        '200': {description: Effective assignment and manager/assignee identity.}
+        '422': {$ref: '#/components/responses/Invalid'}
+  /approvals/inbox:
+    get:
+      operationId: approvalInbox
+      description: Assigned pending tasks; Manager role required. Maximum 200, oldest first.
+      responses:
+        '200': {description: Authorized task array.}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /approvals/tasks/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    get:
+      operationId: approvalTask
+      responses:
+        '200': {description: Task, immutable route snapshot and authorized report view.}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /approvals/tasks/{id}/{action}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: action, in: path, required: true, schema: {type: string, enum: [approve, return, reject]}}
+    post:
+      operationId: decideApproval
+      parameters:
+        - {$ref: '#/components/parameters/Csrf'}
+        - {$ref: '#/components/parameters/Idempotency'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version, reportVersion]
+              properties:
+                version: {type: integer, minimum: 1}
+                reportVersion: {type: integer, minimum: 1}
+                reason: {type: [string, 'null'], description: Required for return/reject.}
+      responses:
+        '200': {description: Updated report; repeated identical idempotency key returns the committed response.}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/Invalid'}
+  /admin/approval-issues:
+    get:
+      operationId: approvalIssues
+      description: Admin-only employee routing issues and pending legacy/unavailable tasks.
+      responses:
+        '200': {description: People and reports arrays.}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /admin/reports/{id}/reassign:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    post:
+      operationId: reassignApproval
+      description: Admin only. Requires an active dated assignment to the selected manager. Existing financial revision remains frozen unless a legacy pending report has no submitted snapshot; that case receives a new explicit review revision, never a fabricated approval.
+      parameters:
+        - {$ref: '#/components/parameters/Csrf'}
+        - {$ref: '#/components/parameters/Idempotency'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version, reportVersion, managerId, reason]
+              properties:
+                version: {type: integer, minimum: 0, description: Zero only when no pending typed task exists.}
+                reportVersion: {type: integer, minimum: 1}
+                managerId: {type: string}
+                reason: {type: string, minLength: 3}
+      responses:
+        '200': {description: Updated report and new pending task; former pending assignee authority removed.}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/Invalid'}
+  /finance/reports/{id}/change-preview:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    post:
+      operationId: previewAccountingCorrection
+      description: Finance-only read-only preview. Compare source corrections cumulatively against the approved valuation; exclude FX-only movements. Receipt mutation separately enforces confirmReapproval=true when absolute difference exceeds 50 RON.
+      parameters:
+        - {$ref: '#/components/parameters/Csrf'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                lineId: {type: [string, 'null'], format: uuid}
+                operation: {type: string, enum: [replace, add, archive, duplicate], default: replace}
+                data: {type: [object, 'null'], description: ExpenseData using the existing receipt contract. Required for add/replace previews.}
+      responses:
+        '200':
+          description: Preview; no report mutation.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  approvedRon: {$ref: '#/components/schemas/Money'}
+                  proposedRon: {$ref: '#/components/schemas/Money'}
+                  differenceRon: {$ref: '#/components/schemas/Money'}
+                  thresholdRon: {$ref: '#/components/schemas/Money'}
+                  requiresReapproval: {type: boolean}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/Invalid'}
+  /admin/workflow-metrics:
+    get:
+      operationId: workflowMetrics
+      description: Admin-only aggregate counters. No receipt text or employee names.
+      responses:
+        '200': {description: Counts, oldest ages, state aggregation, schema and sample timestamp.}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /admin/organisation-import/{file}:
+    parameters:
+      - {name: file, in: path, required: true, schema: {type: string, enum: [template, export]}}
+    get:
+      operationId: organisationCsv
+      responses:
+        '200': {description: Admin-only CSV template or assignment history.}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /admin/organisation-import/preview:
+    post:
+      operationId: previewOrganisationImport
+      parameters:
+        - {$ref: '#/components/parameters/Csrf'}
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary, description: CSV or XLSX, maximum 1000 data rows.}
+      responses:
+        '200': {description: Rows, row/batch errors, original source hash and canonical input hash; no assignment mutation.}
+        '422': {$ref: '#/components/responses/Invalid'}
+  /admin/organisation-import/confirm:
+    post:
+      operationId: confirmOrganisationImport
+      parameters:
+        - {$ref: '#/components/parameters/Csrf'}
+        - {$ref: '#/components/parameters/Idempotency'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rows, inputHash, sourceHash, reason]
+              properties:
+                rows:
+                  type: array
+                  minItems: 1
+                  maxItems: 1000
+                  items: {$ref: '#/components/schemas/OrganisationRow'}
+                inputHash: {type: string}
+                sourceHash: {type: string, minLength: 64, maxLength: 64}
+                reason: {type: string, minLength: 3}
+      responses:
+        '200': {description: All rows validated again and atomically imported with provenance.}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/Invalid'}
+components:
+  securitySchemes:
+    session: {type: apiKey, in: cookie, name: decont.session}
+  parameters:
+    Id: {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+    Csrf: {name: X-CSRF-TOKEN, in: header, required: true, schema: {type: string}, description: Obtain from authenticated same-origin CSRF bootstrap.}
+    Idempotency: {name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 16, maxLength: 100}}
+  responses:
+    Forbidden: {description: Role or report/task authority denied.}
+    NotFound: {description: Entity missing or outside authorized report scope.}
+    Conflict: {description: Stale version, conflicting operation, or explicit material-correction confirmation required. Reload and inspect before retrying.}
+    Invalid: {description: Domain validation failed; bilingual code/ro/en response.}
+  schemas:
+    Money:
+      description: Numeric by default; exact invariant decimal string when X-Money-Format is exact-v1. Do not use binary floating-point for calculations.
+      oneOf:
+        - {type: number}
+        - {type: string, pattern: '^-?[0-9]+(\.[0-9]+)?$'}
+    OrganisationRow:
+      type: object
+      required: [username, managerUsername, department, from, active]
+      properties:
+        username: {type: string}
+        managerUsername: {type: string}
+        department: {type: string}
+        from: {type: string, format: date}
+        to: {type: [string, 'null'], format: date}
+        active: {type: boolean}
