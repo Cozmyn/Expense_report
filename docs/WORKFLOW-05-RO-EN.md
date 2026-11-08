@@ -10,7 +10,7 @@
 | Reasignare / Reassignment | Traseul trimis nu se schimbă automat. Admin poate reasigna cu motiv; fostul responsabil pierde accesul la aprobarea în curs. | Submitted routes do not move automatically. Admin can reassign with a reason; the former assignee loses pending-report access. |
 | Corecții / Corrections | Corecțiile contabile nu cer reaprobare dacă diferența cumulată este de cel mult 50 RON. Peste 50 RON, în plus sau în minus, Finance confirmă avertizarea înainte de salvare și se cere reaprobare. | Accounting corrections need no reapproval for a cumulative difference up to 50 RON. Above 50 RON in either direction, Finance confirms the warning before saving and manager reapproval is requested. |
 | FX | O modificare exclusiv de curs nu cere reaprobare. Diferențele din document se compară folosind evaluarea aprobată, pentru a exclude variația de curs. | FX-only changes never require reapproval. Source corrections use the approved valuation to exclude exchange-rate movements. |
-| Configurare / Configuration | GL și mapările ERP nu cer un al doilea aprobator. Controlul independent existent pentru politicile TVA rămâne separat. | GL and ERP mappings need no second approver. Existing independent VAT-policy approval remains separate. |
+| Configurare / Configuration | GL și mapările ERP nu cer un al doilea aprobator. Controlul independent existent pentru politicile TVA rămâne separat. | GL and ERP mappings need no second approver. Configuration drafts can be saved without changing live data, then validated and published by the same authorized editor. Existing independent VAT-policy approval remains separate. |
 | Export | Numai Finance descarcă fișierele contabile XLSX. Formatul A:X și valorile sursă sunt păstrate. | Only Finance downloads accounting XLSX files. A:X structure and source amounts are preserved. |
 
 Nu se adaugă OIDC enterprise sau titular de card. Limita rămâne 50 de bonuri active/decont, cu deconturi separate pentru plăți personale și card de companie. Cotele 5% și 19% rămân indisponibile. / No enterprise OIDC or card-owner module is added. The limit remains 50 active receipts/report, with separate personal/company-card reports. 5% and 19% remain unavailable.
@@ -55,7 +55,7 @@ Admin controls employee identities and effective-dated organisation assignments.
 
 ## Actualizare / Upgrade
 
-Back up database and original-document storage together, stop the previous application, build the new image, run `--init` using the documented setup service, then start the web service. Schema release **10** adds typed approval routes/tasks, audit correlation, case-insensitive LantID uniqueness and a superseded marker preserving same-day assignment history. Upgrades are additive and repeatable. Duplicate historical LantIDs must be resolved by Admin before the unique index can be installed; no identity is silently renamed.
+Back up database and original-document storage together, stop the previous application, build the new image, run `--init` using the documented setup service, then start the web service. Schema release **10** adds persisted configuration drafts, typed approval routes/tasks, audit correlation, case-insensitive LantID uniqueness and a superseded marker preserving same-day assignment history. Upgrades are additive and repeatable. Duplicate historical LantIDs must be resolved by Admin before the unique index can be installed; no identity is silently renamed.
 
 Pending legacy reports without a typed approval task are shown in Admin's issue queue. Admin must confirm the organisation assignment and reassign the task before a manager can decide. Historical decisions and exports are not fabricated, rewritten or removed.
 
@@ -95,3 +95,11 @@ Authenticated same-origin requests use CSRF protection; mutations also use `Idem
 - Resolve Finance exceptions, complete review, and verify the unchanged 24-column XLSX against approved expected values.
 
 Automated results and human acceptance are separate. Synthetic test documents are not real Finance/ERP acceptance, a legal assessment, a penetration test or a production recovery drill.
+
+## Ciorne de configurare / Configuration drafts
+
+În Nomenclatoare, **Salvează ciorna** păstrează datele fără să le aplice deconturilor. **Continuă editarea** redeschide o ciornă. **Publică versiunea** verifică din nou câmpurile obligatorii, perioadele, codurile și permisiunile, apoi creează versiunea cu data de efect. GL/ERP nu cer alt aprobator. Politicile TVA păstrează fluxul separat de control independent.
+
+Configuration drafts have version checks, author/change history and cancellation with a reason. Publication is atomic; a failed validation leaves the draft available for correction. Published/cancelled draft history cannot be rewritten. GL/local-account and ERP dimension codes must be completed before publication. Authorized direct master publication remains compatible with existing integrations and uses the same server validation.
+
+New routes: GET/POST `/api/configuration/drafts`, PUT `/api/configuration/drafts/{id}`, POST `/api/configuration/drafts/{id}/publish` and `/cancel`. Save body: `{data: MasterInput, version?}`. Publish/cancel: `{version, reason}`. All are Finance/Admin scoped, with Finance-only FX and vehicle controls. No additional approval task is created for GL/ERP publication.

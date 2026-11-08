@@ -181,6 +181,67 @@ paths:
         '200': {description: All rows validated again and atomically imported with provenance.}
         '409': {$ref: '#/components/responses/Conflict'}
         '422': {$ref: '#/components/responses/Invalid'}
+  /configuration/drafts:
+    get:
+      operationId: configurationDrafts
+      description: Finance/Admin configuration drafts and retained publication/cancellation history.
+      responses:
+        '200': {description: Latest 200 draft records including typed input data.}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      operationId: saveConfigurationDraft
+      parameters:
+        - {$ref: '#/components/parameters/Csrf'}
+        - {$ref: '#/components/parameters/Idempotency'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConfigurationDraftInput'}
+      responses:
+        '200': {description: Stored draft without changing live master data.}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/Invalid'}
+  /configuration/drafts/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    put:
+      operationId: editConfigurationDraft
+      parameters:
+        - {$ref: '#/components/parameters/Csrf'}
+        - {$ref: '#/components/parameters/Idempotency'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConfigurationDraftInput'}
+      responses:
+        '200': {description: Updated draft and incremented version.}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /configuration/drafts/{id}/{action}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: action, in: path, required: true, schema: {type: string, enum: [publish, cancel]}}
+    post:
+      operationId: publishOrCancelConfigurationDraft
+      description: Publish validates again and creates a dated master atomically. No second approver for GL/ERP; VAT policy approval remains separate.
+      parameters:
+        - {$ref: '#/components/parameters/Csrf'}
+        - {$ref: '#/components/parameters/Idempotency'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version, reason]
+              properties:
+                version: {type: integer, minimum: 1}
+                reason: {type: string, minLength: 3}
+      responses:
+        '200': {description: Published master or retained cancelled draft.}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/Invalid'}
 components:
   securitySchemes:
     session: {type: apiKey, in: cookie, name: decont.session}
@@ -209,3 +270,21 @@ components:
         from: {type: string, format: date}
         to: {type: [string, 'null'], format: date}
         active: {type: boolean}
+    ConfigurationDraftInput:
+      type: object
+      required: [data]
+      properties:
+        version: {type: integer, description: Required when editing an existing draft.}
+        data:
+          type: object
+          required: [kind, code, nameRo, nameEn, json, from, active, reason]
+          properties:
+            kind: {type: string}
+            code: {type: string}
+            nameRo: {type: string}
+            nameEn: {type: string}
+            json: {type: string, description: Structured master fields encoded as a JSON object.}
+            from: {type: string, format: date}
+            to: {type: [string, 'null'], format: date}
+            active: {type: boolean}
+            reason: {type: string, minLength: 3}
