@@ -127,8 +127,17 @@ public static class Api
             "/reports",
             async (Reports svc, Db db, HttpContext c) =>
             {
-                var rows = await svc.Scope(c.User).Include(r => r.Attachments).Include(r => r.Lines).ToListAsync();
-                var users = await svc.Names();
+                var rows = await svc
+                    .Scope(c.User)
+                    .AsNoTracking()
+                    .Include(r => r.Attachments)
+                    .Include(r => r.Lines)
+                    .ToListAsync();
+                // Only the employee/manager names displayed by this response are needed.
+                var userIds = rows.SelectMany(r => new[] { r.EmployeeId, r.ManagerId }).Distinct().ToList();
+                var users = await db.Users
+                    .Where(u => userIds.Contains(u.Id))
+                    .ToDictionaryAsync(u => u.Id, u => u.Name);
                 var actor = Reports.Actor(c.User);
                 var day = DateOnly.FromDateTime(DateTime.UtcNow);
                 var delegated = await db
