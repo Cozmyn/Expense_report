@@ -1,0 +1,9 @@
+import React,{useEffect,useId,useRef,useState}from'react';
+type Question={text:string;accept:string;resolve:(answer:boolean)=>void};
+export function useConfirmation(t:(ro:string,en:string)=>string){
+ const[question,Q]=useState<Question|null>(null),title=useId(),description=useId(),panel=useRef<HTMLElement>(null);
+ useEffect(()=>{if(!question)return;const previous=document.activeElement as HTMLElement|null;panel.current?.querySelector<HTMLButtonElement>('button')?.focus();const key=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();question.resolve(false);Q(null);}if(event.key==='Tab'){const buttons=panel.current?.querySelectorAll<HTMLButtonElement>('button');if(!buttons?.length)return;const first=buttons[0],last=buttons[buttons.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}};window.addEventListener('keydown',key,true);return()=>{window.removeEventListener('keydown',key,true);previous?.focus();};},[question]);
+ const answer=(value:boolean)=>{question?.resolve(value);Q(null);};
+ const confirm=(text:string,accept=t('Confirmă','Confirm'))=>new Promise<boolean>(resolve=>Q({text,accept,resolve}));
+ return{confirm,dialog:question?<div className="confirmation-backdrop"><section ref={panel} className="panel confirmation-dialog" role="alertdialog" aria-modal="true" aria-labelledby={title} aria-describedby={description}><h2 id={title}>{t('Confirmă acțiunea','Confirm action')}</h2><p id={description}>{question.text}</p><div className="actions"><button className="secondary" onClick={()=>answer(false)}>{t('Renunță','Cancel')}</button><button className="primary" onClick={()=>answer(true)}>{question.accept}</button></div></section></div>:null};
+}

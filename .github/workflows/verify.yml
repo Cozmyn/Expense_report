@@ -38,9 +38,11 @@ jobs:
         run: dotnet test tests/Decont.Tests.csproj --configuration Release --logger "trx;LogFileName=backend.trx"
       - run: dotnet publish server/Decont.Api.csproj --configuration Release --output release
       - uses: actions/upload-artifact@v4
+        continue-on-error: true # Evidence transfer must not prevent independent validation when account quota is exhausted.
         if: always()
         with: {name: 'verification-${{ matrix.database }}', path: 'tests/TestResults/*'}
       - uses: actions/upload-artifact@v4
+        continue-on-error: true # Evidence transfer must not prevent independent validation when account quota is exhausted.
         if: matrix.database == 'postgres'
         with: {name: application, path: release/}
   browser-workflows:
@@ -116,6 +118,7 @@ jobs:
           python -c "from pathlib import Path; p=Path('application.log'); s=p.read_text() if p.exists() else 'Application did not start; inspect dependency setup steps.'; print('\n'.join(s.splitlines()[max(0,s[:s.find('failed')].count(chr(10))-3):][:90]) if 'failed' in s else s[-20000:])"
           python -c "from pathlib import Path; [print(p.read_text()) for p in Path('ui/test-results').rglob('error-context.md')]"
       - uses: actions/upload-artifact@v4
+        continue-on-error: true # Evidence transfer must not prevent independent validation when account quota is exhausted.
         if: always()
         with:
           name: browser-results

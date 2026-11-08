@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "releaseSha": null,
+  "environment": "staging",
+  "companyScope": "single-company",
+  "targets": { "p95ReadMilliseconds": 400, "availabilityPercent": 99.9, "rpoMinutes": null, "rtoMinutes": null },
+  "gates": {
+    "automatedTests": { "status": "pending", "owner": null, "evidence": null, "approvedAt": null },
+    "financeGoldenCases": { "status": "pending", "owner": null, "evidence": null, "approvedAt": null },
+    "hrOrganisation": { "status": "pending", "owner": null, "evidence": null, "approvedAt": null },
+    "erpTestImport": { "status": "pending", "owner": null, "evidence": null, "approvedAt": null },
+    "privacySecurity": { "status": "pending", "owner": null, "evidence": null, "approvedAt": null },
+    "accessibilityUat": { "status": "pending", "owner": null, "evidence": null, "approvedAt": null },
+    "measuredPerformance": { "status": "pending", "owner": null, "evidence": null, "approvedAt": null },
+    "coordinatedRestore": { "status": "pending", "owner": null, "evidence": null, "approvedAt": null },
+    "monitoringOnCall": { "status": "pending", "owner": null, "evidence": null, "approvedAt": null },
+    "trainingCutover": { "status": "pending", "owner": null, "evidence": null, "approvedAt": null }
+  },
+  "releaseDecision": { "status": "pending", "owner": null, "signedEvidence": null, "approvedAt": null }
+}
