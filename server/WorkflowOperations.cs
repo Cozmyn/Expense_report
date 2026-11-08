@@ -1,0 +1,14 @@
+using Microsoft.EntityFrameworkCore;
+namespace Decont;
+
+public static class WorkflowOperations {
+ public static bool IsConflict(Exception error){for(Exception? current=error;current!=null;current=current.InnerException){if(current is Npgsql.PostgresException pg&&pg.SqlState is "40001" or "40P01" or "23505")return true;if(current is Microsoft.Data.Sqlite.SqliteException sqlite&&sqlite.SqliteErrorCode is 5 or 6 or 19)return true;}return false;}
+ public static void Map(RouteGroupBuilder api){
+  api.MapGet("/admin/workflow-metrics",async(Db db)=>{
+   var now=DateTime.UtcNow;
+   var oldest=await db.ApprovalTasks.Where(t=>t.State=="Pending").OrderBy(t=>t.CreatedAt).Select(t=>(DateTime?)t.CreatedAt).FirstOrDefaultAsync();
+   var queue=await db.Jobs.Where(j=>j.State=="Pending").OrderBy(j=>j.Due).Select(j=>(DateTime?)j.Due).FirstOrDefaultAsync();
+   return new{asOf=now,pendingApprovals=await db.ApprovalTasks.CountAsync(t=>t.State=="Pending"),oldestApprovalHours=oldest==null?0:Math.Max(0,(now-oldest.Value).TotalHours),pendingVendors=await db.Vendors.CountAsync(v=>v.State=="Pending"),pendingFxProposals=await db.FxProposals.CountAsync(p=>!db.FxDecisions.Any(d=>d.ProposalId==p.Id)),failedJobs=await db.Jobs.CountAsync(j=>j.State=="Failed"),oldestJobOverdueMinutes=queue==null?0:Math.Max(0,(now-queue.Value).TotalMinutes),notificationOutbox=await db.Jobs.CountAsync(j=>j.Kind=="Email"&&(j.State=="Pending"||j.State=="Processing")),postingRejections=await db.PostingReviews.CountAsync(p=>p.Action=="Rejected"),reportsByState=await db.Reports.GroupBy(r=>r.State).Select(g=>new{state=g.Key,count=g.Count()}).ToListAsync(),schema=await db.SchemaReleases.MaxAsync(r=>(int?)r.Id)??0};
+  }).RequireAuthorization(p=>p.RequireRole("Admin"));
+ }
+}
