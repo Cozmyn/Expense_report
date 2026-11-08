@@ -1,37 +1,304 @@
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
+
 namespace Decont;
 
-public record TaxPolicyRule(string Company, string CountryGroup, string DocumentKind, string CompanyCui, string Category, DateOnly From, DateOnly? To, int Priority, bool InputVatRequired, bool AllowZeroBase, string Treatment, string Authority, string Deductibility = "CATEGORY_MAPPING");
-public class TaxPolicyDraft { public Guid Id { get; set; } = Guid.NewGuid(); public string Json { get; set; } = "{}"; public string Author { get; set; } = ""; public string Reason { get; set; } = ""; public DateTime At { get; set; } = DateTime.UtcNow; }
-public class TaxPolicyDecision { public Guid Id { get; set; } = Guid.NewGuid(); public Guid PolicyId { get; set; } public string Action { get; set; } = ""; public string Actor { get; set; } = ""; public string Reason { get; set; } = ""; public DateTime At { get; set; } = DateTime.UtcNow; }
+public record TaxPolicyRule(
+    string Company,
+    string CountryGroup,
+    string DocumentKind,
+    string CompanyCui,
+    string Category,
+    DateOnly From,
+    DateOnly? To,
+    int Priority,
+    bool InputVatRequired,
+    bool AllowZeroBase,
+    string Treatment,
+    string Authority,
+    string Deductibility = "CATEGORY_MAPPING"
+);
+
+public class TaxPolicyDraft
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Json { get; set; } = "{}";
+    public string Author { get; set; } = "";
+    public string Reason { get; set; } = "";
+    public DateTime At { get; set; } = DateTime.UtcNow;
+}
+
+public class TaxPolicyDecision
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid PolicyId { get; set; }
+    public string Action { get; set; } = "";
+    public string Actor { get; set; } = "";
+    public string Reason { get; set; } = "";
+    public DateTime At { get; set; } = DateTime.UtcNow;
+}
+
 public record TaxPolicyCommand(TaxPolicyRule Rule, string Reason);
-public record TaxPolicySelection(TaxPolicyDraft? Draft, TaxPolicyRule? Rule, TaxPolicyDecision? Approval, List<Problem> Issues, string Reference);
+
+public record TaxPolicySelection(
+    TaxPolicyDraft? Draft,
+    TaxPolicyRule? Rule,
+    TaxPolicyDecision? Approval,
+    List<Problem> Issues,
+    string Reference
+);
+
 public static class TaxPolicies
 {
-    public static bool Approved(Guid id, IEnumerable<TaxPolicyDecision> decisions) => decisions.Any(d => d.PolicyId == id && d.Action == "APPROVE") && !decisions.Any(d => d.PolicyId == id && d.Action == "RETIRE");
-    public static int Specificity(TaxPolicyRule r) => new[] { r.Company, r.CountryGroup, r.DocumentKind, r.CompanyCui, r.Category }.Count(x => x != "*");
-    static bool SameScope(TaxPolicyRule a, TaxPolicyRule b) => a.Company == b.Company && a.CountryGroup == b.CountryGroup && a.DocumentKind == b.DocumentKind && a.CompanyCui == b.CompanyCui && a.Category == b.Category && a.Priority == b.Priority;
-    static bool Overlap(TaxPolicyRule a, TaxPolicyRule b) => a.From <= (b.To ?? DateOnly.MaxValue) && b.From <= (a.To ?? DateOnly.MaxValue);
-    public static void Validate(TaxPolicyRule r) { Guard.Require(!string.IsNullOrWhiteSpace(r.Company) && r.Company.Length <= 100 && r.CountryGroup is "*" or "RO" or "FOREIGN" && r.CompanyCui is "*" or "PRESENT" or "ABSENT" && r.DocumentKind.Length is > 0 and <= 100 && r.Category.Length is > 0 and <= 100 && r.From <= (r.To ?? DateOnly.MaxValue) && r.Priority is >= 0 and <= 1000 && r.Treatment is "STANDARD" or "EXEMPT" or "OUTSIDE_SCOPE" or "NOT_PRESENT" && r.Deductibility == "CATEGORY_MAPPING" && !string.IsNullOrWhiteSpace(r.Authority) && r.Authority.Length <= 2000, "tax_policy", "Completează domeniul, perioada și referința politicii. Ratele 5% și 19% rămân dezactivate.", "Complete policy scope, period and authority. Rates 5% and 19% remain disabled."); Guard.Require(r.Treatment == "STANDARD" || !r.InputVatRequired, "tax_policy", "Un tratament fără TVA recuperabil nu poate solicita componente TVA standard.", "A non-recoverable treatment cannot require standard VAT components."); }
-    public static TaxPolicySelection Resolve(ExpenseData d, string company, IEnumerable<TaxPolicyDraft> policies, IEnumerable<TaxPolicyDecision> decisions)
+    public static bool Approved(Guid id, IEnumerable<TaxPolicyDecision> decisions) =>
+        decisions.Any(d => d.PolicyId == id && d.Action == "APPROVE")
+        && !decisions.Any(d => d.PolicyId == id && d.Action == "RETIRE");
+
+    public static int Specificity(TaxPolicyRule r) =>
+        new[] { r.Company, r.CountryGroup, r.DocumentKind, r.CompanyCui, r.Category }.Count(x => x != "*");
+
+    static bool SameScope(TaxPolicyRule a, TaxPolicyRule b) =>
+        a.Company == b.Company
+        && a.CountryGroup == b.CountryGroup
+        && a.DocumentKind == b.DocumentKind
+        && a.CompanyCui == b.CompanyCui
+        && a.Category == b.Category
+        && a.Priority == b.Priority;
+
+    static bool Overlap(TaxPolicyRule a, TaxPolicyRule b) =>
+        a.From <= (b.To ?? DateOnly.MaxValue) && b.From <= (a.To ?? DateOnly.MaxValue);
+
+    public static void Validate(TaxPolicyRule r)
     {
-        var active = policies.Where(p => Approved(p.Id, decisions)).Select(p => (Draft: p, Rule: Serialization.Read<TaxPolicyRule>(p.Json))).Where(p => p.Rule.Company == company || p.Rule.Company == "*").ToList();
-        var adopted = policies.Where(p => decisions.Any(a => a.PolicyId == p.Id && a.Action == "APPROVE")).Select(p => Serialization.Read<TaxPolicyRule>(p.Json)).Where(r => r.Company == company || r.Company == "*").ToList(); var day = DateOnly.Parse(d.Date); if (adopted.Count == 0 || day < adopted.Min(r => r.From)) return new(null, null, null, [], FinancialCalculations.OwnerPolicy);
-        var cui = Rules.DomesticVat(d) ? "PRESENT" : "ABSENT"; var country = d.Country == "RO" ? "RO" : "FOREIGN";
-        var matching = active.Where(p => p.Rule.From <= day && (p.Rule.To == null || p.Rule.To >= day) && (p.Rule.CountryGroup == "*" || p.Rule.CountryGroup == country) && (p.Rule.DocumentKind == "*" || p.Rule.DocumentKind == d.DocumentType) && (p.Rule.CompanyCui == "*" || p.Rule.CompanyCui == cui) && (p.Rule.Category == "*" || p.Rule.Category == d.Category)).OrderByDescending(p => p.Rule.Priority).ThenByDescending(p => Specificity(p.Rule)).ToList();
-        List<Problem> issues = []; if (matching.Count == 0) issues.Add(new("tax_policy_gap", "Nu există o politică TVA aprobată pentru acest document. Finance trebuie să completeze configurarea.", "No approved VAT policy covers this document. Finance must complete configuration."));
-        if (matching.Count > 1 && matching[0].Rule.Priority == matching[1].Rule.Priority && Specificity(matching[0].Rule) == Specificity(matching[1].Rule)) issues.Add(new("tax_policy_ambiguous", "Două politici TVA au aceeași prioritate. Finance trebuie să elimine ambiguitatea.", "Two VAT policies have equal priority. Finance must resolve the ambiguity."));
-        if (issues.Count > 0) return new(null, null, null, issues, "UNRESOLVED"); var selected = matching[0]; var approval = decisions.Single(a => a.PolicyId == selected.Draft.Id && a.Action == "APPROVE"); return new(selected.Draft, selected.Rule, approval, [], selected.Draft.Id + "/" + Serialization.Hash(selected.Draft.Json) + "/" + approval.Id);
+        Guard.Require(
+            !string.IsNullOrWhiteSpace(r.Company)
+                && r.Company.Length <= 100
+                && r.CountryGroup is "*" or "RO" or "FOREIGN"
+                && r.CompanyCui is "*" or "PRESENT" or "ABSENT"
+                && r.DocumentKind.Length is > 0 and <= 100
+                && r.Category.Length is > 0 and <= 100
+                && r.From <= (r.To ?? DateOnly.MaxValue)
+                && r.Priority is >= 0 and <= 1000
+                && r.Treatment is "STANDARD" or "EXEMPT" or "OUTSIDE_SCOPE" or "NOT_PRESENT"
+                && r.Deductibility == "CATEGORY_MAPPING"
+                && !string.IsNullOrWhiteSpace(r.Authority)
+                && r.Authority.Length <= 2000,
+            "tax_policy",
+            "Completează domeniul, perioada și referința politicii. Ratele 5% și 19% rămân dezactivate.",
+            "Complete policy scope, period and authority. Rates 5% and 19% remain disabled."
+        );
+        Guard.Require(
+            r.Treatment == "STANDARD" || !r.InputVatRequired,
+            "tax_policy",
+            "Un tratament fără TVA recuperabil nu poate solicita componente TVA standard.",
+            "A non-recoverable treatment cannot require standard VAT components."
+        );
     }
-    public static async Task<TaxPolicySelection> Resolve(Db db, ExpenseData d) { var companyMaster = (await db.Masters.Where(m => m.Kind == "policies" && m.Code == "company" && m.Active).ToListAsync()).FirstOrDefault(m => Rules.Effective(m, DateOnly.Parse(d.Date))); var company = companyMaster == null ? "DEFAULT" : Rules.Cui(Rules.Text(companyMaster, "cui")); return Resolve(d, company, await db.TaxPolicies.ToListAsync(), await db.TaxPolicyDecisions.ToListAsync()); }
-    public static async Task Approve(Db db, TaxPolicyDraft policy, ClaimsPrincipal user, string reason) { Guard.Reason(reason); var actor = Reports.Actor(user); Guard.Require(user.IsInRole("Finance") && actor != policy.Author, "policy_separation", "Aprobarea trebuie făcută de alt utilizator Finance decât autorul.", "A different Finance user must approve the policy.", 403); var decisions = await db.TaxPolicyDecisions.ToListAsync(); Guard.Require(!decisions.Any(d => d.PolicyId == policy.Id), "policy_state", "Politica are deja o decizie. Creează o versiune nouă.", "Policy already has a decision. Create another version.", 409); var rule = Serialization.Read<TaxPolicyRule>(policy.Json); var others = await db.TaxPolicies.Where(p => p.Id != policy.Id).ToListAsync(); Guard.Require(!others.Where(p => Approved(p.Id, decisions)).Select(p => Serialization.Read<TaxPolicyRule>(p.Json)).Any(r => SameScope(rule, r) && Overlap(rule, r)), "policy_overlap", "Există deja o politică activă pentru același domeniu și perioadă. Închide versiunea anterioară.", "An active policy already covers the same scope and period. Retire the preceding version.", 409); db.TaxPolicyDecisions.Add(new() { PolicyId = policy.Id, Action = "APPROVE", Actor = actor, Reason = reason }); }
+
+    public static TaxPolicySelection Resolve(
+        ExpenseData d,
+        string company,
+        IEnumerable<TaxPolicyDraft> policies,
+        IEnumerable<TaxPolicyDecision> decisions
+    )
+    {
+        var active = policies
+            .Where(p => Approved(p.Id, decisions))
+            .Select(p => (Draft: p, Rule: Serialization.Read<TaxPolicyRule>(p.Json)))
+            .Where(p => p.Rule.Company == company || p.Rule.Company == "*")
+            .ToList();
+        var adopted = policies
+            .Where(p => decisions.Any(a => a.PolicyId == p.Id && a.Action == "APPROVE"))
+            .Select(p => Serialization.Read<TaxPolicyRule>(p.Json))
+            .Where(r => r.Company == company || r.Company == "*")
+            .ToList();
+        var day = DateOnly.Parse(d.Date);
+        if (adopted.Count == 0 || day < adopted.Min(r => r.From))
+            return new(null, null, null, [], FinancialCalculations.OwnerPolicy);
+        var cui = Rules.DomesticVat(d) ? "PRESENT" : "ABSENT";
+        var country = d.Country == "RO" ? "RO" : "FOREIGN";
+        var matching = active
+            .Where(p =>
+                p.Rule.From <= day
+                && (p.Rule.To == null || p.Rule.To >= day)
+                && (p.Rule.CountryGroup == "*" || p.Rule.CountryGroup == country)
+                && (p.Rule.DocumentKind == "*" || p.Rule.DocumentKind == d.DocumentType)
+                && (p.Rule.CompanyCui == "*" || p.Rule.CompanyCui == cui)
+                && (p.Rule.Category == "*" || p.Rule.Category == d.Category)
+            )
+            .OrderByDescending(p => p.Rule.Priority)
+            .ThenByDescending(p => Specificity(p.Rule))
+            .ToList();
+        List<Problem> issues = [];
+        if (matching.Count == 0)
+            issues.Add(
+                new(
+                    "tax_policy_gap",
+                    "Nu există o politică TVA aprobată pentru acest document. Finance trebuie să completeze configurarea.",
+                    "No approved VAT policy covers this document. Finance must complete configuration."
+                )
+            );
+        if (
+            matching.Count > 1
+            && matching[0].Rule.Priority == matching[1].Rule.Priority
+            && Specificity(matching[0].Rule) == Specificity(matching[1].Rule)
+        )
+            issues.Add(
+                new(
+                    "tax_policy_ambiguous",
+                    "Două politici TVA au aceeași prioritate. Finance trebuie să elimine ambiguitatea.",
+                    "Two VAT policies have equal priority. Finance must resolve the ambiguity."
+                )
+            );
+        if (issues.Count > 0)
+            return new(null, null, null, issues, "UNRESOLVED");
+        var selected = matching[0];
+        var approval = decisions.Single(a => a.PolicyId == selected.Draft.Id && a.Action == "APPROVE");
+        return new(
+            selected.Draft,
+            selected.Rule,
+            approval,
+            [],
+            selected.Draft.Id + "/" + Serialization.Hash(selected.Draft.Json) + "/" + approval.Id
+        );
+    }
+
+    public static async Task<TaxPolicySelection> Resolve(Db db, ExpenseData d)
+    {
+        var companyMaster = (
+            await db.Masters.Where(m => m.Kind == "policies" && m.Code == "company" && m.Active).ToListAsync()
+        ).FirstOrDefault(m => Rules.Effective(m, DateOnly.Parse(d.Date)));
+        var company = companyMaster == null ? "DEFAULT" : Rules.Cui(Rules.Text(companyMaster, "cui"));
+        return Resolve(d, company, await db.TaxPolicies.ToListAsync(), await db.TaxPolicyDecisions.ToListAsync());
+    }
+
+    public static async Task Approve(Db db, TaxPolicyDraft policy, ClaimsPrincipal user, string reason)
+    {
+        Guard.Reason(reason);
+        var actor = Reports.Actor(user);
+        Guard.Require(
+            user.IsInRole("Finance") && actor != policy.Author,
+            "policy_separation",
+            "Aprobarea trebuie făcută de alt utilizator Finance decât autorul.",
+            "A different Finance user must approve the policy.",
+            403
+        );
+        var decisions = await db.TaxPolicyDecisions.ToListAsync();
+        Guard.Require(
+            !decisions.Any(d => d.PolicyId == policy.Id),
+            "policy_state",
+            "Politica are deja o decizie. Creează o versiune nouă.",
+            "Policy already has a decision. Create another version.",
+            409
+        );
+        var rule = Serialization.Read<TaxPolicyRule>(policy.Json);
+        var others = await db.TaxPolicies.Where(p => p.Id != policy.Id).ToListAsync();
+        Guard.Require(
+            !others
+                .Where(p => Approved(p.Id, decisions))
+                .Select(p => Serialization.Read<TaxPolicyRule>(p.Json))
+                .Any(r => SameScope(rule, r) && Overlap(rule, r)),
+            "policy_overlap",
+            "Există deja o politică activă pentru același domeniu și perioadă. Închide versiunea anterioară.",
+            "An active policy already covers the same scope and period. Retire the preceding version.",
+            409
+        );
+        db.TaxPolicyDecisions.Add(
+            new()
+            {
+                PolicyId = policy.Id,
+                Action = "APPROVE",
+                Actor = actor,
+                Reason = reason,
+            }
+        );
+    }
+
     public static void Map(RouteGroupBuilder api)
     {
         var f = api.MapGroup("/finance/tax-policies").RequireAuthorization(p => p.RequireRole("Finance"));
-        f.MapGet("", async (Db db) => new { policies = await db.TaxPolicies.OrderByDescending(p => p.At).ToListAsync(), decisions = await db.TaxPolicyDecisions.OrderByDescending(d => d.At).ToListAsync() });
-        f.MapPost("", async (TaxPolicyCommand i, Db db, Reports svc, HttpContext c) => await Api.Atomic(db, c, i, async () => { Guard.Reason(i.Reason); Validate(i.Rule); var p = new TaxPolicyDraft { Json = Serialization.Write(i.Rule), Author = Reports.Actor(c.User), Reason = i.Reason }; db.TaxPolicies.Add(p); svc.Log(c.User, null, p.Id.ToString(), "TaxPolicyDrafted", after: p, reason: i.Reason); await Task.CompletedTask; return p; }));
-        f.MapPost("/{id:guid}/approve", async (Guid id, ReasonInput i, Db db, Reports svc, HttpContext c) => await Api.Atomic(db, c, i, async () => { var p = await db.TaxPolicies.FindAsync(id) ?? throw new DomainException("not_found", "Politica nu există.", "Policy not found.", 404); await Approve(db, p, c.User, i.Reason); svc.Log(c.User, null, id.ToString(), "TaxPolicyApproved", after: p, reason: i.Reason); return new { id, state = "APPROVED" }; }));
-        f.MapPost("/{id:guid}/retire", async (Guid id, ReasonInput i, Db db, Reports svc, HttpContext c) => await Api.Atomic(db, c, i, async () => { Guard.Reason(i.Reason); var decisions = await db.TaxPolicyDecisions.ToListAsync(); Guard.Require(Approved(id, decisions), "policy_state", "Politica nu este activă.", "Policy is not active.", 409); db.TaxPolicyDecisions.Add(new() { PolicyId = id, Action = "RETIRE", Actor = Reports.Actor(c.User), Reason = i.Reason }); svc.Log(c.User, null, id.ToString(), "TaxPolicyRetired", reason: i.Reason); return new { id, state = "RETIRED" }; }));
+        f.MapGet(
+            "",
+            async (Db db) =>
+                new
+                {
+                    policies = await db.TaxPolicies.OrderByDescending(p => p.At).ToListAsync(),
+                    decisions = await db.TaxPolicyDecisions.OrderByDescending(d => d.At).ToListAsync(),
+                }
+        );
+        f.MapPost(
+            "",
+            async (TaxPolicyCommand i, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        Guard.Reason(i.Reason);
+                        Validate(i.Rule);
+                        var p = new TaxPolicyDraft
+                        {
+                            Json = Serialization.Write(i.Rule),
+                            Author = Reports.Actor(c.User),
+                            Reason = i.Reason,
+                        };
+                        db.TaxPolicies.Add(p);
+                        svc.Log(c.User, null, p.Id.ToString(), "TaxPolicyDrafted", after: p, reason: i.Reason);
+                        await Task.CompletedTask;
+                        return p;
+                    }
+                )
+        );
+        f.MapPost(
+            "/{id:guid}/approve",
+            async (Guid id, ReasonInput i, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        var p =
+                            await db.TaxPolicies.FindAsync(id)
+                            ?? throw new DomainException("not_found", "Politica nu există.", "Policy not found.", 404);
+                        await Approve(db, p, c.User, i.Reason);
+                        svc.Log(c.User, null, id.ToString(), "TaxPolicyApproved", after: p, reason: i.Reason);
+                        return new { id, state = "APPROVED" };
+                    }
+                )
+        );
+        f.MapPost(
+            "/{id:guid}/retire",
+            async (Guid id, ReasonInput i, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        Guard.Reason(i.Reason);
+                        var decisions = await db.TaxPolicyDecisions.ToListAsync();
+                        Guard.Require(
+                            Approved(id, decisions),
+                            "policy_state",
+                            "Politica nu este activă.",
+                            "Policy is not active.",
+                            409
+                        );
+                        db.TaxPolicyDecisions.Add(
+                            new()
+                            {
+                                PolicyId = id,
+                                Action = "RETIRE",
+                                Actor = Reports.Actor(c.User),
+                                Reason = i.Reason,
+                            }
+                        );
+                        svc.Log(c.User, null, id.ToString(), "TaxPolicyRetired", reason: i.Reason);
+                        return new { id, state = "RETIRED" };
+                    }
+                )
+        );
     }
 }

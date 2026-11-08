@@ -1,35 +1,457 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using System.Text.Json;
+
 namespace Decont;
 
 public static class Admin
 {
     public static readonly string[] Roles = ["Employee", "Manager", "Finance", "Admin", "Auditor", "FinanceReopen"];
-    public static readonly string[] Kinds = ["costCenters", "projects", "expenseTypes", "cards", "vat", "fx", "accounting", "suppliers", "fieldRules", "erpSettings", "countries", "documentTypes", "organizationUnits", "policies", "notificationRules"];
-    static void Identity(IdentityResult result) => Guard.Require(result.Succeeded, "identity", "Datele contului sau parola nu respectă politica: " + string.Join(", ", result.Errors.Select(e => e.Code)), "Account or password policy failed: " + string.Join(", ", result.Errors.Select(e => e.Code)));
+    public static readonly string[] Kinds =
+    [
+        "costCenters",
+        "projects",
+        "expenseTypes",
+        "cards",
+        "vat",
+        "fx",
+        "accounting",
+        "suppliers",
+        "fieldRules",
+        "erpSettings",
+        "countries",
+        "documentTypes",
+        "organizationUnits",
+        "policies",
+        "notificationRules",
+    ];
+
+    static void Identity(IdentityResult result) =>
+        Guard.Require(
+            result.Succeeded,
+            "identity",
+            "Datele contului sau parola nu respectă politica: " + string.Join(", ", result.Errors.Select(e => e.Code)),
+            "Account or password policy failed: " + string.Join(", ", result.Errors.Select(e => e.Code))
+        );
+
     public static void Map(RouteGroupBuilder api)
     {
         var admin = api.MapGroup("/admin").RequireAuthorization(p => p.RequireRole("Admin"));
-        admin.MapGet("/users", async (UserManager<User> um, Db db) => { var rows = await db.Users.OrderBy(u => u.Name).ToListAsync(); var result = new List<object>(); foreach (var u in rows) result.Add(new { u.Id, u.UserName, u.Name, u.Email, u.Worker, u.ManagerId, u.Active, u.ChangePassword, u.LockoutEnd, roles = await um.GetRolesAsync(u) }); return result; });
-        admin.MapPost("/users", async (UserInput i, UserManager<User> um, Db db, Reports svc, HttpContext c) => await Api.Atomic(db, c, i, async () => { Guard.Require(i.Roles.All(Roles.Contains), "role", "Rol invalid.", "Invalid role."); Guard.Require(!string.IsNullOrWhiteSpace(i.Name) && !string.IsNullOrWhiteSpace(i.Email), "user", "Numele și emailul sunt obligatorii.", "Name and email are required."); await Manager(i.ManagerId, um); var u = new User { UserName = i.Username, Name = i.Name, Email = i.Email, Worker = i.Worker, ManagerId = i.ManagerId, Active = i.Active }; Identity(await um.CreateAsync(u, i.Password ?? "")); Identity(await um.AddToRolesAsync(u, i.Roles)); svc.Log(c.User, null, u.Id, "UserCreated", after: new { u.UserName, u.Name, u.Email, u.Worker, u.ManagerId, i.Roles }); return new { u.Id }; }));
-        admin.MapPut("/users/{id}", async (string id, UserInput i, UserManager<User> um, Db db, Reports svc, HttpContext c) => await Api.Atomic(db, c, i, async () => { var u = await um.FindByIdAsync(id) ?? throw new DomainException("user", "Cont inexistent.", "Account not found.", 404); Guard.Require(i.Roles.All(Roles.Contains), "role", "Rol invalid.", "Invalid role."); Guard.Reason(i.Reason); Guard.Require(id != Reports.Actor(c.User) || i.Active && i.Roles.Contains("Admin"), "self", "Nu îți poți dezactiva accesul administrativ.", "You cannot remove your own administrative access."); Guard.Require(i.ManagerId != id, "manager", "Managerul trebuie să fie alt utilizator.", "Manager must be another user."); await Manager(i.ManagerId, um); var before = new { u.Name, u.Email, u.Worker, u.ManagerId, u.Active, roles = await um.GetRolesAsync(u) }; u.Name = i.Name; u.Email = i.Email; u.Worker = i.Worker; u.ManagerId = i.ManagerId; u.Active = i.Active; Identity(await um.UpdateAsync(u)); var current = await um.GetRolesAsync(u); Identity(await um.RemoveFromRolesAsync(u, current.Except(i.Roles))); Identity(await um.AddToRolesAsync(u, i.Roles.Except(current))); await db.Sessions.Where(s => s.UserId == id).ExecuteDeleteAsync(); svc.Log(c.User, null, id, "UserChanged", before, new { u.Name, u.Email, u.Worker, u.ManagerId, u.Active, i.Roles }, i.Reason); return new { u.Id }; }));
-        admin.MapPost("/users/{id}/reset", async (string id, ResetInput i, UserManager<User> um, Db db, Reports svc, HttpContext c) => await Api.Atomic(db, c, new { id, i.Reason }, async () => { Guard.Reason(i.Reason); var u = await um.FindByIdAsync(id) ?? throw new DomainException("user", "Cont inexistent.", "Account not found.", 404); Identity(await um.ResetPasswordAsync(u, await um.GeneratePasswordResetTokenAsync(u), i.Password)); u.ChangePassword = true; Identity(await um.UpdateAsync(u)); await db.Sessions.Where(s => s.UserId == id).ExecuteDeleteAsync(); svc.Log(c.User, null, id, "PasswordReset", reason: i.Reason); return new { u.Id }; }));
-        admin.MapPost("/users/{id}/unlock", async (string id, ReasonInput i, UserManager<User> um, Db db, Reports svc, HttpContext c) => await Api.Atomic(db, c, i, async () => { Guard.Reason(i.Reason); var u = await um.FindByIdAsync(id) ?? throw new DomainException("user", "Cont inexistent.", "Account not found.", 404); Identity(await um.SetLockoutEndDateAsync(u, null)); Identity(await um.ResetAccessFailedCountAsync(u)); svc.Log(c.User, null, id, "UserUnlocked", reason: i.Reason); return new { u.Id }; }));
+        admin.MapGet(
+            "/users",
+            async (UserManager<User> um, Db db) =>
+            {
+                var rows = await db.Users.OrderBy(u => u.Name).ToListAsync();
+                var result = new List<object>();
+                foreach (var u in rows)
+                    result.Add(
+                        new
+                        {
+                            u.Id,
+                            u.UserName,
+                            u.Name,
+                            u.Email,
+                            u.Worker,
+                            u.ManagerId,
+                            u.Active,
+                            u.ChangePassword,
+                            u.LockoutEnd,
+                            roles = await um.GetRolesAsync(u),
+                        }
+                    );
+                return result;
+            }
+        );
+        admin.MapPost(
+            "/users",
+            async (UserInput i, UserManager<User> um, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        Guard.Require(i.Roles.All(Roles.Contains), "role", "Rol invalid.", "Invalid role.");
+                        Guard.Require(
+                            !string.IsNullOrWhiteSpace(i.Name) && !string.IsNullOrWhiteSpace(i.Email),
+                            "user",
+                            "Numele și emailul sunt obligatorii.",
+                            "Name and email are required."
+                        );
+                        await Manager(i.ManagerId, um);
+                        var u = new User
+                        {
+                            UserName = i.Username,
+                            Name = i.Name,
+                            Email = i.Email,
+                            Worker = i.Worker,
+                            ManagerId = i.ManagerId,
+                            Active = i.Active,
+                        };
+                        Identity(await um.CreateAsync(u, i.Password ?? ""));
+                        Identity(await um.AddToRolesAsync(u, i.Roles));
+                        svc.Log(
+                            c.User,
+                            null,
+                            u.Id,
+                            "UserCreated",
+                            after: new
+                            {
+                                u.UserName,
+                                u.Name,
+                                u.Email,
+                                u.Worker,
+                                u.ManagerId,
+                                i.Roles,
+                            }
+                        );
+                        return new { u.Id };
+                    }
+                )
+        );
+        admin.MapPut(
+            "/users/{id}",
+            async (string id, UserInput i, UserManager<User> um, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        var u =
+                            await um.FindByIdAsync(id)
+                            ?? throw new DomainException("user", "Cont inexistent.", "Account not found.", 404);
+                        Guard.Require(i.Roles.All(Roles.Contains), "role", "Rol invalid.", "Invalid role.");
+                        Guard.Reason(i.Reason);
+                        Guard.Require(
+                            id != Reports.Actor(c.User) || i.Active && i.Roles.Contains("Admin"),
+                            "self",
+                            "Nu îți poți dezactiva accesul administrativ.",
+                            "You cannot remove your own administrative access."
+                        );
+                        Guard.Require(
+                            i.ManagerId != id,
+                            "manager",
+                            "Managerul trebuie să fie alt utilizator.",
+                            "Manager must be another user."
+                        );
+                        await Manager(i.ManagerId, um);
+                        var before = new
+                        {
+                            u.Name,
+                            u.Email,
+                            u.Worker,
+                            u.ManagerId,
+                            u.Active,
+                            roles = await um.GetRolesAsync(u),
+                        };
+                        u.Name = i.Name;
+                        u.Email = i.Email;
+                        u.Worker = i.Worker;
+                        u.ManagerId = i.ManagerId;
+                        u.Active = i.Active;
+                        Identity(await um.UpdateAsync(u));
+                        var current = await um.GetRolesAsync(u);
+                        Identity(await um.RemoveFromRolesAsync(u, current.Except(i.Roles)));
+                        Identity(await um.AddToRolesAsync(u, i.Roles.Except(current)));
+                        await db.Sessions.Where(s => s.UserId == id).ExecuteDeleteAsync();
+                        svc.Log(
+                            c.User,
+                            null,
+                            id,
+                            "UserChanged",
+                            before,
+                            new
+                            {
+                                u.Name,
+                                u.Email,
+                                u.Worker,
+                                u.ManagerId,
+                                u.Active,
+                                i.Roles,
+                            },
+                            i.Reason
+                        );
+                        return new { u.Id };
+                    }
+                )
+        );
+        admin.MapPost(
+            "/users/{id}/reset",
+            async (string id, ResetInput i, UserManager<User> um, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    new { id, i.Reason },
+                    async () =>
+                    {
+                        Guard.Reason(i.Reason);
+                        var u =
+                            await um.FindByIdAsync(id)
+                            ?? throw new DomainException("user", "Cont inexistent.", "Account not found.", 404);
+                        Identity(
+                            await um.ResetPasswordAsync(u, await um.GeneratePasswordResetTokenAsync(u), i.Password)
+                        );
+                        u.ChangePassword = true;
+                        Identity(await um.UpdateAsync(u));
+                        await db.Sessions.Where(s => s.UserId == id).ExecuteDeleteAsync();
+                        svc.Log(c.User, null, id, "PasswordReset", reason: i.Reason);
+                        return new { u.Id };
+                    }
+                )
+        );
+        admin.MapPost(
+            "/users/{id}/unlock",
+            async (string id, ReasonInput i, UserManager<User> um, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        Guard.Reason(i.Reason);
+                        var u =
+                            await um.FindByIdAsync(id)
+                            ?? throw new DomainException("user", "Cont inexistent.", "Account not found.", 404);
+                        Identity(await um.SetLockoutEndDateAsync(u, null));
+                        Identity(await um.ResetAccessFailedCountAsync(u));
+                        svc.Log(c.User, null, id, "UserUnlocked", reason: i.Reason);
+                        return new { u.Id };
+                    }
+                )
+        );
         admin.MapGet("/delegations", async (Db db) => await db.Delegations.ToListAsync());
-        admin.MapPost("/delegations", async (Delegation i, Db db, UserManager<User> um, Reports svc, HttpContext c) => await Api.Atomic(db, c, i, async () => { Guard.Require(i.From <= i.To && i.ManagerId != i.DelegateId, "dates", "Delegare invalidă.", "Invalid delegation."); await Manager(i.ManagerId, um); await Manager(i.DelegateId, um); db.Delegations.Add(i); svc.Log(c.User, null, i.Id.ToString(), "DelegationCreated", after: i); return new { i.Id }; }));
-        admin.MapDelete("/delegations/{id:guid}", async (Guid id, Db db, Reports svc, HttpContext c) => await Api.Atomic(db, c, new { id }, async () => { var d = await db.Delegations.FindAsync(id) ?? throw new DomainException("missing", "Delegare inexistentă.", "Delegation not found.", 404); db.Delegations.Remove(d); svc.Log(c.User, null, id.ToString(), "DelegationRevoked", before: d); return new { id }; }));
+        admin.MapPost(
+            "/delegations",
+            async (Delegation i, Db db, UserManager<User> um, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        Guard.Require(
+                            i.From <= i.To && i.ManagerId != i.DelegateId,
+                            "dates",
+                            "Delegare invalidă.",
+                            "Invalid delegation."
+                        );
+                        await Manager(i.ManagerId, um);
+                        await Manager(i.DelegateId, um);
+                        db.Delegations.Add(i);
+                        svc.Log(c.User, null, i.Id.ToString(), "DelegationCreated", after: i);
+                        return new { i.Id };
+                    }
+                )
+        );
+        admin.MapDelete(
+            "/delegations/{id:guid}",
+            async (Guid id, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    new { id },
+                    async () =>
+                    {
+                        var d =
+                            await db.Delegations.FindAsync(id)
+                            ?? throw new DomainException(
+                                "missing",
+                                "Delegare inexistentă.",
+                                "Delegation not found.",
+                                404
+                            );
+                        db.Delegations.Remove(d);
+                        svc.Log(c.User, null, id.ToString(), "DelegationRevoked", before: d);
+                        return new { id };
+                    }
+                )
+        );
         var config = api.MapGroup("/configuration").RequireAuthorization(p => p.RequireRole("Finance", "Admin"));
-        config.MapGet("/masters", async (Db db) => await db.Masters.OrderBy(m => m.Kind).ThenBy(m => m.Code).ThenBy(m => m.From).ToListAsync());
-        config.MapPost("/masters", async (MasterInput i, Db db, Reports svc, HttpContext c) => await Api.Atomic(db, c, i, async () => await SpreadsheetImports.Create(i, db, svc, c)));
-        config.MapPost("/masters/{id:guid}/retire", async (Guid id, RetireInput i, Db db, Reports svc, HttpContext c) => await Api.Atomic(db, c, i, async () => { Guard.Reason(i.Reason); var m = await db.Masters.FindAsync(id) ?? throw new DomainException("missing", "Nomenclator inexistent.", "Master not found.", 404); Guard.Require((m.Kind != "fx" && !(m.Kind == "policies" && VehicleDeductibility.IsCode(m.Code))) || c.User.IsInRole("Finance"), "forbidden", "Doar Finance poate modifica un curs valutar.", "Only Finance may change exchange rates.", 403); Guard.Require(i.To >= m.From && (m.To == null || i.To <= m.To), "dates", "Perioadă invalidă.", "Invalid period."); var others = await db.Masters.Where(x => x.Id != id && x.Kind == m.Kind && x.Code == m.Code && x.Active).ToListAsync(); Guard.Require(!others.Any(x => x.From <= i.To && (x.To ?? DateOnly.MaxValue) >= m.From), "overlap", "Perioade suprapuse.", "Overlapping periods."); var before = Serialization.Write(m); m.To = i.To; svc.Log(c.User, null, id.ToString(), "MasterPeriodClosed", before, m, i.Reason); return m; }));
-        api.MapGet("/audit", async (Db db, HttpContext c) => await PlatformFeatures.AuditQuery(db, c).OrderByDescending(a => a.At).Take(1000).ToListAsync()).RequireAuthorization(p => p.RequireRole("Finance", "Admin", "Auditor"));
-        admin.MapGet("/jobs", async (Db db) => await db.Jobs.OrderByDescending(j => j.Due).Take(100).Select(j => new { j.Id, j.Kind, j.State, j.Attempts, j.Due, j.StartedAt, j.CompletedAt, j.FailureCode, j.Error }).ToListAsync());
-        admin.MapPost("/jobs/{id:guid}/retry", async (Guid id, ReasonInput i, Db db, Reports svc, HttpContext c) => await Api.Atomic(db, c, i, async () => { Guard.Reason(i.Reason); var j = await db.Jobs.FindAsync(id) ?? throw new DomainException("missing", "Operațiune inexistentă.", "Job not found.", 404); Guard.Require(j.State == "Failed", "state", "Operațiunea nu a eșuat.", "Job is not failed."); var before = new { j.State, j.Attempts, j.StartedAt, j.CompletedAt, j.FailureCode, j.Error }; if (j.Kind is "Ocr" or "OcrReport" or "Scan" or "ScanReport") { Guard.Require(!await db.Jobs.AnyAsync(other => other.Id != id && other.Kind == j.Kind && other.Json == j.Json && (other.State == "Pending" || other.State == "Processing")), "pending", "Există deja o reîncercare în curs.", "A retry is already queued.", 409); var next = new Job { Kind = j.Kind, Json = j.Json }; db.Jobs.Add(next); j.State = "Retried"; svc.Log(c.User, null, id.ToString(), "JobRetried", before, new { retryJobId = next.Id }, i.Reason); return new { id = next.Id, previousJobId = j.Id }; } j.State = "Pending"; j.Attempts = 0; j.Due = DateTime.UtcNow; svc.Log(c.User, null, id.ToString(), "JobRetried", before, new { j.State }, i.Reason); return new { id = j.Id, previousJobId = (Guid?)null }; }));
+        config.MapGet(
+            "/masters",
+            async (Db db) => await db.Masters.OrderBy(m => m.Kind).ThenBy(m => m.Code).ThenBy(m => m.From).ToListAsync()
+        );
+        config.MapPost(
+            "/masters",
+            async (MasterInput i, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(db, c, i, async () => await SpreadsheetImports.Create(i, db, svc, c))
+        );
+        config.MapPost(
+            "/masters/{id:guid}/retire",
+            async (Guid id, RetireInput i, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        Guard.Reason(i.Reason);
+                        var m =
+                            await db.Masters.FindAsync(id)
+                            ?? throw new DomainException(
+                                "missing",
+                                "Nomenclator inexistent.",
+                                "Master not found.",
+                                404
+                            );
+                        Guard.Require(
+                            (m.Kind != "fx" && !(m.Kind == "policies" && VehicleDeductibility.IsCode(m.Code)))
+                                || c.User.IsInRole("Finance"),
+                            "forbidden",
+                            "Doar Finance poate modifica un curs valutar.",
+                            "Only Finance may change exchange rates.",
+                            403
+                        );
+                        Guard.Require(
+                            i.To >= m.From && (m.To == null || i.To <= m.To),
+                            "dates",
+                            "Perioadă invalidă.",
+                            "Invalid period."
+                        );
+                        var others = await db
+                            .Masters.Where(x => x.Id != id && x.Kind == m.Kind && x.Code == m.Code && x.Active)
+                            .ToListAsync();
+                        Guard.Require(
+                            !others.Any(x => x.From <= i.To && (x.To ?? DateOnly.MaxValue) >= m.From),
+                            "overlap",
+                            "Perioade suprapuse.",
+                            "Overlapping periods."
+                        );
+                        var before = Serialization.Write(m);
+                        m.To = i.To;
+                        svc.Log(c.User, null, id.ToString(), "MasterPeriodClosed", before, m, i.Reason);
+                        return m;
+                    }
+                )
+        );
+        api.MapGet(
+                "/audit",
+                async (Db db, HttpContext c) =>
+                    await PlatformFeatures.AuditQuery(db, c).OrderByDescending(a => a.At).Take(1000).ToListAsync()
+            )
+            .RequireAuthorization(p => p.RequireRole("Finance", "Admin", "Auditor"));
+        admin.MapGet(
+            "/jobs",
+            async (Db db) =>
+                await db
+                    .Jobs.OrderByDescending(j => j.Due)
+                    .Take(100)
+                    .Select(j => new
+                    {
+                        j.Id,
+                        j.Kind,
+                        j.State,
+                        j.Attempts,
+                        j.Due,
+                        j.StartedAt,
+                        j.CompletedAt,
+                        j.FailureCode,
+                        j.Error,
+                    })
+                    .ToListAsync()
+        );
+        admin.MapPost(
+            "/jobs/{id:guid}/retry",
+            async (Guid id, ReasonInput i, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        Guard.Reason(i.Reason);
+                        var j =
+                            await db.Jobs.FindAsync(id)
+                            ?? throw new DomainException("missing", "Operațiune inexistentă.", "Job not found.", 404);
+                        Guard.Require(j.State == "Failed", "state", "Operațiunea nu a eșuat.", "Job is not failed.");
+                        var before = new
+                        {
+                            j.State,
+                            j.Attempts,
+                            j.StartedAt,
+                            j.CompletedAt,
+                            j.FailureCode,
+                            j.Error,
+                        };
+                        if (j.Kind is "Ocr" or "OcrReport" or "Scan" or "ScanReport")
+                        {
+                            Guard.Require(
+                                !await db.Jobs.AnyAsync(other =>
+                                    other.Id != id
+                                    && other.Kind == j.Kind
+                                    && other.Json == j.Json
+                                    && (other.State == "Pending" || other.State == "Processing")
+                                ),
+                                "pending",
+                                "Există deja o reîncercare în curs.",
+                                "A retry is already queued.",
+                                409
+                            );
+                            var next = new Job { Kind = j.Kind, Json = j.Json };
+                            db.Jobs.Add(next);
+                            j.State = "Retried";
+                            svc.Log(
+                                c.User,
+                                null,
+                                id.ToString(),
+                                "JobRetried",
+                                before,
+                                new { retryJobId = next.Id },
+                                i.Reason
+                            );
+                            return new { id = next.Id, previousJobId = j.Id };
+                        }
+                        j.State = "Pending";
+                        j.Attempts = 0;
+                        j.Due = DateTime.UtcNow;
+                        svc.Log(c.User, null, id.ToString(), "JobRetried", before, new { j.State }, i.Reason);
+                        return new { id = j.Id, previousJobId = (Guid?)null };
+                    }
+                )
+        );
     }
-    static async Task Manager(string? id, UserManager<User> um) { if (string.IsNullOrWhiteSpace(id)) return; var u = await um.FindByIdAsync(id); Guard.Require(u != null && u.Active && await um.IsInRoleAsync(u, "Manager"), "manager", "Selectează un manager activ.", "Select an active manager."); }
-}
-public record UserInput(string Username, string Name, string Email, string Worker, string? ManagerId, bool Active, string[] Roles, string? Password, string? Reason);
-public record ResetInput(string Password, string Reason); public record ReasonInput(string Reason);
-public record MasterInput(string Kind, string Code, string NameRo, string NameEn, string Json, DateOnly From, DateOnly? To, bool Active, string Reason); public record RetireInput(DateOnly To, string Reason);
 
+    static async Task Manager(string? id, UserManager<User> um)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            return;
+        var u = await um.FindByIdAsync(id);
+        Guard.Require(
+            u != null && u.Active && await um.IsInRoleAsync(u, "Manager"),
+            "manager",
+            "Selectează un manager activ.",
+            "Select an active manager."
+        );
+    }
+}
+
+public record UserInput(
+    string Username,
+    string Name,
+    string Email,
+    string Worker,
+    string? ManagerId,
+    bool Active,
+    string[] Roles,
+    string? Password,
+    string? Reason
+);
+
+public record ResetInput(string Password, string Reason);
+
+public record ReasonInput(string Reason);
+
+public record MasterInput(
+    string Kind,
+    string Code,
+    string NameRo,
+    string NameEn,
+    string Json,
+    DateOnly From,
+    DateOnly? To,
+    bool Active,
+    string Reason
+);
+
+public record RetireInput(DateOnly To, string Reason);

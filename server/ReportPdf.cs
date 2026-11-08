@@ -1,21 +1,143 @@
 using PdfSharp.Drawing;
+using PdfSharp.Drawing.Layout;
 using PdfSharp.Fonts;
 using PdfSharp.Pdf;
-using PdfSharp.Drawing.Layout;
+
 namespace Decont;
 
 public static class ReportPdf
 {
-    static ReportPdf() { GlobalFontSettings.FontResolver = new Fonts(); }
-    public static byte[] Generate(Report report, User employee, List<Decision> decisions, List<Master>? masters = null, List<Review>? reviews = null, List<Batch>? batches = null, Dictionary<string, string>? names = null)
+    static ReportPdf()
     {
-        using var pdf = new PdfDocument(); pdf.Info.Title = report.Number; pdf.Info.Subject = "Decont de cheltuieli / Expense report"; var normal = new XFont("Decont", 10, XFontStyleEx.Regular, new XPdfFontOptions(PdfFontEncoding.Unicode)); var bold = new XFont("Decont", 11, XFontStyleEx.Bold, new XPdfFontOptions(PdfFontEncoding.Unicode)); XGraphics? gfx = null; double y = 0; int pageNumber = 0;
-        void Page() { gfx?.Dispose(); var page = pdf.AddPage(); page.Size = PdfSharp.PageSize.A4; gfx = XGraphics.FromPdfPage(page); pageNumber++; y = 45; gfx.DrawString("DECONT · " + report.Number, bold, XBrushes.DarkGreen, new XRect(40, 20, 510, 20), XStringFormats.TopLeft); gfx.DrawString("Pagina / Page " + pageNumber, normal, XBrushes.Gray, new XRect(40, 800, 510, 15), XStringFormats.TopRight); }
-        void Text(string value, bool heading = false) { var chars = heading ? 70 : 92; var lines = value.Split('\n').Sum(s => Math.Max(1, (int)Math.Ceiling(s.Length / (double)chars))); var h = Math.Max(20, lines * 15 + 7); if (y + h > 765) Page(); new XTextFormatter(gfx!).DrawString(value, heading ? bold : normal, XBrushes.Black, new XRect(40, y, 515, h), XStringFormats.TopLeft); y += h; }
-        Page(); Text("Decont de cheltuieli / Expense report", true); Text(report.Purpose); Text($"Angajat / Employee: {(report.EmployeeName != "" ? report.EmployeeName : employee.Name)}\nLantID: {(report.EmployeeWorker != "" ? report.EmployeeWorker : employee.Worker)}\nDepartament / Department: {report.DepartmentCode}\nPlată decont / Report payment: {report.Payment}\nCard: {report.CardId}\nStare / Status: {report.State} · Revizie / Revision: {report.Revision}\nManager: {names?.GetValueOrDefault(report.ManagerId) ?? report.ManagerId}\nCreat / Created (UTC): {report.Created:yyyy-MM-dd HH:mm}");
-        foreach (var line in report.Lines.Where(l => !l.Archived).OrderBy(l => l.Position)) { var d = line.Data(); if (y + 140 > 765) Page(); Text($"{line.Position}. {d.Supplier} — {d.Invoice}", true); Text($"Data / Date: {d.Date} · Țara / Country: {d.Country} · CUI: {d.Cui}\n{d.Description}\nCategorie / Category: {d.Category} · Centru cost / Cost centre: {d.CostCenter} · Proiect / Project: {d.Project}\nPlată / Payment: {d.Payment} · Sumă / Amount: {d.Amount:0.00} {d.Currency}\nEstimat / Estimated: {line.EstimatedRon:0.00} RON · Final: {line.Final():0.00} RON"); foreach (var tax in d.Taxes) { var mapping = masters?.FirstOrDefault(m => m.Id == tax.RateId); var rate = mapping == null ? tax.RateId.ToString() : Rules.Number(mapping, "rate") + "%"; Text($"Cotă / Rate: {rate} · Bază / Base: {tax.Base:0.00} · TVA plătit / VAT paid: {tax.Vat:0.00} {d.TaxCurrency}"); } Text($"Furnizor RO / Romanian supplier: {d.Country == "RO"} · CUI companie / Company VAT ID: {Rules.DomesticVat(d)} · CUI furnizor / Supplier VAT ID: {d.Cui}"); Text("Documente / Documents: " + string.Join(", ", line.Evidence.Where(e => !e.Archived).Select(e => e.Name))); }
-        Text("Fișiere comune / Combined files: " + string.Join(", ", report.Attachments.Where(e => !e.Archived).Select(e => e.Name)));
-        Text($"Total: {report.Lines.Where(l => !l.Archived).Sum(l => l.Final()):0.00} RON", true); Text($"Rambursare personală / Personal reimbursement: {Rules.Personal(report):0.00} RON", true); Text("Decizii / Decisions", true); foreach (var d in decisions.OrderBy(d => d.At)) Text($"Rev. {d.Revision} · {d.Action} · {names?.GetValueOrDefault(d.Actor) ?? d.Actor} · {d.At:yyyy-MM-dd HH:mm} UTC\n{d.Reason}"); Text("Verificări Finance / Finance reviews", true); foreach (var review in reviews ?? []) Text($"Rev. {review.Revision} · {names?.GetValueOrDefault(review.Actor) ?? review.Actor} · {review.At:yyyy-MM-dd HH:mm} UTC"); Text("Postare ERP / ERP posting", true); foreach (var batch in batches ?? []) Text($"Ciclu / Cycle {batch.Cycle} · {batch.State} · Referință / Reference: {batch.Reference} · {batch.PostedAt:yyyy-MM-dd HH:mm} UTC"); gfx?.Dispose(); using var ms = new MemoryStream(); pdf.Save(ms); return ms.ToArray();
+        GlobalFontSettings.FontResolver = new Fonts();
     }
-    sealed class Fonts : IFontResolver { public string DefaultFontName => "Decont"; public FontResolverInfo ResolveTypeface(string familyName, bool isBold, bool isItalic) => new(isBold ? "bold" : "regular"); public byte[] GetFont(string name) { var root = Environment.GetEnvironmentVariable("DECONT_FONT_DIRECTORY") ?? "/usr/share/fonts/truetype/dejavu"; return File.ReadAllBytes(Path.Combine(root, name == "bold" ? "DejaVuSans-Bold.ttf" : "DejaVuSans.ttf")); } }
+
+    public static byte[] Generate(
+        Report report,
+        User employee,
+        List<Decision> decisions,
+        List<Master>? masters = null,
+        List<Review>? reviews = null,
+        List<Batch>? batches = null,
+        Dictionary<string, string>? names = null
+    )
+    {
+        using var pdf = new PdfDocument();
+        pdf.Info.Title = report.Number;
+        pdf.Info.Subject = "Decont de cheltuieli / Expense report";
+        var normal = new XFont("Decont", 10, XFontStyleEx.Regular, new XPdfFontOptions(PdfFontEncoding.Unicode));
+        var bold = new XFont("Decont", 11, XFontStyleEx.Bold, new XPdfFontOptions(PdfFontEncoding.Unicode));
+        XGraphics? gfx = null;
+        double y = 0;
+        int pageNumber = 0;
+        void Page()
+        {
+            gfx?.Dispose();
+            var page = pdf.AddPage();
+            page.Size = PdfSharp.PageSize.A4;
+            gfx = XGraphics.FromPdfPage(page);
+            pageNumber++;
+            y = 45;
+            gfx.DrawString(
+                "DECONT · " + report.Number,
+                bold,
+                XBrushes.DarkGreen,
+                new XRect(40, 20, 510, 20),
+                XStringFormats.TopLeft
+            );
+            gfx.DrawString(
+                "Pagina / Page " + pageNumber,
+                normal,
+                XBrushes.Gray,
+                new XRect(40, 800, 510, 15),
+                XStringFormats.TopRight
+            );
+        }
+        void Text(string value, bool heading = false)
+        {
+            var chars = heading ? 70 : 92;
+            var lines = value.Split('\n').Sum(s => Math.Max(1, (int)Math.Ceiling(s.Length / (double)chars)));
+            var h = Math.Max(20, lines * 15 + 7);
+            if (y + h > 765)
+                Page();
+            new XTextFormatter(gfx!).DrawString(
+                value,
+                heading ? bold : normal,
+                XBrushes.Black,
+                new XRect(40, y, 515, h),
+                XStringFormats.TopLeft
+            );
+            y += h;
+        }
+        Page();
+        Text("Decont de cheltuieli / Expense report", true);
+        Text(report.Purpose);
+        Text(
+            $"Angajat / Employee: {(report.EmployeeName != "" ? report.EmployeeName : employee.Name)}\nLantID: {(report.EmployeeWorker != "" ? report.EmployeeWorker : employee.Worker)}\nDepartament / Department: {report.DepartmentCode}\nPlată decont / Report payment: {report.Payment}\nCard: {report.CardId}\nStare / Status: {report.State} · Revizie / Revision: {report.Revision}\nManager: {names?.GetValueOrDefault(report.ManagerId) ?? report.ManagerId}\nCreat / Created (UTC): {report.Created:yyyy-MM-dd HH:mm}"
+        );
+        foreach (var line in report.Lines.Where(l => !l.Archived).OrderBy(l => l.Position))
+        {
+            var d = line.Data();
+            if (y + 140 > 765)
+                Page();
+            Text($"{line.Position}. {d.Supplier} — {d.Invoice}", true);
+            Text(
+                $"Data / Date: {d.Date} · Țara / Country: {d.Country} · CUI: {d.Cui}\n{d.Description}\nCategorie / Category: {d.Category} · Centru cost / Cost centre: {d.CostCenter} · Proiect / Project: {d.Project}\nPlată / Payment: {d.Payment} · Sumă / Amount: {d.Amount:0.00} {d.Currency}\nEstimat / Estimated: {line.EstimatedRon:0.00} RON · Final: {line.Final():0.00} RON"
+            );
+            foreach (var tax in d.Taxes)
+            {
+                var mapping = masters?.FirstOrDefault(m => m.Id == tax.RateId);
+                var rate = mapping == null ? tax.RateId.ToString() : Rules.Number(mapping, "rate") + "%";
+                Text(
+                    $"Cotă / Rate: {rate} · Bază / Base: {tax.Base:0.00} · TVA plătit / VAT paid: {tax.Vat:0.00} {d.TaxCurrency}"
+                );
+            }
+            Text(
+                $"Furnizor RO / Romanian supplier: {d.Country == "RO"} · CUI companie / Company VAT ID: {Rules.DomesticVat(d)} · CUI furnizor / Supplier VAT ID: {d.Cui}"
+            );
+            Text(
+                "Documente / Documents: " + string.Join(", ", line.Evidence.Where(e => !e.Archived).Select(e => e.Name))
+            );
+        }
+        Text(
+            "Fișiere comune / Combined files: "
+                + string.Join(", ", report.Attachments.Where(e => !e.Archived).Select(e => e.Name))
+        );
+        Text($"Total: {report.Lines.Where(l => !l.Archived).Sum(l => l.Final()):0.00} RON", true);
+        Text($"Rambursare personală / Personal reimbursement: {Rules.Personal(report):0.00} RON", true);
+        Text("Decizii / Decisions", true);
+        foreach (var d in decisions.OrderBy(d => d.At))
+            Text(
+                $"Rev. {d.Revision} · {d.Action} · {names?.GetValueOrDefault(d.Actor) ?? d.Actor} · {d.At:yyyy-MM-dd HH:mm} UTC\n{d.Reason}"
+            );
+        Text("Verificări Finance / Finance reviews", true);
+        foreach (var review in reviews ?? [])
+            Text(
+                $"Rev. {review.Revision} · {names?.GetValueOrDefault(review.Actor) ?? review.Actor} · {review.At:yyyy-MM-dd HH:mm} UTC"
+            );
+        Text("Postare ERP / ERP posting", true);
+        foreach (var batch in batches ?? [])
+            Text(
+                $"Ciclu / Cycle {batch.Cycle} · {batch.State} · Referință / Reference: {batch.Reference} · {batch.PostedAt:yyyy-MM-dd HH:mm} UTC"
+            );
+        gfx?.Dispose();
+        using var ms = new MemoryStream();
+        pdf.Save(ms);
+        return ms.ToArray();
+    }
+
+    sealed class Fonts : IFontResolver
+    {
+        public string DefaultFontName => "Decont";
+
+        public FontResolverInfo ResolveTypeface(string familyName, bool isBold, bool isItalic) =>
+            new(isBold ? "bold" : "regular");
+
+        public byte[] GetFont(string name)
+        {
+            var root =
+                Environment.GetEnvironmentVariable("DECONT_FONT_DIRECTORY") ?? "/usr/share/fonts/truetype/dejavu";
+            return File.ReadAllBytes(Path.Combine(root, name == "bold" ? "DejaVuSans-Bold.ttf" : "DejaVuSans.ttf"));
+        }
+    }
 }

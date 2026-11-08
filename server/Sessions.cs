@@ -2,13 +2,73 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+
 namespace Decont;
 
-public class Tickets(IServiceScopeFactory scopes, IDataProtectionProvider provider, IConfiguration config) : ITicketStore
+public class Tickets(IServiceScopeFactory scopes, IDataProtectionProvider provider, IConfiguration config)
+    : ITicketStore
 {
-    readonly IDataProtector protect = provider.CreateProtector("decont.server-session.v1"); public async Task<string> StoreAsync(AuthenticationTicket ticket) { var id = Guid.NewGuid().ToString("N"); await Save(id, ticket); return id; }
+    readonly IDataProtector protect = provider.CreateProtector("decont.server-session.v1");
+
+    public async Task<string> StoreAsync(AuthenticationTicket ticket)
+    {
+        var id = Guid.NewGuid().ToString("N");
+        await Save(id, ticket);
+        return id;
+    }
+
     public Task RenewAsync(string id, AuthenticationTicket ticket) => Save(id, ticket);
-    async Task Save(string id, AuthenticationTicket ticket) { using var scope = scopes.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<Db>(); var row = await db.Sessions.FindAsync(id); if (row == null) { row = new() { Id = id }; db.Sessions.Add(row); } row.UserId = ticket.Principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? ""; row.Ticket = protect.Protect(TicketSerializer.Default.Serialize(ticket)); row.Expires = (ticket.Properties.ExpiresUtc ?? DateTimeOffset.UtcNow.AddMinutes(30)).UtcDateTime; await db.SaveChangesAsync(); }
-    public async Task<AuthenticationTicket?> RetrieveAsync(string id) { using var scope = scopes.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<Db>(); var row = await db.Sessions.FindAsync(id); if (row == null || row.Expires < DateTime.UtcNow) return null; try { var ticket = TicketSerializer.Default.Deserialize(protect.Unprotect(row.Ticket)); if (ticket == null) return null; var user = await db.Users.FindAsync(row.UserId); if (user == null || !await PlatformFeatures.Active(db, user, DateOnly.FromDateTime(DateTime.UtcNow))) { db.Sessions.Remove(row); await db.SaveChangesAsync(); return null; } row.Expires = DateTime.UtcNow.AddMinutes(config.GetValue<int?>("Session:Minutes") ?? 30); ticket.Properties.ExpiresUtc = new DateTimeOffset(row.Expires, TimeSpan.Zero); await db.SaveChangesAsync(); return ticket; } catch { return null; } }
-    public async Task RemoveAsync(string id) { using var scope = scopes.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<Db>(); await db.Sessions.Where(s => s.Id == id).ExecuteDeleteAsync(); }
+
+    async Task Save(string id, AuthenticationTicket ticket)
+    {
+        using var scope = scopes.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        var row = await db.Sessions.FindAsync(id);
+        if (row == null)
+        {
+            row = new() { Id = id };
+            db.Sessions.Add(row);
+        }
+        row.UserId = ticket.Principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        row.Ticket = protect.Protect(TicketSerializer.Default.Serialize(ticket));
+        row.Expires = (ticket.Properties.ExpiresUtc ?? DateTimeOffset.UtcNow.AddMinutes(30)).UtcDateTime;
+        await db.SaveChangesAsync();
+    }
+
+    public async Task<AuthenticationTicket?> RetrieveAsync(string id)
+    {
+        using var scope = scopes.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        var row = await db.Sessions.FindAsync(id);
+        if (row == null || row.Expires < DateTime.UtcNow)
+            return null;
+        try
+        {
+            var ticket = TicketSerializer.Default.Deserialize(protect.Unprotect(row.Ticket));
+            if (ticket == null)
+                return null;
+            var user = await db.Users.FindAsync(row.UserId);
+            if (user == null || !await PlatformFeatures.Active(db, user, DateOnly.FromDateTime(DateTime.UtcNow)))
+            {
+                db.Sessions.Remove(row);
+                await db.SaveChangesAsync();
+                return null;
+            }
+            row.Expires = DateTime.UtcNow.AddMinutes(config.GetValue<int?>("Session:Minutes") ?? 30);
+            ticket.Properties.ExpiresUtc = new DateTimeOffset(row.Expires, TimeSpan.Zero);
+            await db.SaveChangesAsync();
+            return ticket;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task RemoveAsync(string id)
+    {
+        using var scope = scopes.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        await db.Sessions.Where(s => s.Id == id).ExecuteDeleteAsync();
+    }
 }

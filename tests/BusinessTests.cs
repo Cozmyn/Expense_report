@@ -1,25 +1,210 @@
-using Decont;
-using Xunit;
-using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using ClosedXML.Excel;
+using Decont;
+using Microsoft.EntityFrameworkCore;
+using Xunit;
+
 namespace Decont.Tests;
 
 public class BusinessTests
 {
-    [Theory][InlineData("RO18546294", true)][InlineData("18546291", false)][InlineData("", false)][InlineData("abcdefgh", false)] public void CuiChecksum(string input, bool expected) => Assert.Equal(expected, Rules.ValidCui(input));
-    [Theory][InlineData(1.005, 1.01)][InlineData(-1.005, -1.01)][InlineData(0.005, .01)] public void MonetaryRounding(decimal value, decimal expected) => Assert.Equal(expected, Rules.Money(value));
-    [Fact] public void ForeignPersonalHasNoCuiCardOrVat() { var states = Rules.FieldStates(Data() with { Country = "DE" }, []); Assert.Equal("NOT_APPLICABLE", states["cui"]); Assert.Equal("NOT_APPLICABLE", states["cardId"]); Assert.Equal("NOT_APPLICABLE", states["taxes"]); }
-    [Fact] public void CsvSupportsQuotedCommasAndNewlines() { var rows = Csv.Read("reference,merchant\nA,\"Shop, Bucharest\"\nB,\"line one\nline two\""); Assert.Equal(3, rows.Count); Assert.Equal("Shop, Bucharest", rows[1][1]); Assert.Equal("line one\nline two", rows[2][1]); Assert.StartsWith("\"'", Csv.Cell("=1+1")); }
-    [Fact] public void ZeroVatBaseIsPreservedAndWorkerIsEmployee() { var (report, masters, user) = Fixture(); var vat = Master("vat", "0", new { rate = 0, salesTaxGroup = "VDOM", itemTaxGroup = "G00" }); masters.Add(vat); report.Lines[0].Json = Serialization.Write(Data() with { Taxes = [new(vat.Id, 1.50m, 0)], Amount = 1.50m }); report.Lines[0].EstimatedRon = 1.50m; var result = new Posting().Build(report, user, masters); Assert.Equal(3, result.Rows.Count); Assert.Equal("1.50", result.Rows[0][13]); Assert.All(result.Rows, r => Assert.Equal("EXPENSE-PERSON", r[11])); Assert.All(result.Rows, r => Assert.Equal(24, r.Length)); Assert.Equal(result.Version, new Posting().Build(report, user, masters).Version); }
-    [Fact] public void Vehicle21ProducesTwoBaseTwoNonDedOneVatAndVendorClearing() { var (report, masters, user) = Fixture(); masters.Single(m => m.Kind == "accounting").Json = Serialization.Write(new { mainAccount = "TEST-GL", localAccount = "TEST-LOCAL", subAccount = "SUB", vehicle = true }); var vat = Master("vat", "21", new { rate = 21, salesTaxGroup = "VDOM", itemTaxGroup = "G21", deductible50Code = "SDED50_21", nonDeductible50Code = "SNDED50_21" }); masters.Add(vat); report.Lines[0].Json = Serialization.Write(Data() with { Taxes = [new(vat.Id, 100, 21)], Amount = 121 }); report.Lines[0].EstimatedRon = 121; var rows = new Posting().Build(report, user, masters).Rows; Assert.Equal(7, rows.Count); Assert.Equal("50.00", rows[0][13]); Assert.Equal("SNDED50_21", rows[0][17]); Assert.Equal("SDED50_21", rows[1][17]); Assert.Equal("", rows[1][10]); Assert.Equal("10.50", rows[5][14]); Assert.Equal("100.00", rows[2][14]); Assert.Equal("121.00", rows[6][14]); }
-    [Fact] public void MissingApprovalReferenceBlocksExport() { var (report, masters, user) = Fixture(); masters.Single(m => m.Kind == "erpSettings").Json = "{}"; Assert.Throws<DomainException>(() => new Posting().Build(report, user, masters)); }
-    [Fact] public async Task FinanceIncreaseTriggersNewApprovalSnapshot() { await using var db = Database(); await db.Database.EnsureCreatedAsync(); var (report, masters, user) = Fixture(); report.State = States.Finance; report.ApprovedPersonal = 90; db.Users.Add(user); db.Reports.Add(report); await db.SaveChangesAsync(); await new Reports(db).Reapproval(report, Principal("finance", "Finance")); Assert.Equal(States.Reapproval, report.State); Assert.Equal(1, report.Revision); Assert.Single(db.Snapshots.Local); }
-    [Fact] public async Task EmployeeCannotReadAnotherReportAndCannotMutateAudit() { await using var db = Database(); await db.Database.EnsureCreatedAsync(); var (report, _, _) = Fixture(); db.Reports.Add(report); db.Audits.Add(new() { Actor = "test", Action = "Created" }); await db.SaveChangesAsync(); Assert.Empty(await new Reports(db).Scope(Principal("other", "Employee")).ToListAsync()); var audit = await db.Audits.SingleAsync(); audit.Action = "Changed"; await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync()); }
-    [Fact] public void HeaderOrderHasExact24Columns() { Assert.Equal(24, Posting.Headers.Length); Assert.Equal("Date", Posting.Headers[0]); Assert.Equal("Account type", Posting.Headers[1]); Assert.Equal("Offset Account type", Posting.Headers[18]); Assert.Equal("Due date", Posting.Headers[23]); }
-    [Fact] public void WorkbookContainsOnlyValuesAndExactSchema() { var rows = new List<string[]> { Enumerable.Range(0, 24).Select(_ => "").ToArray() }; rows[0][1] = "Ledger"; rows[0][2] = "TEST"; rows[0][12] = "=MALICIOUS()"; rows[0][13] = "100.00"; using var ms = new MemoryStream(Documents.Workbook(rows)); using var book = new XLWorkbook(ms); Assert.Single(book.Worksheets); var sheet = book.Worksheet("Import"); for (int i = 0; i < 24; i++) Assert.Equal(Posting.Headers[i], sheet.Cell(1, i + 1).GetString()); Assert.Equal(100m, sheet.Cell(2, 14).GetValue<decimal>()); Assert.Equal("=MALICIOUS()", sheet.Cell(2, 13).GetString()); Assert.False(sheet.Cell(2, 13).HasFormula); }
-    [Fact] public async Task SameReportInvoiceDuplicatesAreDetected() { await using var db = Database(); await db.Database.EnsureCreatedAsync(); var (report, _, user) = Fixture(); report.Lines.Add(new() { ReportId = report.Id, Position = 2, Json = report.Lines[0].Json, EstimatedRon = 100 }); db.Reports.Add(report); await db.SaveChangesAsync(); var issues = await new Reports(db).Validate(report, true); Assert.Equal(2, issues.Count(p => p.Code == "duplicate_exact")); Assert.All(issues.Where(p => p.Code == "duplicate_exact"), p => Assert.True(p.Blocking)); }
-    [Fact] public void RomanianPdfHasValidHeaderAndContent() { var (report, _, user) = Fixture(); report.Purpose = "Întâlnire și deplasare la București"; user.Name = "Ștefan Țăran"; var bytes = ReportPdf.Generate(report, user, []); Assert.Equal("%PDF-", System.Text.Encoding.ASCII.GetString(bytes, 0, 5)); Assert.True(bytes.Length > 1000); }
+    [Theory]
+    [InlineData("RO18546294", true)]
+    [InlineData("18546291", false)]
+    [InlineData("", false)]
+    [InlineData("abcdefgh", false)]
+    public void CuiChecksum(string input, bool expected) => Assert.Equal(expected, Rules.ValidCui(input));
+
+    [Theory]
+    [InlineData(1.005, 1.01)]
+    [InlineData(-1.005, -1.01)]
+    [InlineData(0.005, .01)]
+    public void MonetaryRounding(decimal value, decimal expected) => Assert.Equal(expected, Rules.Money(value));
+
+    [Fact]
+    public void ForeignPersonalHasNoCuiCardOrVat()
+    {
+        var states = Rules.FieldStates(Data() with { Country = "DE" }, []);
+        Assert.Equal("NOT_APPLICABLE", states["cui"]);
+        Assert.Equal("NOT_APPLICABLE", states["cardId"]);
+        Assert.Equal("NOT_APPLICABLE", states["taxes"]);
+    }
+
+    [Fact]
+    public void CsvSupportsQuotedCommasAndNewlines()
+    {
+        var rows = Csv.Read("reference,merchant\nA,\"Shop, Bucharest\"\nB,\"line one\nline two\"");
+        Assert.Equal(3, rows.Count);
+        Assert.Equal("Shop, Bucharest", rows[1][1]);
+        Assert.Equal("line one\nline two", rows[2][1]);
+        Assert.StartsWith("\"'", Csv.Cell("=1+1"));
+    }
+
+    [Fact]
+    public void ZeroVatBaseIsPreservedAndWorkerIsEmployee()
+    {
+        var (report, masters, user) = Fixture();
+        var vat = Master(
+            "vat",
+            "0",
+            new
+            {
+                rate = 0,
+                salesTaxGroup = "VDOM",
+                itemTaxGroup = "G00",
+            }
+        );
+        masters.Add(vat);
+        report.Lines[0].Json = Serialization.Write(Data() with { Taxes = [new(vat.Id, 1.50m, 0)], Amount = 1.50m });
+        report.Lines[0].EstimatedRon = 1.50m;
+        var result = new Posting().Build(report, user, masters);
+        Assert.Equal(3, result.Rows.Count);
+        Assert.Equal("1.50", result.Rows[0][13]);
+        Assert.All(result.Rows, r => Assert.Equal("EXPENSE-PERSON", r[11]));
+        Assert.All(result.Rows, r => Assert.Equal(24, r.Length));
+        Assert.Equal(result.Version, new Posting().Build(report, user, masters).Version);
+    }
+
+    [Fact]
+    public void Vehicle21ProducesTwoBaseTwoNonDedOneVatAndVendorClearing()
+    {
+        var (report, masters, user) = Fixture();
+        masters.Single(m => m.Kind == "accounting").Json = Serialization.Write(
+            new
+            {
+                mainAccount = "TEST-GL",
+                localAccount = "TEST-LOCAL",
+                subAccount = "SUB",
+                vehicle = true,
+            }
+        );
+        var vat = Master(
+            "vat",
+            "21",
+            new
+            {
+                rate = 21,
+                salesTaxGroup = "VDOM",
+                itemTaxGroup = "G21",
+                deductible50Code = "SDED50_21",
+                nonDeductible50Code = "SNDED50_21",
+            }
+        );
+        masters.Add(vat);
+        report.Lines[0].Json = Serialization.Write(Data() with { Taxes = [new(vat.Id, 100, 21)], Amount = 121 });
+        report.Lines[0].EstimatedRon = 121;
+        var rows = new Posting().Build(report, user, masters).Rows;
+        Assert.Equal(7, rows.Count);
+        Assert.Equal("50.00", rows[0][13]);
+        Assert.Equal("SNDED50_21", rows[0][17]);
+        Assert.Equal("SDED50_21", rows[1][17]);
+        Assert.Equal("", rows[1][10]);
+        Assert.Equal("10.50", rows[5][14]);
+        Assert.Equal("100.00", rows[2][14]);
+        Assert.Equal("121.00", rows[6][14]);
+    }
+
+    [Fact]
+    public void MissingApprovalReferenceBlocksExport()
+    {
+        var (report, masters, user) = Fixture();
+        masters.Single(m => m.Kind == "erpSettings").Json = "{}";
+        Assert.Throws<DomainException>(() => new Posting().Build(report, user, masters));
+    }
+
+    [Fact]
+    public async Task FinanceIncreaseTriggersNewApprovalSnapshot()
+    {
+        await using var db = Database();
+        await db.Database.EnsureCreatedAsync();
+        var (report, masters, user) = Fixture();
+        report.State = States.Finance;
+        report.ApprovedPersonal = 90;
+        db.Users.Add(user);
+        db.Reports.Add(report);
+        await db.SaveChangesAsync();
+        await new Reports(db).Reapproval(report, Principal("finance", "Finance"));
+        Assert.Equal(States.Reapproval, report.State);
+        Assert.Equal(1, report.Revision);
+        Assert.Single(db.Snapshots.Local);
+    }
+
+    [Fact]
+    public async Task EmployeeCannotReadAnotherReportAndCannotMutateAudit()
+    {
+        await using var db = Database();
+        await db.Database.EnsureCreatedAsync();
+        var (report, _, _) = Fixture();
+        db.Reports.Add(report);
+        db.Audits.Add(new() { Actor = "test", Action = "Created" });
+        await db.SaveChangesAsync();
+        Assert.Empty(await new Reports(db).Scope(Principal("other", "Employee")).ToListAsync());
+        var audit = await db.Audits.SingleAsync();
+        audit.Action = "Changed";
+        await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync());
+    }
+
+    [Fact]
+    public void HeaderOrderHasExact24Columns()
+    {
+        Assert.Equal(24, Posting.Headers.Length);
+        Assert.Equal("Date", Posting.Headers[0]);
+        Assert.Equal("Account type", Posting.Headers[1]);
+        Assert.Equal("Offset Account type", Posting.Headers[18]);
+        Assert.Equal("Due date", Posting.Headers[23]);
+    }
+
+    [Fact]
+    public void WorkbookContainsOnlyValuesAndExactSchema()
+    {
+        var rows = new List<string[]> { Enumerable.Range(0, 24).Select(_ => "").ToArray() };
+        rows[0][1] = "Ledger";
+        rows[0][2] = "TEST";
+        rows[0][12] = "=MALICIOUS()";
+        rows[0][13] = "100.00";
+        using var ms = new MemoryStream(Documents.Workbook(rows));
+        using var book = new XLWorkbook(ms);
+        Assert.Single(book.Worksheets);
+        var sheet = book.Worksheet("Import");
+        for (int i = 0; i < 24; i++)
+            Assert.Equal(Posting.Headers[i], sheet.Cell(1, i + 1).GetString());
+        Assert.Equal(100m, sheet.Cell(2, 14).GetValue<decimal>());
+        Assert.Equal("=MALICIOUS()", sheet.Cell(2, 13).GetString());
+        Assert.False(sheet.Cell(2, 13).HasFormula);
+    }
+
+    [Fact]
+    public async Task SameReportInvoiceDuplicatesAreDetected()
+    {
+        await using var db = Database();
+        await db.Database.EnsureCreatedAsync();
+        var (report, _, user) = Fixture();
+        report.Lines.Add(
+            new()
+            {
+                ReportId = report.Id,
+                Position = 2,
+                Json = report.Lines[0].Json,
+                EstimatedRon = 100,
+            }
+        );
+        db.Reports.Add(report);
+        await db.SaveChangesAsync();
+        var issues = await new Reports(db).Validate(report, true);
+        Assert.Equal(2, issues.Count(p => p.Code == "duplicate_exact"));
+        Assert.All(issues.Where(p => p.Code == "duplicate_exact"), p => Assert.True(p.Blocking));
+    }
+
+    [Fact]
+    public void RomanianPdfHasValidHeaderAndContent()
+    {
+        var (report, _, user) = Fixture();
+        report.Purpose = "Întâlnire și deplasare la București";
+        user.Name = "Ștefan Țăran";
+        var bytes = ReportPdf.Generate(report, user, []);
+        Assert.Equal("%PDF-", System.Text.Encoding.ASCII.GetString(bytes, 0, 5));
+        Assert.True(bytes.Length > 1000);
+    }
 
     [Theory]
     [InlineData(0, 11, 1)]
@@ -32,42 +217,418 @@ public class BusinessTests
     [InlineData(2.01, 21, 2)]
     public void DocumentedZeroBaseAlwaysCountsWithoutDroppingMoney(decimal zeroBase, int percent, int count)
     {
-        var (report, masters, user) = Fixture(); masters.Single(m => m.Kind == "accounting").Json = Serialization.Write(new { mainAccount = "TEST-GL", localAccount = "TEST-LOCAL", subAccount = "SUB", vehicle = true });
-        var zero = Master("vat", "0", new { rate = 0, salesTaxGroup = "VDOM", itemTaxGroup = "G00" });
-        var rate = Master("vat", percent.ToString(), new { rate = percent, salesTaxGroup = "VDOM", itemTaxGroup = "G", deductible50Code = "DED", nonDeductible50Code = "NONDED" }); masters.AddRange([zero, rate]);
-        var d = Data() with { Amount = 100 + percent + zeroBase, Taxes = [new(zero.Id, zeroBase, 0), new(rate.Id, 100, percent)] };
-        var line = report.Lines[0]; line.Json = Serialization.Write(d); line.EstimatedRon = d.Amount;
-        Assert.Equal(count, Rules.VatCodeCount(d, masters)); var rows = new Posting().Build(report, user, masters).Rows;
-        var vendor = Assert.Single(rows.Where(r => r[1] == "Vendor")); Assert.Equal((100 + zeroBase).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture), vendor[14]);
-        var vendorIndex = rows.IndexOf(vendor); var adjustmentIndex = rows.FindIndex(r => r[2] == "NONDED"); Assert.Equal(count == 1, vendorIndex < adjustmentIndex);
-        Assert.Equal(zeroBase, rows.Where(r => r[17] == "G00").Sum(r => r[13] == "" ? 0 : decimal.Parse(r[13], System.Globalization.CultureInfo.InvariantCulture)));
+        var (report, masters, user) = Fixture();
+        masters.Single(m => m.Kind == "accounting").Json = Serialization.Write(
+            new
+            {
+                mainAccount = "TEST-GL",
+                localAccount = "TEST-LOCAL",
+                subAccount = "SUB",
+                vehicle = true,
+            }
+        );
+        var zero = Master(
+            "vat",
+            "0",
+            new
+            {
+                rate = 0,
+                salesTaxGroup = "VDOM",
+                itemTaxGroup = "G00",
+            }
+        );
+        var rate = Master(
+            "vat",
+            percent.ToString(),
+            new
+            {
+                rate = percent,
+                salesTaxGroup = "VDOM",
+                itemTaxGroup = "G",
+                deductible50Code = "DED",
+                nonDeductible50Code = "NONDED",
+            }
+        );
+        masters.AddRange([zero, rate]);
+        var d = Data() with
+        {
+            Amount = 100 + percent + zeroBase,
+            Taxes = [new(zero.Id, zeroBase, 0), new(rate.Id, 100, percent)],
+        };
+        var line = report.Lines[0];
+        line.Json = Serialization.Write(d);
+        line.EstimatedRon = d.Amount;
+        Assert.Equal(count, Rules.VatCodeCount(d, masters));
+        var rows = new Posting().Build(report, user, masters).Rows;
+        var vendor = Assert.Single(rows.Where(r => r[1] == "Vendor"));
+        Assert.Equal((100 + zeroBase).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture), vendor[14]);
+        var vendorIndex = rows.IndexOf(vendor);
+        var adjustmentIndex = rows.FindIndex(r => r[2] == "NONDED");
+        Assert.Equal(count == 1, vendorIndex < adjustmentIndex);
+        Assert.Equal(
+            zeroBase,
+            rows.Where(r => r[17] == "G00")
+                .Sum(r => r[13] == "" ? 0 : decimal.Parse(r[13], System.Globalization.CultureInfo.InvariantCulture))
+        );
         Assert.Equal(d.Amount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture), rows[^1][14]);
     }
+
     [Theory]
     [InlineData(.39, 2)]
     [InlineData(.4, 2)]
     [InlineData(.41, 2)]
-    public void DocumentedZeroBaseIsNotSuppressedByFx(decimal zeroBase, int expected) { var (_, masters, _) = Fixture(); var zero = Master("vat", "0", new { rate = 0 }); var positive = Master("vat", "21", new { rate = 21 }); masters.AddRange([zero, positive, Master("fx", "EUR", new { ronRate = 5 })]); var d = Data() with { Currency = "EUR", TaxCurrency = "EUR", Taxes = [new(zero.Id, zeroBase, 0), new(positive.Id, 100, 21)] }; Assert.Equal(expected, Rules.VatCodeCount(d, masters)); Assert.Equal(2, Rules.VatCodeCount(d, masters, 6)); }
+    public void DocumentedZeroBaseIsNotSuppressedByFx(decimal zeroBase, int expected)
+    {
+        var (_, masters, _) = Fixture();
+        var zero = Master("vat", "0", new { rate = 0 });
+        var positive = Master("vat", "21", new { rate = 21 });
+        masters.AddRange([zero, positive, Master("fx", "EUR", new { ronRate = 5 })]);
+        var d = Data() with
+        {
+            Currency = "EUR",
+            TaxCurrency = "EUR",
+            Taxes = [new(zero.Id, zeroBase, 0), new(positive.Id, 100, 21)],
+        };
+        Assert.Equal(expected, Rules.VatCodeCount(d, masters));
+        Assert.Equal(2, Rules.VatCodeCount(d, masters, 6));
+    }
+
     [Theory]
     [InlineData(.08, false)]
     [InlineData(.09, true)]
-    public void VatArithmeticToleranceIsRonNotReceiptCurrency(decimal extra, bool blocked) { var rate = Master("vat", "21", new { rate = 21 }); var d = Data() with { Currency = "EUR", TaxCurrency = "EUR", Amount = 121 + extra, Taxes = [new(rate.Id, 100, 21 + extra)] }; var l = new Line { Json = Serialization.Write(d), EstimatedRon = d.Amount * 5 }; Assert.Equal(blocked, Rules.VatIssues(l, [rate]).Any(p => p.Code == "vat_arithmetic" && p.Blocking)); }
-    [Fact] public void ZeroAmountReturnsValidationInsteadOfDividingByZero() { var rate = Master("vat", "21", new { rate = 21 }); var d = Data() with { Currency = "EUR", TaxCurrency = "EUR", Amount = 0, Taxes = [new(rate.Id, 100, 21)] }; Assert.Contains(Rules.VatIssues(new Line { Json = Serialization.Write(d) }, [rate]), p => p.Code == "amount"); }
-    [Fact] public void NotApplicableProjectNeverRequiresMasterOrLeaksIntoPosting() { var (report, masters, user) = Fixture(); masters.Add(Master("fieldRules", "no-project", new { field = "project", state = "NOT_APPLICABLE", conditions = new { country = "DE" }, priority = 1 })); report.Lines[0].Json = Serialization.Write(Data() with { Country = "DE", Project = "RETIRED-PROJECT" }); Assert.DoesNotContain(Rules.Validate(report, masters), p => p.Code == "project"); Assert.All(new Posting().Build(report, user, masters).Rows, r => Assert.Equal("", r[9])); }
-    [Fact] public void ApplicableProjectStillRequiresAnEffectiveMaster() { var (report, masters, _) = Fixture(); report.Lines[0].Json = Serialization.Write(Data() with { Country = "DE", Project = "RETIRED-PROJECT" }); Assert.Contains(Rules.Validate(report, masters), p => p.Code == "project"); }
-    [Fact] public void VatPolicyChangeChangesPostingFingerprint() { var (report, masters, user) = Fixture(); var zero = Master("vat", "0", new { rate = 0, salesTaxGroup = "VDOM", itemTaxGroup = "G00" }); var policy = Master("policies", "vat", new { vatZeroTolerance = 2 }); masters.AddRange([zero, policy]); report.Lines[0].Json = Serialization.Write(Data() with { Taxes = [new(zero.Id, 100, 0)] }); var first = new Posting().Build(report, user, masters); policy.Json = Serialization.Write(new { vatZeroTolerance = 3 }); Assert.NotEqual(first.Version, new Posting().Build(report, user, masters).Version); }
-    [Fact] public async Task MixedPaymentCannotBeAddedThroughService() { await using var db = Database(); await db.Database.EnsureCreatedAsync(); var (report, _, user) = Fixture(); db.Users.Add(user); db.Reports.Add(report); await db.SaveChangesAsync(); var line = new Line { ReportId = report.Id }; var ex = await Assert.ThrowsAsync<DomainException>(() => new Reports(db).Apply(line, Data() with { Payment = "CompanyCard", CardId = Guid.NewGuid() })); Assert.Equal("mixed_payment", ex.Code); Assert.Equal("{}", line.Json); }
-    [Fact] public async Task MatchingPaymentAndArchivedOppositeRemainEditable() { await using var db = Database(); await db.Database.EnsureCreatedAsync(); var (report, _, user) = Fixture(); report.Lines.Add(new() { ReportId = report.Id, Archived = true, Json = Serialization.Write(Data() with { Payment = "CompanyCard" }) }); db.Users.Add(user); db.Reports.Add(report); await db.SaveChangesAsync(); var line = new Line { ReportId = report.Id }; await new Reports(db).Apply(line, Data()); Assert.Equal("Personal", line.Data().Payment); }
-    [Fact] public void MixedLegacyReportHasBlockingPreflight() { var (report, masters, _) = Fixture(); report.Lines.Add(new() { Json = Serialization.Write(Data() with { Payment = "CompanyCard" }) }); Assert.Contains(Rules.Validate(report, masters), p => p.Code == "mixed_payment" && p.Blocking); }
-    [Fact] public async Task ReportIdentityIsCapturedFromAuthenticatedEmployee() { await using var db = Database(); await db.Database.EnsureCreatedAsync(); var user = new User { Id = "employee", Name = "Angajat", Worker = "LANT-1", ManagerId = "manager" }; db.Users.Add(user); db.Assignments.Add(new() { UserId = user.Id, ManagerId = "manager", OrganizationCode = "DEPT-1", From = new(2020, 1, 1) }); await db.SaveChangesAsync(); var report = await new Reports(db).Create(Principal(user.Id, "Employee"), "Scop"); Assert.Equal("Angajat", report.EmployeeName); Assert.Equal("LANT-1", report.EmployeeWorker); Assert.Equal("DEPT-1", report.DepartmentCode); }
-    [Fact] public async Task HeaderCardIsSelectedOnceAndRejectsConflictingLine() { await using var db = Database(); await db.Database.EnsureCreatedAsync(); var (report, _, user) = Fixture(); report.Lines.Clear(); db.Users.Add(user); db.Reports.Add(report); var card = Master("cards", "CARD", new { }); db.Masters.Add(card); await db.SaveChangesAsync(); var svc = new Reports(db); await svc.ConfigureHeader(report, "CompanyCard", card.Id); var line = new Line { ReportId = report.Id }; var ex = await Assert.ThrowsAsync<DomainException>(() => svc.Apply(line, Data())); Assert.Equal("report_payment", ex.Code); await svc.Apply(line, Data() with { Payment = "CompanyCard", CardId = card.Id }); Assert.Equal(card.Id, line.Data().CardId); }
-    [Fact] public async Task HeaderCannotRelabelExistingReceipts() { await using var db = Database(); await db.Database.EnsureCreatedAsync(); var (report, _, user) = Fixture(); db.Users.Add(user); db.Reports.Add(report); var card = Master("cards", "CARD", new { }); db.Masters.Add(card); await db.SaveChangesAsync(); var ex = await Assert.ThrowsAsync<DomainException>(() => new Reports(db).ConfigureHeader(report, "CompanyCard", card.Id)); Assert.Equal("header_in_use", ex.Code); }
-    [Fact] public async Task HeaderSchemaUpgradePreservesLegacyReportsAndIsRepeatable() { await using var db = Database(); await db.Database.EnsureCreatedAsync(); var (report, _, user) = Fixture(); db.Users.Add(user); db.Reports.Add(report); await db.SaveChangesAsync(); db.ChangeTracker.Clear(); foreach (var column in new[] { "EmployeeName", "EmployeeWorker", "DepartmentCode", "Payment", "CardId" }) await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Reports\" DROP COLUMN \"" + column + "\""); await SchemaUpgrades.Apply(db); await SchemaUpgrades.Apply(db); var saved = await db.Reports.SingleAsync(r => r.Id == report.Id); Assert.Equal(report.Purpose, saved.Purpose); Assert.Equal("", saved.EmployeeName); Assert.Null(saved.Payment); Assert.Single(await db.SchemaReleases.Where(x => x.Id == 4).ToListAsync()); }
-    static Db Database() { var db = new Db(new DbContextOptionsBuilder<Db>().UseSqlite("Data Source=:memory:").Options); db.Database.OpenConnection(); return db; }
-    static ClaimsPrincipal Principal(string id, string role) => new(new ClaimsIdentity([new(ClaimTypes.NameIdentifier, id), new(ClaimTypes.Role, role)], "test"));
-    static Master Master(string kind, string code, object data) => new() { Kind = kind, Code = code, From = new(2020, 1, 1), Json = Serialization.Write(data) };
-    static ExpenseData Data() => new("Supplier", "18546290", "INVOICE-1", "2026-01-01", "RO", "InvoiceWithCui", "GENERAL", "Business purpose", "Personal", null, "CC", null, 100, "RON", []);
-    [Fact] public void EveryWorkbookRowPositionUsesTheSameCategoryAccountsAndExpenseEmployee() { var (report, masters, employee) = Fixture(); var vat = Master("vat", "ROW-ZERO", new { rate = 0, salesTaxGroup = "TEST", itemTaxGroup = "TEST-ZERO" }); var card = Master("cards", "OTHER-OWNER", new { ownerId = "another-person" }); masters.AddRange([vat, card]); report.Lines[0].Json = Serialization.Write(Data() with { Amount = 100, Payment = "CompanyCard", CardId = card.Id, Taxes = [new(vat.Id, 100, 0)] }); for (int position = 13; position <= 99; position++) { report.Lines[0].Position = position; var rows = new Posting().Build(report, employee, masters).Rows; Assert.Equal("TEST-GL", rows[0][2]); Assert.Equal("TEST-LOCAL", rows[0][7]); Assert.All(rows, row => Assert.Equal("EXPENSE-PERSON", row[11])); } }
-    static (Report, List<Master>, User) Fixture() { var user = new User { Id = "employee", Worker = "EXPENSE-PERSON" }; var r = new Report { EmployeeId = user.Id, ManagerId = "manager", Purpose = "Client visit", Lines = [new() { Position = 1, EstimatedRon = 100, Json = Serialization.Write(Data()) }] }; foreach (var l in r.Lines) l.ReportId = r.Id; List<Master> masters = [Master("accounting", "GENERAL", new { mainAccount = "TEST-GL", localAccount = "TEST-LOCAL", subAccount = "SUB", vehicle = false }), Master("costCenters", "CC", new { erpCode = "CC-ERP" }), Master("suppliers", "18546290", new { vendorAccount = "TEST-VENDOR" }), Master("erpSettings", "default", new { approvalReference = "TEST-APPROVAL", clearingAccount = "CLEAR", clearingLocal = "CLEAR-LOCAL", vatAccount = "VAT", vatLocal = "VAT-LOCAL", otherCarNonDedAccount = "NONDED", repairNonDedAccount = "REPAIR", repairNonDedLocal = "REPAIR-LOCAL" })]; return (r, masters, user); }
-}
+    public void VatArithmeticToleranceIsRonNotReceiptCurrency(decimal extra, bool blocked)
+    {
+        var rate = Master("vat", "21", new { rate = 21 });
+        var d = Data() with
+        {
+            Currency = "EUR",
+            TaxCurrency = "EUR",
+            Amount = 121 + extra,
+            Taxes = [new(rate.Id, 100, 21 + extra)],
+        };
+        var l = new Line { Json = Serialization.Write(d), EstimatedRon = d.Amount * 5 };
+        Assert.Equal(blocked, Rules.VatIssues(l, [rate]).Any(p => p.Code == "vat_arithmetic" && p.Blocking));
+    }
 
+    [Fact]
+    public void ZeroAmountReturnsValidationInsteadOfDividingByZero()
+    {
+        var rate = Master("vat", "21", new { rate = 21 });
+        var d = Data() with { Currency = "EUR", TaxCurrency = "EUR", Amount = 0, Taxes = [new(rate.Id, 100, 21)] };
+        Assert.Contains(Rules.VatIssues(new Line { Json = Serialization.Write(d) }, [rate]), p => p.Code == "amount");
+    }
+
+    [Fact]
+    public void NotApplicableProjectNeverRequiresMasterOrLeaksIntoPosting()
+    {
+        var (report, masters, user) = Fixture();
+        masters.Add(
+            Master(
+                "fieldRules",
+                "no-project",
+                new
+                {
+                    field = "project",
+                    state = "NOT_APPLICABLE",
+                    conditions = new { country = "DE" },
+                    priority = 1,
+                }
+            )
+        );
+        report.Lines[0].Json = Serialization.Write(Data() with { Country = "DE", Project = "RETIRED-PROJECT" });
+        Assert.DoesNotContain(Rules.Validate(report, masters), p => p.Code == "project");
+        Assert.All(new Posting().Build(report, user, masters).Rows, r => Assert.Equal("", r[9]));
+    }
+
+    [Fact]
+    public void ApplicableProjectStillRequiresAnEffectiveMaster()
+    {
+        var (report, masters, _) = Fixture();
+        report.Lines[0].Json = Serialization.Write(Data() with { Country = "DE", Project = "RETIRED-PROJECT" });
+        Assert.Contains(Rules.Validate(report, masters), p => p.Code == "project");
+    }
+
+    [Fact]
+    public void VatPolicyChangeChangesPostingFingerprint()
+    {
+        var (report, masters, user) = Fixture();
+        var zero = Master(
+            "vat",
+            "0",
+            new
+            {
+                rate = 0,
+                salesTaxGroup = "VDOM",
+                itemTaxGroup = "G00",
+            }
+        );
+        var policy = Master("policies", "vat", new { vatZeroTolerance = 2 });
+        masters.AddRange([zero, policy]);
+        report.Lines[0].Json = Serialization.Write(Data() with { Taxes = [new(zero.Id, 100, 0)] });
+        var first = new Posting().Build(report, user, masters);
+        policy.Json = Serialization.Write(new { vatZeroTolerance = 3 });
+        Assert.NotEqual(first.Version, new Posting().Build(report, user, masters).Version);
+    }
+
+    [Fact]
+    public async Task MixedPaymentCannotBeAddedThroughService()
+    {
+        await using var db = Database();
+        await db.Database.EnsureCreatedAsync();
+        var (report, _, user) = Fixture();
+        db.Users.Add(user);
+        db.Reports.Add(report);
+        await db.SaveChangesAsync();
+        var line = new Line { ReportId = report.Id };
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            new Reports(db).Apply(line, Data() with { Payment = "CompanyCard", CardId = Guid.NewGuid() })
+        );
+        Assert.Equal("mixed_payment", ex.Code);
+        Assert.Equal("{}", line.Json);
+    }
+
+    [Fact]
+    public async Task MatchingPaymentAndArchivedOppositeRemainEditable()
+    {
+        await using var db = Database();
+        await db.Database.EnsureCreatedAsync();
+        var (report, _, user) = Fixture();
+        report.Lines.Add(
+            new()
+            {
+                ReportId = report.Id,
+                Archived = true,
+                Json = Serialization.Write(Data() with { Payment = "CompanyCard" }),
+            }
+        );
+        db.Users.Add(user);
+        db.Reports.Add(report);
+        await db.SaveChangesAsync();
+        var line = new Line { ReportId = report.Id };
+        await new Reports(db).Apply(line, Data());
+        Assert.Equal("Personal", line.Data().Payment);
+    }
+
+    [Fact]
+    public void MixedLegacyReportHasBlockingPreflight()
+    {
+        var (report, masters, _) = Fixture();
+        report.Lines.Add(new() { Json = Serialization.Write(Data() with { Payment = "CompanyCard" }) });
+        Assert.Contains(Rules.Validate(report, masters), p => p.Code == "mixed_payment" && p.Blocking);
+    }
+
+    [Fact]
+    public async Task ReportIdentityIsCapturedFromAuthenticatedEmployee()
+    {
+        await using var db = Database();
+        await db.Database.EnsureCreatedAsync();
+        var user = new User
+        {
+            Id = "employee",
+            Name = "Angajat",
+            Worker = "LANT-1",
+            ManagerId = "manager",
+        };
+        db.Users.Add(user);
+        db.Assignments.Add(
+            new()
+            {
+                UserId = user.Id,
+                ManagerId = "manager",
+                OrganizationCode = "DEPT-1",
+                From = new(2020, 1, 1),
+            }
+        );
+        await db.SaveChangesAsync();
+        var report = await new Reports(db).Create(Principal(user.Id, "Employee"), "Scop");
+        Assert.Equal("Angajat", report.EmployeeName);
+        Assert.Equal("LANT-1", report.EmployeeWorker);
+        Assert.Equal("DEPT-1", report.DepartmentCode);
+    }
+
+    [Fact]
+    public async Task HeaderCardIsSelectedOnceAndRejectsConflictingLine()
+    {
+        await using var db = Database();
+        await db.Database.EnsureCreatedAsync();
+        var (report, _, user) = Fixture();
+        report.Lines.Clear();
+        db.Users.Add(user);
+        db.Reports.Add(report);
+        var card = Master("cards", "CARD", new { });
+        db.Masters.Add(card);
+        await db.SaveChangesAsync();
+        var svc = new Reports(db);
+        await svc.ConfigureHeader(report, "CompanyCard", card.Id);
+        var line = new Line { ReportId = report.Id };
+        var ex = await Assert.ThrowsAsync<DomainException>(() => svc.Apply(line, Data()));
+        Assert.Equal("report_payment", ex.Code);
+        await svc.Apply(line, Data() with { Payment = "CompanyCard", CardId = card.Id });
+        Assert.Equal(card.Id, line.Data().CardId);
+    }
+
+    [Fact]
+    public async Task HeaderCannotRelabelExistingReceipts()
+    {
+        await using var db = Database();
+        await db.Database.EnsureCreatedAsync();
+        var (report, _, user) = Fixture();
+        db.Users.Add(user);
+        db.Reports.Add(report);
+        var card = Master("cards", "CARD", new { });
+        db.Masters.Add(card);
+        await db.SaveChangesAsync();
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            new Reports(db).ConfigureHeader(report, "CompanyCard", card.Id)
+        );
+        Assert.Equal("header_in_use", ex.Code);
+    }
+
+    [Fact]
+    public async Task HeaderSchemaUpgradePreservesLegacyReportsAndIsRepeatable()
+    {
+        await using var db = Database();
+        await db.Database.EnsureCreatedAsync();
+        var (report, _, user) = Fixture();
+        db.Users.Add(user);
+        db.Reports.Add(report);
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        foreach (var column in new[] { "EmployeeName", "EmployeeWorker", "DepartmentCode", "Payment", "CardId" })
+            await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Reports\" DROP COLUMN \"" + column + "\"");
+        await SchemaUpgrades.Apply(db);
+        await SchemaUpgrades.Apply(db);
+        var saved = await db.Reports.SingleAsync(r => r.Id == report.Id);
+        Assert.Equal(report.Purpose, saved.Purpose);
+        Assert.Equal("", saved.EmployeeName);
+        Assert.Null(saved.Payment);
+        Assert.Single(await db.SchemaReleases.Where(x => x.Id == 4).ToListAsync());
+    }
+
+    static Db Database()
+    {
+        var db = new Db(new DbContextOptionsBuilder<Db>().UseSqlite("Data Source=:memory:").Options);
+        db.Database.OpenConnection();
+        return db;
+    }
+
+    static ClaimsPrincipal Principal(string id, string role) =>
+        new(new ClaimsIdentity([new(ClaimTypes.NameIdentifier, id), new(ClaimTypes.Role, role)], "test"));
+
+    static Master Master(string kind, string code, object data) =>
+        new()
+        {
+            Kind = kind,
+            Code = code,
+            From = new(2020, 1, 1),
+            Json = Serialization.Write(data),
+        };
+
+    static ExpenseData Data() =>
+        new(
+            "Supplier",
+            "18546290",
+            "INVOICE-1",
+            "2026-01-01",
+            "RO",
+            "InvoiceWithCui",
+            "GENERAL",
+            "Business purpose",
+            "Personal",
+            null,
+            "CC",
+            null,
+            100,
+            "RON",
+            []
+        );
+
+    [Fact]
+    public void EveryWorkbookRowPositionUsesTheSameCategoryAccountsAndExpenseEmployee()
+    {
+        var (report, masters, employee) = Fixture();
+        var vat = Master(
+            "vat",
+            "ROW-ZERO",
+            new
+            {
+                rate = 0,
+                salesTaxGroup = "TEST",
+                itemTaxGroup = "TEST-ZERO",
+            }
+        );
+        var card = Master("cards", "OTHER-OWNER", new { ownerId = "another-person" });
+        masters.AddRange([vat, card]);
+        report.Lines[0].Json = Serialization.Write(
+            Data() with
+            {
+                Amount = 100,
+                Payment = "CompanyCard",
+                CardId = card.Id,
+                Taxes = [new(vat.Id, 100, 0)],
+            }
+        );
+        for (int position = 13; position <= 99; position++)
+        {
+            report.Lines[0].Position = position;
+            var rows = new Posting().Build(report, employee, masters).Rows;
+            Assert.Equal("TEST-GL", rows[0][2]);
+            Assert.Equal("TEST-LOCAL", rows[0][7]);
+            Assert.All(rows, row => Assert.Equal("EXPENSE-PERSON", row[11]));
+        }
+    }
+
+    static (Report, List<Master>, User) Fixture()
+    {
+        var user = new User { Id = "employee", Worker = "EXPENSE-PERSON" };
+        var r = new Report
+        {
+            EmployeeId = user.Id,
+            ManagerId = "manager",
+            Purpose = "Client visit",
+            Lines =
+            [
+                new()
+                {
+                    Position = 1,
+                    EstimatedRon = 100,
+                    Json = Serialization.Write(Data()),
+                },
+            ],
+        };
+        foreach (var l in r.Lines)
+            l.ReportId = r.Id;
+        List<Master> masters =
+        [
+            Master(
+                "accounting",
+                "GENERAL",
+                new
+                {
+                    mainAccount = "TEST-GL",
+                    localAccount = "TEST-LOCAL",
+                    subAccount = "SUB",
+                    vehicle = false,
+                }
+            ),
+            Master("costCenters", "CC", new { erpCode = "CC-ERP" }),
+            Master("suppliers", "18546290", new { vendorAccount = "TEST-VENDOR" }),
+            Master(
+                "erpSettings",
+                "default",
+                new
+                {
+                    approvalReference = "TEST-APPROVAL",
+                    clearingAccount = "CLEAR",
+                    clearingLocal = "CLEAR-LOCAL",
+                    vatAccount = "VAT",
+                    vatLocal = "VAT-LOCAL",
+                    otherCarNonDedAccount = "NONDED",
+                    repairNonDedAccount = "REPAIR",
+                    repairNonDedLocal = "REPAIR-LOCAL",
+                }
+            ),
+        ];
+        return (r, masters, user);
+    }
+}

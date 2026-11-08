@@ -1,12 +1,187 @@
+using System.Text;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using System.Text;
+
 namespace Decont;
 
-public record EmployeeRow(string Username, string Name, string Email, string Worker, string? ManagerUsername, bool Active);
+public record EmployeeRow(
+    string Username,
+    string Name,
+    string Email,
+    string Worker,
+    string? ManagerUsername,
+    bool Active
+);
+
 public record EmployeeBatch(List<EmployeeRow> Rows, string Reason, string TemporaryPassword);
+
 public static class EmployeeImports
 {
-    public static async Task Validate(EmployeeRow row, UserManager<User> users, List<EmployeeRow> prior) { Guard.Require(row.Username.Length is >= 3 and <= 100 && !string.IsNullOrWhiteSpace(row.Name) && !string.IsNullOrWhiteSpace(row.Worker) && System.Net.Mail.MailAddress.TryCreate(row.Email, out _), "user", "Utilizator, nume, Worker sau email invalid.", "Invalid username, name, Worker or email."); Guard.Require(await users.FindByNameAsync(row.Username) == null && await users.FindByEmailAsync(row.Email) == null && !prior.Any(r => r.Username.Equals(row.Username, StringComparison.OrdinalIgnoreCase) || r.Email.Equals(row.Email, StringComparison.OrdinalIgnoreCase)), "duplicate", "Utilizator sau email duplicat.", "Duplicate username or email."); if (!string.IsNullOrWhiteSpace(row.ManagerUsername)) { var manager = await users.FindByNameAsync(row.ManagerUsername); Guard.Require(manager != null && manager.Active && await users.IsInRoleAsync(manager, "Manager"), "manager", "Managerul trebuie să existe și să fie activ.", "Manager must already exist and be active."); } }
-    public static void Map(RouteGroupBuilder api) { var admin = api.MapGroup("/admin/employee-import").RequireAuthorization(p => p.RequireRole("Admin")); admin.MapGet("/template", () => Results.File(Encoding.UTF8.GetBytes("username,name,email,worker,managerUsername,active\r\n"), "text/csv", "employee-template.csv")); admin.MapPost("/preview", async (HttpContext c, UserManager<User> users) => { var (rows, hash) = await SpreadsheetImports.Upload(c); Guard.Require(rows.Count > 1, "rows", "Import gol.", "Empty import."); List<EmployeeRow> valid = []; List<object> errors = []; for (int n = 1; n < rows.Count; n++) { try { string Get(string k) { var index = Array.IndexOf(rows[0], k); return index >= 0 && index < rows[n].Length ? rows[n][index] : ""; } var row = new EmployeeRow(Get("username"), Get("name"), Get("email"), Get("worker"), Get("managerUsername"), Get("active") != "false"); await Validate(row, users, valid); valid.Add(row); } catch (DomainException ex) { errors.Add(new { row = n + 1, message = ex.Message }); } } return new { hash, rows = valid, errors, count = valid.Count }; }); admin.MapPost("/confirm", async (EmployeeBatch input, UserManager<User> users, Db db, Reports svc, HttpContext c) => await Api.Atomic(db, c, new { input.Rows, input.Reason, passwordHash = Serialization.Hash(input.TemporaryPassword) }, async () => { Guard.Reason(input.Reason); Guard.Require(input.Rows.Count is > 0 and <= 10000, "rows", "Import gol sau prea mare.", "Empty or oversized import."); List<EmployeeRow> prior = []; foreach (var row in input.Rows) { await Validate(row, users, prior); prior.Add(row); } List<object> created = []; foreach (var row in input.Rows) { var manager = string.IsNullOrEmpty(row.ManagerUsername) ? null : await users.FindByNameAsync(row.ManagerUsername); var user = new User { UserName = row.Username, Name = row.Name, Email = row.Email, Worker = row.Worker, ManagerId = manager?.Id, Active = row.Active, ChangePassword = true }; var password = input.TemporaryPassword; var result = await users.CreateAsync(user, password); Guard.Require(result.Succeeded, "identity", "Importul nu respectă politica conturilor.", "Import violates account policy."); result = await users.AddToRoleAsync(user, "Employee"); Guard.Require(result.Succeeded, "identity", "Rolul Employee lipsește.", "Employee role is unavailable."); svc.Log(c.User, null, user.Id, "EmployeeImported", after: new { row.Username, row.Name, row.Worker, managerId = manager?.Id }, reason: input.Reason); created.Add(new { row.Username, user.Id }); } return new { count = input.Rows.Count, created }; })); }
+    public static async Task Validate(EmployeeRow row, UserManager<User> users, List<EmployeeRow> prior)
+    {
+        Guard.Require(
+            row.Username.Length is >= 3 and <= 100
+                && !string.IsNullOrWhiteSpace(row.Name)
+                && !string.IsNullOrWhiteSpace(row.Worker)
+                && System.Net.Mail.MailAddress.TryCreate(row.Email, out _),
+            "user",
+            "Utilizator, nume, Worker sau email invalid.",
+            "Invalid username, name, Worker or email."
+        );
+        Guard.Require(
+            await users.FindByNameAsync(row.Username) == null
+                && await users.FindByEmailAsync(row.Email) == null
+                && !prior.Any(r =>
+                    r.Username.Equals(row.Username, StringComparison.OrdinalIgnoreCase)
+                    || r.Email.Equals(row.Email, StringComparison.OrdinalIgnoreCase)
+                ),
+            "duplicate",
+            "Utilizator sau email duplicat.",
+            "Duplicate username or email."
+        );
+        if (!string.IsNullOrWhiteSpace(row.ManagerUsername))
+        {
+            var manager = await users.FindByNameAsync(row.ManagerUsername);
+            Guard.Require(
+                manager != null && manager.Active && await users.IsInRoleAsync(manager, "Manager"),
+                "manager",
+                "Managerul trebuie să existe și să fie activ.",
+                "Manager must already exist and be active."
+            );
+        }
+    }
+
+    public static void Map(RouteGroupBuilder api)
+    {
+        var admin = api.MapGroup("/admin/employee-import").RequireAuthorization(p => p.RequireRole("Admin"));
+        admin.MapGet(
+            "/template",
+            () =>
+                Results.File(
+                    Encoding.UTF8.GetBytes("username,name,email,worker,managerUsername,active\r\n"),
+                    "text/csv",
+                    "employee-template.csv"
+                )
+        );
+        admin.MapPost(
+            "/preview",
+            async (HttpContext c, UserManager<User> users) =>
+            {
+                var (rows, hash) = await SpreadsheetImports.Upload(c);
+                Guard.Require(rows.Count > 1, "rows", "Import gol.", "Empty import.");
+                List<EmployeeRow> valid = [];
+                List<object> errors = [];
+                for (int n = 1; n < rows.Count; n++)
+                {
+                    try
+                    {
+                        string Get(string k)
+                        {
+                            var index = Array.IndexOf(rows[0], k);
+                            return index >= 0 && index < rows[n].Length ? rows[n][index] : "";
+                        }
+                        var row = new EmployeeRow(
+                            Get("username"),
+                            Get("name"),
+                            Get("email"),
+                            Get("worker"),
+                            Get("managerUsername"),
+                            Get("active") != "false"
+                        );
+                        await Validate(row, users, valid);
+                        valid.Add(row);
+                    }
+                    catch (DomainException ex)
+                    {
+                        errors.Add(new { row = n + 1, message = ex.Message });
+                    }
+                }
+                return new
+                {
+                    hash,
+                    rows = valid,
+                    errors,
+                    count = valid.Count,
+                };
+            }
+        );
+        admin.MapPost(
+            "/confirm",
+            async (EmployeeBatch input, UserManager<User> users, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    new
+                    {
+                        input.Rows,
+                        input.Reason,
+                        passwordHash = Serialization.Hash(input.TemporaryPassword),
+                    },
+                    async () =>
+                    {
+                        Guard.Reason(input.Reason);
+                        Guard.Require(
+                            input.Rows.Count is > 0 and <= 10000,
+                            "rows",
+                            "Import gol sau prea mare.",
+                            "Empty or oversized import."
+                        );
+                        List<EmployeeRow> prior = [];
+                        foreach (var row in input.Rows)
+                        {
+                            await Validate(row, users, prior);
+                            prior.Add(row);
+                        }
+                        List<object> created = [];
+                        foreach (var row in input.Rows)
+                        {
+                            var manager = string.IsNullOrEmpty(row.ManagerUsername)
+                                ? null
+                                : await users.FindByNameAsync(row.ManagerUsername);
+                            var user = new User
+                            {
+                                UserName = row.Username,
+                                Name = row.Name,
+                                Email = row.Email,
+                                Worker = row.Worker,
+                                ManagerId = manager?.Id,
+                                Active = row.Active,
+                                ChangePassword = true,
+                            };
+                            var password = input.TemporaryPassword;
+                            var result = await users.CreateAsync(user, password);
+                            Guard.Require(
+                                result.Succeeded,
+                                "identity",
+                                "Importul nu respectă politica conturilor.",
+                                "Import violates account policy."
+                            );
+                            result = await users.AddToRoleAsync(user, "Employee");
+                            Guard.Require(
+                                result.Succeeded,
+                                "identity",
+                                "Rolul Employee lipsește.",
+                                "Employee role is unavailable."
+                            );
+                            svc.Log(
+                                c.User,
+                                null,
+                                user.Id,
+                                "EmployeeImported",
+                                after: new
+                                {
+                                    row.Username,
+                                    row.Name,
+                                    row.Worker,
+                                    managerId = manager?.Id,
+                                },
+                                reason: input.Reason
+                            );
+                            created.Add(new { row.Username, user.Id });
+                        }
+                        return new { count = input.Rows.Count, created };
+                    }
+                )
+        );
+    }
 }

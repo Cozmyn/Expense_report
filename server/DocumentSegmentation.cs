@@ -1,7 +1,8 @@
-using System.Text.RegularExpressions;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
+
 namespace Decont;
 
 public static class DocumentSegmentation
@@ -9,36 +10,206 @@ public static class DocumentSegmentation
     // A geometric split is proposed only when each column independently has a document heading and total.
     public static List<OcrPage> Panels(OcrPage page)
     {
-        if (page.Region != null || page.Words == null || page.Words.Count < 8) return [page]; var words = page.Words.OrderBy(w => w.Box.X).ToList(); decimal right = words[0].Box.X + words[0].Box.Width; List<(decimal Left, decimal Right)> gaps = []; foreach (var word in words.Skip(1)) { if (word.Box.X - right >= .08m && right >= .2m && word.Box.X <= .8m) gaps.Add((right, word.Box.X)); right = Math.Max(right, word.Box.X + word.Box.Width); }
-        foreach (var gap in gaps.OrderByDescending(g => g.Right - g.Left)) { var cut = (gap.Left + gap.Right) / 2; var left = words.Where(w => w.Box.X + w.Box.Width <= cut).ToList(); var other = words.Where(w => w.Box.X >= cut).ToList(); if (left.Count < 4 || other.Count < 4) continue; var a = LayoutText(left); var b = LayoutText(other); bool Document(string value) => Regex.IsMatch(value, @"(?im)^(?:BON\s+FISCAL|FACTUR[ĂA]|INVOICE)\b") && Regex.IsMatch(value, @"(?i)\bTOTAL\b|AMOUNT\s+DUE"); if (!Document(a) || !Document(b)) continue; return [page with { Text = a, Words = left.OrderBy(w => w.Box.Y).ThenBy(w => w.Box.X).ToList(), Region = new(page.Number, 0, 0, cut, 1) }, page with { Text = b, Words = other.OrderBy(w => w.Box.Y).ThenBy(w => w.Box.X).ToList(), Region = new(page.Number, cut, 0, 1 - cut, 1) }]; }
+        if (page.Region != null || page.Words == null || page.Words.Count < 8)
+            return [page];
+        var words = page.Words.OrderBy(w => w.Box.X).ToList();
+        decimal right = words[0].Box.X + words[0].Box.Width;
+        List<(decimal Left, decimal Right)> gaps = [];
+        foreach (var word in words.Skip(1))
+        {
+            if (word.Box.X - right >= .08m && right >= .2m && word.Box.X <= .8m)
+                gaps.Add((right, word.Box.X));
+            right = Math.Max(right, word.Box.X + word.Box.Width);
+        }
+        foreach (var gap in gaps.OrderByDescending(g => g.Right - g.Left))
+        {
+            var cut = (gap.Left + gap.Right) / 2;
+            var left = words.Where(w => w.Box.X + w.Box.Width <= cut).ToList();
+            var other = words.Where(w => w.Box.X >= cut).ToList();
+            if (left.Count < 4 || other.Count < 4)
+                continue;
+            var a = LayoutText(left);
+            var b = LayoutText(other);
+            bool Document(string value) =>
+                Regex.IsMatch(value, @"(?im)^(?:BON\s+FISCAL|FACTUR[ĂA]|INVOICE)\b")
+                && Regex.IsMatch(value, @"(?i)\bTOTAL\b|AMOUNT\s+DUE");
+            if (!Document(a) || !Document(b))
+                continue;
+            return
+            [
+                page with
+                {
+                    Text = a,
+                    Words = left.OrderBy(w => w.Box.Y).ThenBy(w => w.Box.X).ToList(),
+                    Region = new(page.Number, 0, 0, cut, 1),
+                },
+                page with
+                {
+                    Text = b,
+                    Words = other.OrderBy(w => w.Box.Y).ThenBy(w => w.Box.X).ToList(),
+                    Region = new(page.Number, cut, 0, 1 - cut, 1),
+                },
+            ];
+        }
         return [page];
     }
-    static string LayoutText(List<OcrWord> words) { List<List<OcrWord>> lines = []; foreach (var word in words.OrderBy(w => w.Box.Y).ThenBy(w => w.Box.X)) { if (lines.Count == 0 || Math.Abs(lines[^1][0].Box.Y - word.Box.Y) > Math.Max(.006m, word.Box.Height / 2)) lines.Add([]); lines[^1].Add(word); } return string.Join("\n", lines.Select(line => string.Join(" ", line.OrderBy(w => w.Box.X).Select(w => w.Text)))); }
-    static (int Current, int Total)? Numbering(OcrPage page) { var m = Regex.Match(page.Text, @"(?i)\b(?:PAGE|PAGIN[ĂA]|PAG\.?)\s*(\d+)\s*(?:OF|DIN|/)\s*(\d+)\b"); return m.Success && int.TryParse(m.Groups[1].Value, out var current) && int.TryParse(m.Groups[2].Value, out var total) ? (current, total) : null; }
+
+    static string LayoutText(List<OcrWord> words)
+    {
+        List<List<OcrWord>> lines = [];
+        foreach (var word in words.OrderBy(w => w.Box.Y).ThenBy(w => w.Box.X))
+        {
+            if (lines.Count == 0 || Math.Abs(lines[^1][0].Box.Y - word.Box.Y) > Math.Max(.006m, word.Box.Height / 2))
+                lines.Add([]);
+            lines[^1].Add(word);
+        }
+        return string.Join(
+            "\n",
+            lines.Select(line => string.Join(" ", line.OrderBy(w => w.Box.X).Select(w => w.Text)))
+        );
+    }
+
+    static (int Current, int Total)? Numbering(OcrPage page)
+    {
+        var m = Regex.Match(page.Text, @"(?i)\b(?:PAGE|PAGIN[ĂA]|PAG\.?)\s*(\d+)\s*(?:OF|DIN|/)\s*(\d+)\b");
+        return
+            m.Success
+            && int.TryParse(m.Groups[1].Value, out var current)
+            && int.TryParse(m.Groups[2].Value, out var total)
+            ? (current, total)
+            : null;
+    }
+
     public static List<SourceRegion> RegionsFor(OcrPage page, int offset, int count, bool multiple)
     {
-        if (page.Region != null) return [page.Region]; if (!multiple || page.Words == null) return [new(page.Number)]; var words = page.Words.Skip(offset).Take(count).ToList(); if (words.Count == 0) return [new(page.Number)]; var x = Math.Max(0, words.Min(w => w.Box.X) - .01m); var y = Math.Max(0, words.Min(w => w.Box.Y) - .01m); var right = Math.Min(1, words.Max(w => w.Box.X + w.Box.Width) + .01m); var bottom = Math.Min(1, words.Max(w => w.Box.Y + w.Box.Height) + .01m); return right > x && bottom > y ? [new(page.Number, x, y, right - x, bottom - y)] : [new(page.Number)];
+        if (page.Region != null)
+            return [page.Region];
+        if (!multiple || page.Words == null)
+            return [new(page.Number)];
+        var words = page.Words.Skip(offset).Take(count).ToList();
+        if (words.Count == 0)
+            return [new(page.Number)];
+        var x = Math.Max(0, words.Min(w => w.Box.X) - .01m);
+        var y = Math.Max(0, words.Min(w => w.Box.Y) - .01m);
+        var right = Math.Min(1, words.Max(w => w.Box.X + w.Box.Width) + .01m);
+        var bottom = Math.Min(1, words.Max(w => w.Box.Y + w.Box.Height) + .01m);
+        return right > x && bottom > y ? [new(page.Number, x, y, right - x, bottom - y)] : [new(page.Number)];
     }
+
     public static List<OcrCandidate> Group(List<OcrPage> pages, List<OcrCandidate> candidates)
     {
-        var result = candidates.ToList(); foreach (var page in pages.OrderBy(p => p.Number))
+        var result = candidates.ToList();
+        foreach (var page in pages.OrderBy(p => p.Number))
         {
-            var first = Numbering(page); if (first == null || first.Value.Current != 1 || first.Value.Total < 2 || first.Value.Total > 50) continue;
-            var range = Enumerable.Range(page.Number, first.Value.Total).ToArray(); var sequence = range.Select(n => pages.SingleOrDefault(p => p.Number == n)).ToList(); if (sequence.Any(p => p == null)) continue; bool continuous = true; for (int i = 0; i < sequence.Count; i++) { var marker = Numbering(sequence[i]!); if (marker == null || marker.Value.Current != i + 1 || marker.Value.Total != first.Value.Total) continuous = false; }
-            if (!continuous) continue;
-            var members = result.Where(c => c.Pages.Any(p => range.Contains(p))).OrderBy(c => c.Pages.Min()).ToList(); if (members.Count == 0 || !members.Any(c => c.Fields.GetValueOrDefault("documentType")?.Value == "Invoice")) continue;
-            if (range.Any(n => members.Count(c => c.Pages.Contains(n)) > 1)) { foreach (var member in members) member.Warnings.Add("AMBIGUOUS_BOUNDARY: Pagina conține mai multe documente; unește manual doar paginile aceleiași facturi. / A page contains multiple documents; manually merge only the same invoice pages."); continue; }
-            bool conflict = new[] { "invoice", "cui", "date" }.Any(key => members.Select(c => c.Fields.GetValueOrDefault(key)?.Value).Where(v => !string.IsNullOrWhiteSpace(v)).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1);
-            if (conflict) { foreach (var c in members) c.Warnings.Add("AMBIGUOUS_BOUNDARY: Numerele de pagină coincid, dar datele documentelor diferă. Verifică gruparea. / Page numbering matches but document identifiers differ. Review grouping."); continue; }
-            var fields = new Dictionary<string, OcrField>(); Dictionary<string, List<OcrField>> alternatives = []; foreach (var c in members) foreach (var pair in c.Fields) { if (!alternatives.TryGetValue(pair.Key, out var list)) alternatives[pair.Key] = list = []; list.Add(pair.Value); if (!fields.ContainsKey(pair.Key) || pair.Key == "amount") fields[pair.Key] = pair.Value; }
-            var taxAlternatives = members.SelectMany(c => c.Taxes).ToList(); var taxes = taxAlternatives; var taxPages = taxes.Select(t => t.Page).Distinct().ToList(); var warnings = members.SelectMany(c => c.Warnings).Distinct().ToList();
-            if (taxPages.Count > 1) { var last = taxes.Where(t => t.Page == taxPages.Max()).ToList(); var gross = fields.GetValueOrDefault("amount")?.Value; var matchesGross = decimal.TryParse(gross, NumberStyles.Number, CultureInfo.InvariantCulture, out var total) && Math.Abs(last.Sum(t => t.Base + t.Vat) - total) <= .01m; var coversRates = taxes.Select(t => t.Rate).Distinct().All(rate => last.Any(t => t.Rate == rate)); if (matchesGross && coversRates) taxes = last; else { taxes = []; warnings.Add("VAT_SUMMARY_REVIEW: Există mai multe defalcări TVA. Copiază sumarul final; valorile originale se păstrează. / Multiple VAT breakdowns require manual review of the final invoice summary; originals are retained."); } }
-            warnings.Add("MULTIPAGE_REVIEW: Grupare propusă pe baza numerotării consecutive a paginilor. Confirmă originalele. / Proposed grouping uses consecutive page numbering. Confirm the originals.");
-            List<SourceRegion> regions = []; foreach (var number in range) { var found = members.Where(c => c.Pages.Contains(number)).SelectMany(c => c.Regions ?? c.Pages.Select(p => new SourceRegion(p)).ToList()).Where(r => r.Page == number).Distinct().ToList(); regions.AddRange(found.Count > 0 ? found : [new(number)]); }
-            var hash = SHA256.HashData(Encoding.UTF8.GetBytes("numbered-v1|" + string.Join(",", range) + "|" + string.Join(",", members.Select(c => c.Id)))); var combined = new OcrCandidate(new Guid(hash.AsSpan(0, 16)), range, fields, taxes, warnings, regions, "Consecutive printed page numbering; human verification required", null, alternatives, taxAlternatives);
-            result.RemoveAll(c => members.Contains(c)); result.Add(combined);
+            var first = Numbering(page);
+            if (first == null || first.Value.Current != 1 || first.Value.Total < 2 || first.Value.Total > 50)
+                continue;
+            var range = Enumerable.Range(page.Number, first.Value.Total).ToArray();
+            var sequence = range.Select(n => pages.SingleOrDefault(p => p.Number == n)).ToList();
+            if (sequence.Any(p => p == null))
+                continue;
+            bool continuous = true;
+            for (int i = 0; i < sequence.Count; i++)
+            {
+                var marker = Numbering(sequence[i]!);
+                if (marker == null || marker.Value.Current != i + 1 || marker.Value.Total != first.Value.Total)
+                    continuous = false;
+            }
+            if (!continuous)
+                continue;
+            var members = result.Where(c => c.Pages.Any(p => range.Contains(p))).OrderBy(c => c.Pages.Min()).ToList();
+            if (members.Count == 0 || !members.Any(c => c.Fields.GetValueOrDefault("documentType")?.Value == "Invoice"))
+                continue;
+            if (range.Any(n => members.Count(c => c.Pages.Contains(n)) > 1))
+            {
+                foreach (var member in members)
+                    member.Warnings.Add(
+                        "AMBIGUOUS_BOUNDARY: Pagina conține mai multe documente; unește manual doar paginile aceleiași facturi. / A page contains multiple documents; manually merge only the same invoice pages."
+                    );
+                continue;
+            }
+            bool conflict = new[] { "invoice", "cui", "date" }.Any(key =>
+                members
+                    .Select(c => c.Fields.GetValueOrDefault(key)?.Value)
+                    .Where(v => !string.IsNullOrWhiteSpace(v))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Count() > 1
+            );
+            if (conflict)
+            {
+                foreach (var c in members)
+                    c.Warnings.Add(
+                        "AMBIGUOUS_BOUNDARY: Numerele de pagină coincid, dar datele documentelor diferă. Verifică gruparea. / Page numbering matches but document identifiers differ. Review grouping."
+                    );
+                continue;
+            }
+            var fields = new Dictionary<string, OcrField>();
+            Dictionary<string, List<OcrField>> alternatives = [];
+            foreach (var c in members)
+            foreach (var pair in c.Fields)
+            {
+                if (!alternatives.TryGetValue(pair.Key, out var list))
+                    alternatives[pair.Key] = list = [];
+                list.Add(pair.Value);
+                if (!fields.ContainsKey(pair.Key) || pair.Key == "amount")
+                    fields[pair.Key] = pair.Value;
+            }
+            var taxAlternatives = members.SelectMany(c => c.Taxes).ToList();
+            var taxes = taxAlternatives;
+            var taxPages = taxes.Select(t => t.Page).Distinct().ToList();
+            var warnings = members.SelectMany(c => c.Warnings).Distinct().ToList();
+            if (taxPages.Count > 1)
+            {
+                var last = taxes.Where(t => t.Page == taxPages.Max()).ToList();
+                var gross = fields.GetValueOrDefault("amount")?.Value;
+                var matchesGross =
+                    decimal.TryParse(gross, NumberStyles.Number, CultureInfo.InvariantCulture, out var total)
+                    && Math.Abs(last.Sum(t => t.Base + t.Vat) - total) <= .01m;
+                var coversRates = taxes.Select(t => t.Rate).Distinct().All(rate => last.Any(t => t.Rate == rate));
+                if (matchesGross && coversRates)
+                    taxes = last;
+                else
+                {
+                    taxes = [];
+                    warnings.Add(
+                        "VAT_SUMMARY_REVIEW: Există mai multe defalcări TVA. Copiază sumarul final; valorile originale se păstrează. / Multiple VAT breakdowns require manual review of the final invoice summary; originals are retained."
+                    );
+                }
+            }
+            warnings.Add(
+                "MULTIPAGE_REVIEW: Grupare propusă pe baza numerotării consecutive a paginilor. Confirmă originalele. / Proposed grouping uses consecutive page numbering. Confirm the originals."
+            );
+            List<SourceRegion> regions = [];
+            foreach (var number in range)
+            {
+                var found = members
+                    .Where(c => c.Pages.Contains(number))
+                    .SelectMany(c => c.Regions ?? c.Pages.Select(p => new SourceRegion(p)).ToList())
+                    .Where(r => r.Page == number)
+                    .Distinct()
+                    .ToList();
+                regions.AddRange(found.Count > 0 ? found : [new(number)]);
+            }
+            var hash = SHA256.HashData(
+                Encoding.UTF8.GetBytes(
+                    "numbered-v1|" + string.Join(",", range) + "|" + string.Join(",", members.Select(c => c.Id))
+                )
+            );
+            var combined = new OcrCandidate(
+                new Guid(hash.AsSpan(0, 16)),
+                range,
+                fields,
+                taxes,
+                warnings,
+                regions,
+                "Consecutive printed page numbering; human verification required",
+                null,
+                alternatives,
+                taxAlternatives
+            );
+            result.RemoveAll(c => members.Contains(c));
+            result.Add(combined);
         }
         return result.OrderBy(c => c.Pages.Min()).ThenBy(c => c.Regions?.FirstOrDefault()?.Y ?? 0).ToList();
     }
 }
-

@@ -1,37 +1,511 @@
+using System.Buffers.Binary;
+using System.Diagnostics;
+using System.Net.Sockets;
 using Amazon.S3;
 using Amazon.S3.Model;
-using System.Net.Sockets;
-using System.Buffers.Binary;
-using Microsoft.EntityFrameworkCore;
 using MailKit.Net.Smtp;
+using Microsoft.EntityFrameworkCore;
 using MimeKit;
-using System.Diagnostics;
+
 namespace Decont;
 
-public interface IStore { Task Put(string key, byte[] bytes, string mime, CancellationToken ct = default); Task<byte[]> Get(string key, CancellationToken ct = default); }
-public class LocalStore(IConfiguration config) : IStore
+public interface IStore
 {
-    string Root => config["Storage:Directory"] ?? Path.Combine(Directory.GetCurrentDirectory(), ".data", "objects"); string PathOf(string key) { Guard.Require(key.Split('/').All(p => p.Length > 0 && !p.Contains("..") && p.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.')), "storage_key", "Cheie invalidă.", "Invalid storage key."); return Path.Combine(Root, key); }
-    public async Task Put(string key, byte[] bytes, string mime, CancellationToken ct = default) { var path = PathOf(key); Directory.CreateDirectory(Path.GetDirectoryName(path)!); await using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None); await file.WriteAsync(bytes, ct); }
-    public Task<byte[]> Get(string key, CancellationToken ct = default) => File.ReadAllBytesAsync(PathOf(key), ct);
-}
-public class S3Store(IAmazonS3 s3, IConfiguration config) : IStore { string Bucket => config["Storage:Bucket"] ?? throw new InvalidOperationException("Bucket missing"); public async Task Put(string key, byte[] bytes, string mime, CancellationToken ct = default) => await s3.PutObjectAsync(new() { BucketName = Bucket, Key = key, ContentType = mime, InputStream = new MemoryStream(bytes), ServerSideEncryptionMethod = ServerSideEncryptionMethod.AES256 }, ct); public async Task<byte[]> Get(string key, CancellationToken ct = default) { using var result = await s3.GetObjectAsync(Bucket, key, ct); using var ms = new MemoryStream(); await result.ResponseStream.CopyToAsync(ms, ct); return ms.ToArray(); } }
-public static class Files { public const long MaxFile = 25 * 1024 * 1024, MaxReport = 200 * 1024 * 1024; public static string Mime(byte[] b, string name) { var ext = Path.GetExtension(name).ToLowerInvariant(); if (ext == ".pdf" && b.Length >= 5 && b.AsSpan(0, 5).SequenceEqual("%PDF-"u8)) return "application/pdf"; if (ext == ".png" && b.Length >= 8 && b.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 })) return "image/png"; if (ext is ".jpg" or ".jpeg" && b.Length >= 3 && b[0] == 255 && b[1] == 216 && b[2] == 255) return "image/jpeg"; if (ext is ".heic" or ".heif" && b.Length >= 12 && b.AsSpan(4, 4).SequenceEqual("ftyp"u8) && new[] { "heic", "heix", "hevc", "hevx", "mif1" }.Contains(System.Text.Encoding.ASCII.GetString(b, 8, 4))) return "image/heic"; throw new DomainException("file_type", "Fișier PDF, JPG, PNG sau HEIC valid necesar.", "A valid PDF, JPG, PNG or HEIC file is required."); } }
-public class Worker(IServiceScopeFactory scopes, IConfiguration config, ILogger<Worker> log, IDocumentExtractor extractor, IDocumentScanner scanner) : BackgroundService
-{
-    protected override async Task ExecuteAsync(CancellationToken ct) { while (!ct.IsCancellationRequested) { try { using var scope = scopes.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<Db>(); var now = DateTime.UtcNow; var candidate = await db.Jobs.Where(j => (j.State == "Pending" || j.State == "Processing") && j.Due <= now).OrderBy(j => j.Due).FirstOrDefaultAsync(ct); if (candidate == null) { await Task.Delay(1500, ct); continue; } var claim = await db.Jobs.Where(j => j.Id == candidate.Id && j.Due <= now && (j.State == "Pending" || j.State == "Processing")).ExecuteUpdateAsync(s => s.SetProperty(j => j.State, "Processing").SetProperty(j => j.Due, now.AddMinutes(5)).SetProperty(j => j.Attempts, j => j.Attempts + 1).SetProperty(j => j.StartedAt, (DateTime?)now).SetProperty(j => j.CompletedAt, (DateTime?)null).SetProperty(j => j.FailureCode, (string?)null), ct); if (claim == 0) continue; db.Entry(candidate).State = EntityState.Detached; var job = await db.Jobs.SingleAsync(j => j.Id == candidate.Id, ct); try { using (var lease = CancellationTokenSource.CreateLinkedTokenSource(ct)) { var renew = RenewLease(job.Id, job.Attempts, lease); try { await Process(job, db, scope.ServiceProvider.GetRequiredService<IStore>(), lease.Token); } finally { lease.Cancel(); await renew; } } job.State = "Completed"; job.Error = null; job.CompletedAt = DateTime.UtcNow; job.FailureCode = null; } catch (Exception ex) when (!ct.IsCancellationRequested) { log.LogError(ex, "Job {Id} failed", job.Id); job.State = job.Attempts >= 5 ? "Failed" : "Pending"; job.Error = "Processing failed; see server logs."; job.FailureCode = ex is DomainException failure ? failure.Code : "processing_failed"; if (job.State == "Failed") job.CompletedAt = DateTime.UtcNow; job.Due = DateTime.UtcNow.AddMinutes(Math.Pow(2, job.Attempts)); if (job.State == "Failed") { if (job.Kind is "Ocr" or "OcrReport") { IOriginalDocument? doc = job.Kind == "OcrReport" ? await db.ReportAttachments.FindAsync(Guid.Parse(job.Json)) : await db.Evidence.FindAsync(Guid.Parse(job.Json)); if (doc is ReportAttachment failedSource) DocumentEvents.Emit(db, failedSource.ReportId, failedSource.Id, "OcrJobFailed", "system", job.Id + "|" + job.Attempts, new { attempts = job.Attempts, code = "ocr_failed" }); if (doc != null) doc.Ocr = Serialization.Write(new { state = "Failed", messageRo = "Extragerea a eșuat. Reîncearcă sau completează manual.", messageEn = "Extraction failed. Retry or enter manually." }); } var admins = await db.UserRoles.Join(db.Roles, x => x.RoleId, y => y.Id, (x, y) => new { x.UserId, y.Name }).Where(x => x.Name == "Admin").Select(x => x.UserId).ToListAsync(); foreach (var admin in admins) { db.Notices.Add(new() { UserId = admin, Event = "CriticalJobFailure:" + job.Kind, ReportId = Guid.Empty }); var channels = await NotificationPolicies.Channels(db, "CriticalFailure"); var recipient = await db.Users.FindAsync(admin); if (job.Kind != "Email" && channels.Item2 && !string.IsNullOrWhiteSpace(config["Smtp:Host"]) && !string.IsNullOrWhiteSpace(recipient?.Email)) db.Jobs.Add(new() { Kind = "Email", Json = Serialization.Write(new { to = recipient.Email, subject = "Decont — operațiune eșuată / Failed operation", text = "O operațiune " + job.Kind + " a eșuat după reîncercări. Verifică pagina administrativă Operațiuni de fundal. / A " + job.Kind + " operation failed after retries. Check the administrative Background jobs page." }) }); } } } try { await db.SaveChangesAsync(ct); } catch (DbUpdateConcurrencyException) { await RetryConflict(job, ct); } } catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; } catch (Exception ex) { log.LogError(ex, "Worker polling failed"); await Task.Delay(3000, ct); } } }
-    async Task Progress(Job current, IOriginalDocument original, OcrProgress progress, CancellationToken ct) { using var scope = scopes.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<Db>(); var job = await db.Jobs.SingleAsync(j => j.Id == current.Id, ct); Guard.Require(job.State == "Processing" && job.Attempts == current.Attempts, "lease", "Operațiunea a fost preluată de alt proces.", "Another worker owns this operation."); IOriginalDocument source = original is ReportAttachment ? await db.ReportAttachments.SingleAsync(a => a.Id == original.Id, ct) : await db.Evidence.SingleAsync(a => a.Id == original.Id, ct); if (source.Archived) return; source.Ocr = Serialization.Write(new { state = "Processing", stage = progress.Stage, progress.CompletedPages, progress.TotalPages, progress.FailedPages }); job.Due = DateTime.UtcNow.AddMinutes(5); if (source is ReportAttachment bundle && (progress.Stage == "Normalizing" || progress.Stage == "Extracting" && progress.CompletedPages == 0)) DocumentEvents.Emit(db, bundle.ReportId, bundle.Id, progress.Stage == "Normalizing" ? "ProcessingStarted" : "DocumentNormalized", "system", job.Id + "|" + job.Attempts + "|" + progress.Stage, new { progress.TotalPages, jobId = job.Id, attempt = job.Attempts }); await db.SaveChangesAsync(ct); }
-    async Task RetryConflict(Job previous, CancellationToken ct) { using var scope = scopes.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<Db>(); var job = await db.Jobs.SingleAsync(j => j.Id == previous.Id, ct); if (job.Attempts != previous.Attempts || job.State != "Processing") return; job.State = job.Attempts >= 5 ? "Failed" : "Pending"; job.Due = DateTime.UtcNow.AddSeconds(5); job.Error = "Concurrent update; safe retry required."; job.FailureCode = "concurrent_update"; if (job.State == "Failed") job.CompletedAt = DateTime.UtcNow; if (job.State == "Failed" && (job.Kind is "Ocr" or "OcrReport")) { IOriginalDocument? file = job.Kind == "OcrReport" ? await db.ReportAttachments.FindAsync(Guid.Parse(job.Json)) : await db.Evidence.FindAsync(Guid.Parse(job.Json)); if (file != null) file.Ocr = Serialization.Write(new { state = "Failed", messageRo = "Datele au fost modificate. Reîncearcă extragerea.", messageEn = "Data changed. Retry extraction." }); } await db.SaveChangesAsync(ct); log.LogWarning("Job {Id} deferred after concurrent update", job.Id); }
-    async Task RenewLease(Guid id, int attempt, CancellationTokenSource lease) { try { using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1)); while (await timer.WaitForNextTickAsync(lease.Token)) { using var scope = scopes.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<Db>(); var renewed = await db.Jobs.Where(j => j.Id == id && j.Attempts == attempt && j.State == "Processing").ExecuteUpdateAsync(s => s.SetProperty(j => j.Due, DateTime.UtcNow.AddMinutes(5)), lease.Token); if (renewed == 0) { lease.Cancel(); return; } } } catch (OperationCanceledException) when (lease.IsCancellationRequested) { } catch (Exception) { log.LogWarning("Job {Id} lease renewal failed", id); lease.Cancel(); } }
-    async Task Process(Job job, Db db, IStore store, CancellationToken ct)
-    {
-        if (job.Kind == "DocumentEvent") { await DocumentEvents.Deliver(Guid.Parse(job.Json), db, ct); return; }
-        if (job.Kind == "Email") { var data = System.Text.Json.JsonDocument.Parse(job.Json).RootElement; var host = config["Smtp:Host"] ?? throw new InvalidOperationException("SMTP is not configured"); var message = new MimeMessage(); message.From.Add(MailboxAddress.Parse(config["Smtp:From"] ?? throw new InvalidOperationException("SMTP sender missing"))); message.To.Add(MailboxAddress.Parse(data.GetProperty("to").GetString()!)); message.Subject = data.GetProperty("subject").GetString() ?? ""; message.Body = new TextPart("plain") { Text = data.GetProperty("text").GetString() ?? "" }; using var client = new SmtpClient(); await client.ConnectAsync(host, config.GetValue<int?>("Smtp:Port") ?? 587, MailKit.Security.SecureSocketOptions.StartTls, ct); if (config["Smtp:Username"] is string user) await client.AuthenticateAsync(user, config["Smtp:Password"] ?? throw new InvalidOperationException("SMTP password missing"), ct); await client.SendAsync(message, ct); await client.DisconnectAsync(true, ct); return; }
-        IOriginalDocument evidence = job.Kind.EndsWith("Report") ? await db.ReportAttachments.SingleAsync(e => e.Id == Guid.Parse(job.Json), ct) : await db.Evidence.SingleAsync(e => e.Id == Guid.Parse(job.Json), ct); if (evidence.Archived) return; var bytes = await store.Get(evidence.Key, ct); Guard.Require(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)) == evidence.Hash, "integrity", "Documentul a fost modificat.", "Document integrity check failed.");
-        if (job.Kind is "Scan" or "ScanReport") { evidence.Scan = await scanner.Clean(bytes, ct) ? "Clean" : "Rejected"; if (evidence.Scan == "Clean" && (config.GetValue<bool>("Ocr:Enabled") || evidence is ReportAttachment attachment && attachment.CoveredLines == "[]")) { evidence.Ocr = Serialization.Write(new { state = "Pending" }); db.Jobs.Add(new() { Kind = job.Kind == "ScanReport" ? "OcrReport" : "Ocr", Json = evidence.Id.ToString() }); } return; }
-        if (job.Kind is "Ocr" or "OcrReport") { Guard.Require(evidence.Scan == "Clean", "scan", "Document neverificat.", "Document is not scanned."); var policies = await db.Masters.Where(m => m.Kind == "policies" && m.Code == "company").ToListAsync(ct); var policy = policies.FirstOrDefault(m => Rules.Effective(m, DateOnly.FromDateTime(DateTime.UtcNow))); var result = await extractor.ExtractProgress(bytes, evidence.Name, evidence.Mime, policy == null ? null : Rules.Text(policy, "cui"), p => Progress(job, evidence, p, ct), ct); evidence.Ocr = Serialization.Write(result with { Pages = result.Pages.Select(p => p with { Words = null }).ToList() }); if (evidence is ReportAttachment bundle && (bundle.Capture || bundle.CoveredLines == "[]" || await db.DocumentReviews.AnyAsync(v => v.Id == bundle.Id))) await OcrReviews.Import(db, bundle.ReportId, bundle.Id, result); return; }
-        throw new InvalidOperationException("Unknown job type");
-    }
-    static async Task<string> Run(string exe, IEnumerable<string> args, CancellationToken ct) { using var process = new Process(); process.StartInfo = new(exe) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false }; foreach (var arg in args) process.StartInfo.ArgumentList.Add(arg); process.Start(); using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct); limit.CancelAfter(TimeSpan.FromMinutes(3)); var stdout = process.StandardOutput.ReadToEndAsync(limit.Token); var stderr = process.StandardError.ReadToEndAsync(limit.Token); try { await process.WaitForExitAsync(limit.Token); } catch { if (!process.HasExited) process.Kill(true); throw; } var error = await stderr; Guard.Require(process.ExitCode == 0, "ocr", "Extragerea documentului a eșuat.", "Document extraction failed."); return await stdout; }
+    Task Put(string key, byte[] bytes, string mime, CancellationToken ct = default);
+    Task<byte[]> Get(string key, CancellationToken ct = default);
 }
 
+public class LocalStore(IConfiguration config) : IStore
+{
+    string Root => config["Storage:Directory"] ?? Path.Combine(Directory.GetCurrentDirectory(), ".data", "objects");
+
+    string PathOf(string key)
+    {
+        Guard.Require(
+            key.Split('/')
+                .All(p =>
+                    p.Length > 0
+                    && !p.Contains("..")
+                    && p.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.')
+                ),
+            "storage_key",
+            "Cheie invalidă.",
+            "Invalid storage key."
+        );
+        return Path.Combine(Root, key);
+    }
+
+    public async Task Put(string key, byte[] bytes, string mime, CancellationToken ct = default)
+    {
+        var path = PathOf(key);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        await file.WriteAsync(bytes, ct);
+    }
+
+    public Task<byte[]> Get(string key, CancellationToken ct = default) => File.ReadAllBytesAsync(PathOf(key), ct);
+}
+
+public class S3Store(IAmazonS3 s3, IConfiguration config) : IStore
+{
+    string Bucket => config["Storage:Bucket"] ?? throw new InvalidOperationException("Bucket missing");
+
+    public async Task Put(string key, byte[] bytes, string mime, CancellationToken ct = default) =>
+        await s3.PutObjectAsync(
+            new()
+            {
+                BucketName = Bucket,
+                Key = key,
+                ContentType = mime,
+                InputStream = new MemoryStream(bytes),
+                ServerSideEncryptionMethod = ServerSideEncryptionMethod.AES256,
+            },
+            ct
+        );
+
+    public async Task<byte[]> Get(string key, CancellationToken ct = default)
+    {
+        using var result = await s3.GetObjectAsync(Bucket, key, ct);
+        using var ms = new MemoryStream();
+        await result.ResponseStream.CopyToAsync(ms, ct);
+        return ms.ToArray();
+    }
+}
+
+public static class Files
+{
+    public const long MaxFile = 25 * 1024 * 1024,
+        MaxReport = 200 * 1024 * 1024;
+
+    public static string Mime(byte[] b, string name)
+    {
+        var ext = Path.GetExtension(name).ToLowerInvariant();
+        if (ext == ".pdf" && b.Length >= 5 && b.AsSpan(0, 5).SequenceEqual("%PDF-"u8))
+            return "application/pdf";
+        if (
+            ext == ".png"
+            && b.Length >= 8
+            && b.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 })
+        )
+            return "image/png";
+        if (ext is ".jpg" or ".jpeg" && b.Length >= 3 && b[0] == 255 && b[1] == 216 && b[2] == 255)
+            return "image/jpeg";
+        if (
+            ext is ".heic" or ".heif"
+            && b.Length >= 12
+            && b.AsSpan(4, 4).SequenceEqual("ftyp"u8)
+            && new[] { "heic", "heix", "hevc", "hevx", "mif1" }.Contains(System.Text.Encoding.ASCII.GetString(b, 8, 4))
+        )
+            return "image/heic";
+        throw new DomainException(
+            "file_type",
+            "Fișier PDF, JPG, PNG sau HEIC valid necesar.",
+            "A valid PDF, JPG, PNG or HEIC file is required."
+        );
+    }
+}
+
+public class Worker(
+    IServiceScopeFactory scopes,
+    IConfiguration config,
+    ILogger<Worker> log,
+    IDocumentExtractor extractor,
+    IDocumentScanner scanner
+) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                using var scope = scopes.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<Db>();
+                var now = DateTime.UtcNow;
+                var candidate = await db
+                    .Jobs.Where(j => (j.State == "Pending" || j.State == "Processing") && j.Due <= now)
+                    .OrderBy(j => j.Due)
+                    .FirstOrDefaultAsync(ct);
+                if (candidate == null)
+                {
+                    await Task.Delay(1500, ct);
+                    continue;
+                }
+                var claim = await db
+                    .Jobs.Where(j =>
+                        j.Id == candidate.Id && j.Due <= now && (j.State == "Pending" || j.State == "Processing")
+                    )
+                    .ExecuteUpdateAsync(
+                        s =>
+                            s.SetProperty(j => j.State, "Processing")
+                                .SetProperty(j => j.Due, now.AddMinutes(5))
+                                .SetProperty(j => j.Attempts, j => j.Attempts + 1)
+                                .SetProperty(j => j.StartedAt, (DateTime?)now)
+                                .SetProperty(j => j.CompletedAt, (DateTime?)null)
+                                .SetProperty(j => j.FailureCode, (string?)null),
+                        ct
+                    );
+                if (claim == 0)
+                    continue;
+                db.Entry(candidate).State = EntityState.Detached;
+                var job = await db.Jobs.SingleAsync(j => j.Id == candidate.Id, ct);
+                try
+                {
+                    using (var lease = CancellationTokenSource.CreateLinkedTokenSource(ct))
+                    {
+                        var renew = RenewLease(job.Id, job.Attempts, lease);
+                        try
+                        {
+                            await Process(job, db, scope.ServiceProvider.GetRequiredService<IStore>(), lease.Token);
+                        }
+                        finally
+                        {
+                            lease.Cancel();
+                            await renew;
+                        }
+                    }
+                    job.State = "Completed";
+                    job.Error = null;
+                    job.CompletedAt = DateTime.UtcNow;
+                    job.FailureCode = null;
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    log.LogError(ex, "Job {Id} failed", job.Id);
+                    job.State = job.Attempts >= 5 ? "Failed" : "Pending";
+                    job.Error = "Processing failed; see server logs.";
+                    job.FailureCode = ex is DomainException failure ? failure.Code : "processing_failed";
+                    if (job.State == "Failed")
+                        job.CompletedAt = DateTime.UtcNow;
+                    job.Due = DateTime.UtcNow.AddMinutes(Math.Pow(2, job.Attempts));
+                    if (job.State == "Failed")
+                    {
+                        if (job.Kind is "Ocr" or "OcrReport")
+                        {
+                            IOriginalDocument? doc =
+                                job.Kind == "OcrReport"
+                                    ? await db.ReportAttachments.FindAsync(Guid.Parse(job.Json))
+                                    : await db.Evidence.FindAsync(Guid.Parse(job.Json));
+                            if (doc is ReportAttachment failedSource)
+                                DocumentEvents.Emit(
+                                    db,
+                                    failedSource.ReportId,
+                                    failedSource.Id,
+                                    "OcrJobFailed",
+                                    "system",
+                                    job.Id + "|" + job.Attempts,
+                                    new { attempts = job.Attempts, code = "ocr_failed" }
+                                );
+                            if (doc != null)
+                                doc.Ocr = Serialization.Write(
+                                    new
+                                    {
+                                        state = "Failed",
+                                        messageRo = "Extragerea a eșuat. Reîncearcă sau completează manual.",
+                                        messageEn = "Extraction failed. Retry or enter manually.",
+                                    }
+                                );
+                        }
+                        var admins = await db
+                            .UserRoles.Join(db.Roles, x => x.RoleId, y => y.Id, (x, y) => new { x.UserId, y.Name })
+                            .Where(x => x.Name == "Admin")
+                            .Select(x => x.UserId)
+                            .ToListAsync();
+                        foreach (var admin in admins)
+                        {
+                            db.Notices.Add(
+                                new()
+                                {
+                                    UserId = admin,
+                                    Event = "CriticalJobFailure:" + job.Kind,
+                                    ReportId = Guid.Empty,
+                                }
+                            );
+                            var channels = await NotificationPolicies.Channels(db, "CriticalFailure");
+                            var recipient = await db.Users.FindAsync(admin);
+                            if (
+                                job.Kind != "Email"
+                                && channels.Item2
+                                && !string.IsNullOrWhiteSpace(config["Smtp:Host"])
+                                && !string.IsNullOrWhiteSpace(recipient?.Email)
+                            )
+                                db.Jobs.Add(
+                                    new()
+                                    {
+                                        Kind = "Email",
+                                        Json = Serialization.Write(
+                                            new
+                                            {
+                                                to = recipient.Email,
+                                                subject = "Decont — operațiune eșuată / Failed operation",
+                                                text = "O operațiune "
+                                                    + job.Kind
+                                                    + " a eșuat după reîncercări. Verifică pagina administrativă Operațiuni de fundal. / A "
+                                                    + job.Kind
+                                                    + " operation failed after retries. Check the administrative Background jobs page.",
+                                            }
+                                        ),
+                                    }
+                                );
+                        }
+                    }
+                }
+                try
+                {
+                    await db.SaveChangesAsync(ct);
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    await RetryConflict(job, ct);
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                log.LogError(ex, "Worker polling failed");
+                await Task.Delay(3000, ct);
+            }
+        }
+    }
+
+    async Task Progress(Job current, IOriginalDocument original, OcrProgress progress, CancellationToken ct)
+    {
+        using var scope = scopes.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        var job = await db.Jobs.SingleAsync(j => j.Id == current.Id, ct);
+        Guard.Require(
+            job.State == "Processing" && job.Attempts == current.Attempts,
+            "lease",
+            "Operațiunea a fost preluată de alt proces.",
+            "Another worker owns this operation."
+        );
+        IOriginalDocument source =
+            original is ReportAttachment
+                ? await db.ReportAttachments.SingleAsync(a => a.Id == original.Id, ct)
+                : await db.Evidence.SingleAsync(a => a.Id == original.Id, ct);
+        if (source.Archived)
+            return;
+        source.Ocr = Serialization.Write(
+            new
+            {
+                state = "Processing",
+                stage = progress.Stage,
+                progress.CompletedPages,
+                progress.TotalPages,
+                progress.FailedPages,
+            }
+        );
+        job.Due = DateTime.UtcNow.AddMinutes(5);
+        if (
+            source is ReportAttachment bundle
+            && (progress.Stage == "Normalizing" || progress.Stage == "Extracting" && progress.CompletedPages == 0)
+        )
+            DocumentEvents.Emit(
+                db,
+                bundle.ReportId,
+                bundle.Id,
+                progress.Stage == "Normalizing" ? "ProcessingStarted" : "DocumentNormalized",
+                "system",
+                job.Id + "|" + job.Attempts + "|" + progress.Stage,
+                new
+                {
+                    progress.TotalPages,
+                    jobId = job.Id,
+                    attempt = job.Attempts,
+                }
+            );
+        await db.SaveChangesAsync(ct);
+    }
+
+    async Task RetryConflict(Job previous, CancellationToken ct)
+    {
+        using var scope = scopes.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        var job = await db.Jobs.SingleAsync(j => j.Id == previous.Id, ct);
+        if (job.Attempts != previous.Attempts || job.State != "Processing")
+            return;
+        job.State = job.Attempts >= 5 ? "Failed" : "Pending";
+        job.Due = DateTime.UtcNow.AddSeconds(5);
+        job.Error = "Concurrent update; safe retry required.";
+        job.FailureCode = "concurrent_update";
+        if (job.State == "Failed")
+            job.CompletedAt = DateTime.UtcNow;
+        if (job.State == "Failed" && (job.Kind is "Ocr" or "OcrReport"))
+        {
+            IOriginalDocument? file =
+                job.Kind == "OcrReport"
+                    ? await db.ReportAttachments.FindAsync(Guid.Parse(job.Json))
+                    : await db.Evidence.FindAsync(Guid.Parse(job.Json));
+            if (file != null)
+                file.Ocr = Serialization.Write(
+                    new
+                    {
+                        state = "Failed",
+                        messageRo = "Datele au fost modificate. Reîncearcă extragerea.",
+                        messageEn = "Data changed. Retry extraction.",
+                    }
+                );
+        }
+        await db.SaveChangesAsync(ct);
+        log.LogWarning("Job {Id} deferred after concurrent update", job.Id);
+    }
+
+    async Task RenewLease(Guid id, int attempt, CancellationTokenSource lease)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+            while (await timer.WaitForNextTickAsync(lease.Token))
+            {
+                using var scope = scopes.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<Db>();
+                var renewed = await db
+                    .Jobs.Where(j => j.Id == id && j.Attempts == attempt && j.State == "Processing")
+                    .ExecuteUpdateAsync(s => s.SetProperty(j => j.Due, DateTime.UtcNow.AddMinutes(5)), lease.Token);
+                if (renewed == 0)
+                {
+                    lease.Cancel();
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (lease.IsCancellationRequested) { }
+        catch (Exception)
+        {
+            log.LogWarning("Job {Id} lease renewal failed", id);
+            lease.Cancel();
+        }
+    }
+
+    async Task Process(Job job, Db db, IStore store, CancellationToken ct)
+    {
+        if (job.Kind == "DocumentEvent")
+        {
+            await DocumentEvents.Deliver(Guid.Parse(job.Json), db, ct);
+            return;
+        }
+        if (job.Kind == "Email")
+        {
+            var data = System.Text.Json.JsonDocument.Parse(job.Json).RootElement;
+            var host = config["Smtp:Host"] ?? throw new InvalidOperationException("SMTP is not configured");
+            var message = new MimeMessage();
+            message.From.Add(
+                MailboxAddress.Parse(config["Smtp:From"] ?? throw new InvalidOperationException("SMTP sender missing"))
+            );
+            message.To.Add(MailboxAddress.Parse(data.GetProperty("to").GetString()!));
+            message.Subject = data.GetProperty("subject").GetString() ?? "";
+            message.Body = new TextPart("plain") { Text = data.GetProperty("text").GetString() ?? "" };
+            using var client = new SmtpClient();
+            await client.ConnectAsync(
+                host,
+                config.GetValue<int?>("Smtp:Port") ?? 587,
+                MailKit.Security.SecureSocketOptions.StartTls,
+                ct
+            );
+            if (config["Smtp:Username"] is string user)
+                await client.AuthenticateAsync(
+                    user,
+                    config["Smtp:Password"] ?? throw new InvalidOperationException("SMTP password missing"),
+                    ct
+                );
+            await client.SendAsync(message, ct);
+            await client.DisconnectAsync(true, ct);
+            return;
+        }
+        IOriginalDocument evidence = job.Kind.EndsWith("Report")
+            ? await db.ReportAttachments.SingleAsync(e => e.Id == Guid.Parse(job.Json), ct)
+            : await db.Evidence.SingleAsync(e => e.Id == Guid.Parse(job.Json), ct);
+        if (evidence.Archived)
+            return;
+        var bytes = await store.Get(evidence.Key, ct);
+        Guard.Require(
+            Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)) == evidence.Hash,
+            "integrity",
+            "Documentul a fost modificat.",
+            "Document integrity check failed."
+        );
+        if (job.Kind is "Scan" or "ScanReport")
+        {
+            evidence.Scan = await scanner.Clean(bytes, ct) ? "Clean" : "Rejected";
+            if (
+                evidence.Scan == "Clean"
+                && (
+                    config.GetValue<bool>("Ocr:Enabled")
+                    || evidence is ReportAttachment attachment && attachment.CoveredLines == "[]"
+                )
+            )
+            {
+                evidence.Ocr = Serialization.Write(new { state = "Pending" });
+                db.Jobs.Add(
+                    new() { Kind = job.Kind == "ScanReport" ? "OcrReport" : "Ocr", Json = evidence.Id.ToString() }
+                );
+            }
+            return;
+        }
+        if (job.Kind is "Ocr" or "OcrReport")
+        {
+            Guard.Require(evidence.Scan == "Clean", "scan", "Document neverificat.", "Document is not scanned.");
+            var policies = await db.Masters.Where(m => m.Kind == "policies" && m.Code == "company").ToListAsync(ct);
+            var policy = policies.FirstOrDefault(m => Rules.Effective(m, DateOnly.FromDateTime(DateTime.UtcNow)));
+            var result = await extractor.ExtractProgress(
+                bytes,
+                evidence.Name,
+                evidence.Mime,
+                policy == null ? null : Rules.Text(policy, "cui"),
+                p => Progress(job, evidence, p, ct),
+                ct
+            );
+            evidence.Ocr = Serialization.Write(
+                result with
+                {
+                    Pages = result.Pages.Select(p => p with { Words = null }).ToList(),
+                }
+            );
+            if (
+                evidence is ReportAttachment bundle
+                && (
+                    bundle.Capture
+                    || bundle.CoveredLines == "[]"
+                    || await db.DocumentReviews.AnyAsync(v => v.Id == bundle.Id)
+                )
+            )
+                await OcrReviews.Import(db, bundle.ReportId, bundle.Id, result);
+            return;
+        }
+        throw new InvalidOperationException("Unknown job type");
+    }
+
+    static async Task<string> Run(string exe, IEnumerable<string> args, CancellationToken ct)
+    {
+        using var process = new Process();
+        process.StartInfo = new(exe)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        foreach (var arg in args)
+            process.StartInfo.ArgumentList.Add(arg);
+        process.Start();
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        limit.CancelAfter(TimeSpan.FromMinutes(3));
+        var stdout = process.StandardOutput.ReadToEndAsync(limit.Token);
+        var stderr = process.StandardError.ReadToEndAsync(limit.Token);
+        try
+        {
+            await process.WaitForExitAsync(limit.Token);
+        }
+        catch
+        {
+            if (!process.HasExited)
+                process.Kill(true);
+            throw;
+        }
+        var error = await stderr;
+        Guard.Require(process.ExitCode == 0, "ocr", "Extragerea documentului a eșuat.", "Document extraction failed.");
+        return await stdout;
+    }
+}

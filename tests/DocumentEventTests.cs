@@ -1,13 +1,111 @@
 using Decont;
-using Xunit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+
 namespace Decont.Tests;
 
 public class DocumentEventTests
 {
-    static async Task<(Guid Report, Guid Document)> Source(Factory factory) { using var scope = factory.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<Db>(); var user = await db.Users.SingleAsync(u => u.UserName == "alice"); var report = new Report { EmployeeId = user.Id, Purpose = "Outbox test" }; var file = new ReportAttachment { ReportId = report.Id, UploadedBy = user.Id, Scan = "Clean" }; report.Attachments.Add(file); db.Reports.Add(report); await db.SaveChangesAsync(); return (report.Id, file.Id); }
-    [Fact] public async Task OutboxRollbackDoesNotPublishEventsOrJobs() { await using var f = new Factory(); await f.Seed(); var (report, document) = await Source(f); using var scope = f.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<Db>(); await using (var transaction = await db.Database.BeginTransactionAsync()) { DocumentEvents.Emit(db, report, document, "DocumentUploaded", "system", "test", new { pages = 1 }); await db.SaveChangesAsync(); await transaction.RollbackAsync(); } db.ChangeTracker.Clear(); Assert.Empty(await db.DocumentEvents.ToListAsync()); Assert.Empty(await db.Jobs.ToListAsync()); }
-    [Fact] public async Task EventAndDeliveryAreIdempotentAndDoNotContainRawReceiptText() { await using var f = new Factory(); await f.Seed(); var (report, document) = await Source(f); using var scope = f.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<Db>(); DocumentEvents.Emit(db, report, document, "ExtractionCompleted", "system", "outcome-v1", new { pages = 2, groups = 2, reviewRequired = true }); DocumentEvents.Emit(db, report, document, "ExtractionCompleted", "system", "outcome-v1", new { pages = 2, groups = 2, reviewRequired = true }); await db.SaveChangesAsync(); var entry = Assert.Single(await db.DocumentEvents.ToListAsync()); var job = Assert.Single(await db.Jobs.ToListAsync()); Assert.Equal(entry.Id, job.Id); Assert.DoesNotContain("TOTAL", entry.Payload); await DocumentEvents.Deliver(entry.Id, db, CancellationToken.None); job.State = "Completed"; await db.SaveChangesAsync(); await DocumentEvents.Deliver(entry.Id, db, CancellationToken.None); await db.SaveChangesAsync(); var notice = Assert.Single(await db.Notices.ToListAsync()); Assert.Equal(entry.Id, notice.Id); Assert.Equal("OcrReviewReady", notice.Event); }
-    [Fact] public async Task EventPayloadIsAppendOnly() { await using var f = new Factory(); await f.Seed(); var (report, document) = await Source(f); using var scope = f.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<Db>(); DocumentEvents.Emit(db, report, document, "DocumentUploaded", "system", "test", new { pages = 1 }); await db.SaveChangesAsync(); (await db.DocumentEvents.SingleAsync()).Payload = "altered"; await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync()); }
+    static async Task<(Guid Report, Guid Document)> Source(Factory factory)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        var user = await db.Users.SingleAsync(u => u.UserName == "alice");
+        var report = new Report { EmployeeId = user.Id, Purpose = "Outbox test" };
+        var file = new ReportAttachment
+        {
+            ReportId = report.Id,
+            UploadedBy = user.Id,
+            Scan = "Clean",
+        };
+        report.Attachments.Add(file);
+        db.Reports.Add(report);
+        await db.SaveChangesAsync();
+        return (report.Id, file.Id);
+    }
+
+    [Fact]
+    public async Task OutboxRollbackDoesNotPublishEventsOrJobs()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        var (report, document) = await Source(f);
+        using var scope = f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        await using (var transaction = await db.Database.BeginTransactionAsync())
+        {
+            DocumentEvents.Emit(db, report, document, "DocumentUploaded", "system", "test", new { pages = 1 });
+            await db.SaveChangesAsync();
+            await transaction.RollbackAsync();
+        }
+        db.ChangeTracker.Clear();
+        Assert.Empty(await db.DocumentEvents.ToListAsync());
+        Assert.Empty(await db.Jobs.ToListAsync());
+    }
+
+    [Fact]
+    public async Task EventAndDeliveryAreIdempotentAndDoNotContainRawReceiptText()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        var (report, document) = await Source(f);
+        using var scope = f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        DocumentEvents.Emit(
+            db,
+            report,
+            document,
+            "ExtractionCompleted",
+            "system",
+            "outcome-v1",
+            new
+            {
+                pages = 2,
+                groups = 2,
+                reviewRequired = true,
+            }
+        );
+        DocumentEvents.Emit(
+            db,
+            report,
+            document,
+            "ExtractionCompleted",
+            "system",
+            "outcome-v1",
+            new
+            {
+                pages = 2,
+                groups = 2,
+                reviewRequired = true,
+            }
+        );
+        await db.SaveChangesAsync();
+        var entry = Assert.Single(await db.DocumentEvents.ToListAsync());
+        var job = Assert.Single(await db.Jobs.ToListAsync());
+        Assert.Equal(entry.Id, job.Id);
+        Assert.DoesNotContain("TOTAL", entry.Payload);
+        await DocumentEvents.Deliver(entry.Id, db, CancellationToken.None);
+        job.State = "Completed";
+        await db.SaveChangesAsync();
+        await DocumentEvents.Deliver(entry.Id, db, CancellationToken.None);
+        await db.SaveChangesAsync();
+        var notice = Assert.Single(await db.Notices.ToListAsync());
+        Assert.Equal(entry.Id, notice.Id);
+        Assert.Equal("OcrReviewReady", notice.Event);
+    }
+
+    [Fact]
+    public async Task EventPayloadIsAppendOnly()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        var (report, document) = await Source(f);
+        using var scope = f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        DocumentEvents.Emit(db, report, document, "DocumentUploaded", "system", "test", new { pages = 1 });
+        await db.SaveChangesAsync();
+        (await db.DocumentEvents.SingleAsync()).Payload = "altered";
+        await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync());
+    }
 }

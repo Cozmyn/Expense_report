@@ -1,13 +1,159 @@
 using Microsoft.EntityFrameworkCore;
+
 namespace Decont;
 
-public class FinanceAcceptanceRecord { public Guid Id { get; set; } = Guid.NewGuid(); public string Company { get; set; } = ""; public string ConfigurationHash { get; set; } = ""; public string Json { get; set; } = "{}"; public string Actor { get; set; } = ""; public string Reason { get; set; } = ""; public DateTime At { get; set; } = DateTime.UtcNow; }
-public record FinanceAcceptanceCommand(string Company, string ConfigurationHash, bool TotalsChecked, bool SourceChecked, bool RoundingChecked, bool ErpChecked, string Reason);
+public class FinanceAcceptanceRecord
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Company { get; set; } = "";
+    public string ConfigurationHash { get; set; } = "";
+    public string Json { get; set; } = "{}";
+    public string Actor { get; set; } = "";
+    public string Reason { get; set; } = "";
+    public DateTime At { get; set; } = DateTime.UtcNow;
+}
+
+public record FinanceAcceptanceCommand(
+    string Company,
+    string ConfigurationHash,
+    bool TotalsChecked,
+    bool SourceChecked,
+    bool RoundingChecked,
+    bool ErpChecked,
+    string Reason
+);
+
 public static class FinanceAcceptance
 {
-    public static async Task<string> Hash(Db db) { var decisions = await db.TaxPolicyDecisions.OrderBy(p => p.Id).ToListAsync(); var approved = decisions.Where(d => d.Action == "APPROVE").Select(d => d.PolicyId).ToList(); return Serialization.Hash(Serialization.Write(new { masters = await db.Masters.OrderBy(m => m.Id).ToListAsync(), policies = await db.TaxPolicies.Where(p => approved.Contains(p.Id)).OrderBy(p => p.Id).ToListAsync(), decisions, currencies = await db.FinancePolicies.OrderBy(p => p.Id).ToListAsync(), accounts = await db.SupplierAccounts.OrderBy(p => p.Id).ToListAsync(), calculator = FinancialCalculations.Version, posting = Posting.EngineVersion })); }
-    public static async Task<List<Problem>> ReleaseProblems(Db db, bool production) { if (!production) return []; var hash = await Hash(db); return await db.FinanceAcceptanceRecords.AnyAsync(r => r.ConfigurationHash == hash) ? [] : [new("finance_acceptance_required", "Finance trebuie să înregistreze acceptanța configurării curente înainte de exportul de producție. Modificările FX pe bon nu cer reaprobare managerială.", "Finance must record acceptance of the current configuration before production export. Receipt FX changes do not require manager reapproval.")]; }
+    public static async Task<string> Hash(Db db)
+    {
+        var decisions = await db.TaxPolicyDecisions.OrderBy(p => p.Id).ToListAsync();
+        var approved = decisions.Where(d => d.Action == "APPROVE").Select(d => d.PolicyId).ToList();
+        return Serialization.Hash(
+            Serialization.Write(
+                new
+                {
+                    masters = await db.Masters.OrderBy(m => m.Id).ToListAsync(),
+                    policies = await db
+                        .TaxPolicies.Where(p => approved.Contains(p.Id))
+                        .OrderBy(p => p.Id)
+                        .ToListAsync(),
+                    decisions,
+                    currencies = await db.FinancePolicies.OrderBy(p => p.Id).ToListAsync(),
+                    accounts = await db.SupplierAccounts.OrderBy(p => p.Id).ToListAsync(),
+                    calculator = FinancialCalculations.Version,
+                    posting = Posting.EngineVersion,
+                }
+            )
+        );
+    }
 
-    public static List<Problem> MasterProblems(IEnumerable<Master> masters, bool production) { List<Problem> issues = []; foreach (var m in masters.Where(m => m.Active)) { if (m.Json.Contains("#REF!", StringComparison.OrdinalIgnoreCase) || production && new[] { "TEST-", "SAMPLE-", "PLACEHOLDER", "TODO" }.Any(x => m.Json.Contains(x, StringComparison.OrdinalIgnoreCase))) issues.Add(new("master_placeholder", "Înlocuiește referința invalidă/datele demonstrative din " + m.Kind + " / " + m.Code + ".", "Replace broken references/sample data in " + m.Kind + " / " + m.Code + ".")); } return issues; }
-    public static void Map(RouteGroupBuilder api) { var f = api.MapGroup("/finance/acceptance").RequireAuthorization(p => p.RequireRole("Finance")); f.MapGet("", async (Db db, IWebHostEnvironment env) => new { configurationHash = await Hash(db), issues = MasterProblems(await db.Masters.ToListAsync(), env.IsProduction()), records = await db.FinanceAcceptanceRecords.OrderByDescending(r => r.At).Take(50).ToListAsync() }); f.MapPost("", async (FinanceAcceptanceCommand i, Db db, Reports svc, HttpContext c, IWebHostEnvironment env) => await Api.Atomic(db, c, i, async () => { Guard.Reason(i.Reason); Guard.Require(!string.IsNullOrWhiteSpace(i.Company) && i.TotalsChecked && i.SourceChecked && i.RoundingChecked && i.ErpChecked, "acceptance_checks", "Bifează toate verificările efectuate efectiv și completează compania.", "Confirm all checks actually performed and enter the company."); Guard.Require(i.ConfigurationHash == await Hash(db), "acceptance_stale", "Configurarea s-a modificat. Reîncarcă înainte de confirmare.", "Configuration changed. Reload before accepting.", 409); Guard.Require(!MasterProblems(await db.Masters.ToListAsync(), env.IsProduction()).Any(), "acceptance_configuration", "Corectează nomenclatoarele înainte de acceptare.", "Correct master data before acceptance."); var record = new FinanceAcceptanceRecord { Company = i.Company, ConfigurationHash = i.ConfigurationHash, Json = Serialization.Write(i), Actor = Reports.Actor(c.User), Reason = i.Reason }; db.FinanceAcceptanceRecords.Add(record); svc.Log(c.User, null, record.Id.ToString(), "FinanceConfigurationAccepted", after: record, reason: i.Reason); return record; })); }
+    public static async Task<List<Problem>> ReleaseProblems(Db db, bool production)
+    {
+        if (!production)
+            return [];
+        var hash = await Hash(db);
+        return await db.FinanceAcceptanceRecords.AnyAsync(r => r.ConfigurationHash == hash)
+            ? []
+            :
+            [
+                new(
+                    "finance_acceptance_required",
+                    "Finance trebuie să înregistreze acceptanța configurării curente înainte de exportul de producție. Modificările FX pe bon nu cer reaprobare managerială.",
+                    "Finance must record acceptance of the current configuration before production export. Receipt FX changes do not require manager reapproval."
+                ),
+            ];
+    }
+
+    public static List<Problem> MasterProblems(IEnumerable<Master> masters, bool production)
+    {
+        List<Problem> issues = [];
+        foreach (var m in masters.Where(m => m.Active))
+        {
+            if (
+                m.Json.Contains("#REF!", StringComparison.OrdinalIgnoreCase)
+                || production
+                    && new[] { "TEST-", "SAMPLE-", "PLACEHOLDER", "TODO" }.Any(x =>
+                        m.Json.Contains(x, StringComparison.OrdinalIgnoreCase)
+                    )
+            )
+                issues.Add(
+                    new(
+                        "master_placeholder",
+                        "Înlocuiește referința invalidă/datele demonstrative din " + m.Kind + " / " + m.Code + ".",
+                        "Replace broken references/sample data in " + m.Kind + " / " + m.Code + "."
+                    )
+                );
+        }
+        return issues;
+    }
+
+    public static void Map(RouteGroupBuilder api)
+    {
+        var f = api.MapGroup("/finance/acceptance").RequireAuthorization(p => p.RequireRole("Finance"));
+        f.MapGet(
+            "",
+            async (Db db, IWebHostEnvironment env) =>
+                new
+                {
+                    configurationHash = await Hash(db),
+                    issues = MasterProblems(await db.Masters.ToListAsync(), env.IsProduction()),
+                    records = await db.FinanceAcceptanceRecords.OrderByDescending(r => r.At).Take(50).ToListAsync(),
+                }
+        );
+        f.MapPost(
+            "",
+            async (FinanceAcceptanceCommand i, Db db, Reports svc, HttpContext c, IWebHostEnvironment env) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        Guard.Reason(i.Reason);
+                        Guard.Require(
+                            !string.IsNullOrWhiteSpace(i.Company)
+                                && i.TotalsChecked
+                                && i.SourceChecked
+                                && i.RoundingChecked
+                                && i.ErpChecked,
+                            "acceptance_checks",
+                            "Bifează toate verificările efectuate efectiv și completează compania.",
+                            "Confirm all checks actually performed and enter the company."
+                        );
+                        Guard.Require(
+                            i.ConfigurationHash == await Hash(db),
+                            "acceptance_stale",
+                            "Configurarea s-a modificat. Reîncarcă înainte de confirmare.",
+                            "Configuration changed. Reload before accepting.",
+                            409
+                        );
+                        Guard.Require(
+                            !MasterProblems(await db.Masters.ToListAsync(), env.IsProduction()).Any(),
+                            "acceptance_configuration",
+                            "Corectează nomenclatoarele înainte de acceptare.",
+                            "Correct master data before acceptance."
+                        );
+                        var record = new FinanceAcceptanceRecord
+                        {
+                            Company = i.Company,
+                            ConfigurationHash = i.ConfigurationHash,
+                            Json = Serialization.Write(i),
+                            Actor = Reports.Actor(c.User),
+                            Reason = i.Reason,
+                        };
+                        db.FinanceAcceptanceRecords.Add(record);
+                        svc.Log(
+                            c.User,
+                            null,
+                            record.Id.ToString(),
+                            "FinanceConfigurationAccepted",
+                            after: record,
+                            reason: i.Reason
+                        );
+                        return record;
+                    }
+                )
+        );
+    }
 }
