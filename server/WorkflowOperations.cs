@@ -3,6 +3,7 @@ namespace Decont;
 
 public static class WorkflowOperations {
  public static bool IsConflict(Exception error){for(Exception? current=error;current!=null;current=current.InnerException){if(current is Npgsql.PostgresException pg&&pg.SqlState is "40001" or "40P01" or "23505")return true;if(current is Microsoft.Data.Sqlite.SqliteException sqlite&&sqlite.SqliteErrorCode is 5 or 6 or 19)return true;}return false;}
+ public static async Task RecordDenied(IServiceProvider services,HttpContext context,string code){if(context.User.Identity?.IsAuthenticated!=true)return;using var scope=services.CreateScope();var db=scope.ServiceProvider.GetRequiredService<Db>();db.Audits.Add(new(){Actor=Reports.Actor(context.User),Entity="Authorization",Action="AccessDenied",RequestId=context.TraceIdentifier,After=Serialization.Write(new{code,method=context.Request.Method})});await db.SaveChangesAsync();}
  public static void Map(RouteGroupBuilder api){
   api.MapGet("/admin/workflow-metrics",async(Db db)=>{
    var now=DateTime.UtcNow;
