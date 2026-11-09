@@ -1,5 +1,16 @@
 import { parseFinancialJson } from './decimal.mjs';
 let token = '';
+/** Tell the authenticated workspace to offer a safe return to sign-in on a 401. */
+export const SESSION_EXPIRED_EVENT = 'decont:session-expired';
+function handleExpiredSession(path: string, status: number) {
+  if (
+    status === 401 &&
+    !['/me', '/auth/login', '/auth/logout', '/auth/csrf'].includes(path)
+  ) {
+    token = '';
+    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+  }
+}
 export async function api<T = any>(path: string, method = 'GET', body?: unknown): Promise<T> {
   if (method !== 'GET' && !token) {
     const r = await fetch('/api/auth/csrf', { credentials: 'same-origin' });
@@ -19,6 +30,7 @@ export async function api<T = any>(path: string, method = 'GET', body?: unknown)
     body: body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body),
   });
   if (!response.ok) {
+    handleExpiredSession(path, response.status);
     const p = await response
       .json()
       .catch(() => ({ ro: 'Server indisponibil.', en: 'Server unavailable.' }));
@@ -68,7 +80,8 @@ export async function upload(
       if (xhr.status >= 200 && xhr.status < 300) {
         progress(100);
         resolve(result);
-      } else
+      } else {
+        handleExpiredSession(path, xhr.status);
         reject(
           new Error(
             result[localStorage.getItem('decont.language') || 'ro'] ||
@@ -76,6 +89,7 @@ export async function upload(
               xhr.statusText,
           ),
         );
+      }
     };
     xhr.send(body);
   });
