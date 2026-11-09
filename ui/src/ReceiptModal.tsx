@@ -135,6 +135,8 @@ export default function ReceiptModal({
     [draftStatus, DS] = useState('');
   const lastSaved = useRef('');
   const saving = useRef(false);
+  const modified = useRef(false);
+  const requestCloseRef = useRef<() => void>(() => {});
   const formRef = useRef<HTMLFormElement>(null);
   const draftQueue = useRef<Promise<any>>(Promise.resolve());
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -226,12 +228,27 @@ export default function ReceiptModal({
         cardId: reportPayment === 'CompanyCard' ? reportCardId : null,
       }));
   }, [reportPayment, reportCardId, draftReady]);
+  const requestClose = () => {
+    if (saving.current || busy) return;
+    if (
+      modified.current &&
+      !window.confirm(t(
+        'Închizi fără să salvezi bonul? Modificările neconfirmate se pot pierde.',
+        'Close without saving the receipt? Unconfirmed changes may be lost.',
+      ))
+    ) return;
+    onClose();
+  };
+  requestCloseRef.current = requestClose;
   const set = (key: string, value: any) => D((old) => ({ ...old, [key]: value }));
   const domestic = d.country === 'RO',
     vat = domestic && d.hasCompanyCui === true;
   useEffect(() => {
     const listener = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        requestCloseRef.current();
+      }
       if (e.key === 'Tab') {
         const elements = Array.from(
           document.querySelectorAll<HTMLElement>(
@@ -524,7 +541,7 @@ export default function ReceiptModal({
               )}
             </p>
           </div>
-          <button className="icon" aria-label={t('Închide', 'Close')} onClick={onClose}>
+          <button className="icon" aria-label={t('Închide', 'Close')} onClick={requestClose}>
             <X />
           </button>
         </div>
@@ -550,6 +567,7 @@ export default function ReceiptModal({
           )}
           <form
             ref={formRef}
+            onChangeCapture={() => { modified.current = true; }}
             onFocusCapture={(e) => {
               const key = (e.target as HTMLElement).dataset.ocrField;
               if (!key || !expense.ocrCandidate) return;
@@ -1500,7 +1518,7 @@ export default function ReceiptModal({
                   {t('Salvează ciorna pentru verificare', 'Save review draft')}
                 </button>
               )}
-              <button type="button" className="secondary" onClick={onClose}>
+              <button type="button" className="secondary" onClick={requestClose}>
                 {t('Anulează', 'Cancel')}
               </button>
               <button
