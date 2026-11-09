@@ -185,6 +185,15 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     await expect(dialog).not.toBeVisible();
   };
   await begin();
+  const dismissedDialogs: string[] = [];
+  page.once('dialog', async (prompt) => {
+    dismissedDialogs.push(prompt.message());
+    await prompt.dismiss();
+  });
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeVisible();
+  expect(dismissedDialogs[0]).toContain('Închizi fără să salvezi bonul?');
+  await expect(dialog.getByRole('heading', { name: 'Adaugă un bon / document' })).toBeFocused();
   await dialog
     .getByLabel('Bonul are înscris CUI-ul companiei?', { exact: true })
     .selectOption('yes');
