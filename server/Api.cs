@@ -114,6 +114,7 @@ public static class Api
         DocumentEvents.Map(api);
         DocumentPages.Map(api);
         OcrReviews.Map(api);
+        OcrFieldSelection.Map(api);
         ReceiptFiles.Map(api);
         FinanceRouting.Map(api);
         DocumentPreviews.Map(api);
