@@ -24,7 +24,7 @@ services:
     expose: ["8750"]
     volumes: ["paddle-models:/models"]
     restart: unless-stopped
-    mem_limit: 3072m
+    mem_limit: ${OCR_MEMORY_LIMIT:-5g}
     read_only: true
     tmpfs: ["/tmp:size=268435456,mode=1777"]
     security_opt: ["no-new-privileges:true"]
