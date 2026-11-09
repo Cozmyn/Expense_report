@@ -156,6 +156,37 @@ public class SecurityBoundaryRegressionTests
     }
 
     [Fact]
+    public async Task RoleChangeRevokesTheOldSessionWithoutDeactivatingTheAccount()
+    {
+        await using var factory = new Factory();
+        await factory.Seed();
+        var finance = await Login(factory, "finance");
+        var admin = await Login(factory, "admin");
+        Assert.Equal(HttpStatusCode.OK, (await finance.GetAsync("/api/finance/batches")).StatusCode);
+        var identity = await finance.GetFromJsonAsync<JsonElement>("/api/me");
+        var financeId = identity.GetProperty("id").GetString();
+
+        NewWriteKey(admin);
+        var changed = await admin.PutAsJsonAsync(
+            "/api/admin/users/" + financeId,
+            new UserInput(
+                "finance", "finance", "finance@example.invalid", "finance", null,
+                true, ["Employee"], null, "Role reduction regression test"
+            )
+        );
+        Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await finance.GetAsync("/api/me")).StatusCode);
+
+        var freshSession = await Login(factory, "finance");
+        var current = await freshSession.GetFromJsonAsync<JsonElement>("/api/me");
+        Assert.Contains(current.GetProperty("roles").EnumerateArray(),
+            item => item.GetString() == "Employee");
+        Assert.DoesNotContain(current.GetProperty("roles").EnumerateArray(),
+            item => item.GetString() == "Finance");
+        Assert.Equal(HttpStatusCode.Forbidden, (await freshSession.GetAsync("/api/finance/batches")).StatusCode);
+    }
+
+    [Fact]
     public async Task LogoutRevokesOnlyTheCurrentServerSideSession()
     {
         await using var factory = new Factory();
