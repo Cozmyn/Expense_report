@@ -177,6 +177,8 @@ public static class Api
                     new
                     {
                         report = View(r),
+                        managerName = await db.Users.Where(u => u.Id == r.ManagerId)
+                            .Select(u => u.Name).FirstOrDefaultAsync(),
                         sourceGroups = await db
                             .DocumentGroups.Where(g => g.ExpenseId != null && lineIds.Contains(g.ExpenseId.Value))
                             .Select(g => new
