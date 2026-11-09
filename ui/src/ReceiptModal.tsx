@@ -35,6 +35,7 @@ export default function ReceiptModal({
   expense,
   reportPayment,
   reportCardId,
+  reportCostCenter,
   finance,
   draftStorageKey,
   masters,
@@ -48,6 +49,7 @@ export default function ReceiptModal({
 }: Any) {
   const [d, D] = useState<Any>({
     ...expense.data,
+    costCenter: reportCostCenter || expense.data.costCenter,
     hasCompanyCui:
       expense.data.hasCompanyCui ??
       (expense.data.documentType === 'InvoiceWithCui'
@@ -909,7 +911,7 @@ export default function ReceiptModal({
                       }
                     />
                   </Field>
-                  <Field name={t('Număr bon / document', 'Receipt / document number')}>
+                  <Field name={t('Număr bon / document', 'Receipt / document number')} action={scanAction('invoice')}>
                     <input
                       data-ocr-field="invoice"
                       required
@@ -1356,8 +1358,8 @@ export default function ReceiptModal({
               <h3>{t('Plată și alocare contabilă', 'Payment and accounting allocation')}</h3>
               <p className="small muted">
                 {t(
-                  'Plata personală și cardul companiei se decontează separat. Metoda primului bon se aplică întregului decont.',
-                  'Personal and company-card payments require separate reports. The first receipt sets the payment method for this report.',
+                  'Plata și centrul de cost sunt stabilite o singură dată în decont. Aici verifici doar datele bonului.',
+                  'Payment and cost centre are set once in the report. Here you only review receipt details.',
                 )}
               </p>
               <div className="form-grid">
@@ -1398,7 +1400,7 @@ export default function ReceiptModal({
                     )}
                   </>
                 )}
-                {states.costCenter !== 'NOT_APPLICABLE' && (
+                {states.costCenter !== 'NOT_APPLICABLE' && !reportCostCenter && (
                   <Field name={t('Centru de cost', 'Cost centre')}>
                     <select
                       required={states.costCenter === 'REQUIRED'}
