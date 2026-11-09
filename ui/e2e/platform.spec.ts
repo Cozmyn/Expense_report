@@ -147,10 +147,9 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     page.getByRole('heading', { name: 'Privire de ansamblu', exact: true }),
   ).toBeVisible();
   await shot(page, '02-dashboard');
-  const ocrHelp = page.locator('.report-instructions details.quick-help').filter({
-    has: page.locator('summary').filter({ hasText: 'Cum citește aplicația un bon?' }),
+  const ocrHelp = page.locator('.report-instructions .quick-help').filter({
+    hasText: 'Cum citește aplicația un bon?',
   });
-  await ocrHelp.locator('summary').click();
   await expect(ocrHelp).toContainText('OCR poate greși sau poate rata câmpuri.');
   await page.getByRole('button', { name: 'RO', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
@@ -158,6 +157,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   await page.getByRole('button', { name: 'EN', exact: true }).click();
   await page.getByRole('button', { name: 'Decont nou', exact: true }).click();
   await page.getByLabel('Scopul decontului').fill('Client visit ' + suffix);
+  await page.getByLabel('Centru de cost al decontului').selectOption(cc);
   await page.getByRole('button', { name: 'Salvează datele generale' }).click();
   await expect(
     page.getByText('Cum citește aplicația un bon?', { exact: true }),
@@ -177,7 +177,6 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     await expect(dialog.getByRole('heading', { name: 'Adaugă un bon / document' })).toBeFocused();
     await expect(dialog.getByLabel('Metoda de plată', { exact: true })).toHaveCount(0);
     await dialog.getByLabel('Tip cheltuială', { exact: true }).selectOption(cat);
-    await dialog.getByLabel('Centru de cost', { exact: true }).selectOption(cc);
   };
   const save = async () => {
     const confirmed = dialog.getByRole('checkbox', { name: /Am verificat gruparea paginilor/ });
@@ -229,22 +228,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   await dialog.getByLabel('Bază 0%', { exact: true }).fill('100');
   await expect(dialog.getByRole('button', { name: 'Salvează bonul' })).toBeDisabled();
   await dialog.getByLabel('Total bon în moneda documentului', { exact: true }).fill('332');
-  await dialog
-    .getByLabel('Selectează fișierele bonului (PDF, JPG, PNG, HEIC)', { exact: true })
-    .setInputFiles({
-      name: 'individual-' + suffix + '.png',
-      mimeType: 'image/png',
-      buffer: receipt,
-    });
-  const viewer = dialog.getByRole('region', { name: 'Previzualizare document' });
-  await expect(viewer.getByRole('img')).toBeVisible();
-  await viewer.getByRole('button', { name: 'Mărește', exact: true }).click();
-  await expect(viewer.locator('output')).toHaveText('125%');
-  await viewer.getByRole('button', { name: 'Rotește', exact: true }).click();
-  await expect(viewer.getByRole('img')).toHaveCSS('transform', 'matrix(0, 1, -1, 0, 0, 0)');
-  await viewer.getByRole('button', { name: 'Resetează', exact: true }).click();
-  await expect(viewer.locator('output')).toHaveText('100%');
-  await expect(viewer.getByRole('img')).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
+  await expect(dialog.getByText(/Încarcă documentul din secțiunea unică/)).toBeVisible();
   await shot(page, '03-receipt-vat-editor');
   await save();
   await begin();
@@ -257,7 +241,6 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     .getByLabel('Descriere / justificare', { exact: true })
     .fill('Romanian receipt without company CUI');
   await dialog.getByLabel('Total bon în moneda documentului', { exact: true }).fill('100');
-  await dialog.getByRole('radio', { name: /Bonurile sunt într-un fișier comun/ }).check();
   await shot(page, '03b-receipt-without-cui');
   await save();
   await begin();
@@ -271,19 +254,27 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     .fill('Foreign receipt in EUR');
   await dialog.getByLabel('Moneda bonului', { exact: true }).fill('EUR');
   await dialog.getByLabel('Total bon în moneda documentului', { exact: true }).fill('10');
-  await dialog.getByRole('radio', { name: /Bonurile sunt într-un fișier comun/ }).check();
   await shot(page, '03c-foreign-receipt');
   await save();
   await expect(page.getByRole('button', { name: 'Trimite la aprobare' })).toBeDisabled();
-  await page
-    .getByLabel('Selectează fișierul comun (PDF, JPG, PNG, HEIC)', { exact: true })
-    .setInputFiles({ name: 'combined-' + suffix + '.png', mimeType: 'image/png', buffer: receipt });
-  await expect(page.getByRole('button', { name: 'Încarcă fișierul comun' })).toBeDisabled();
-  await page.getByRole('checkbox', { name: /Confirm că fiecare fișier selectat/ }).check();
-  await page.getByRole('button', { name: 'Încarcă fișierul comun' }).click();
-  await expect(
-    page.getByText('combined-' + suffix + '.png', { exact: true }).first(),
-  ).toBeVisible();
+  // The new employee UI uses a single OCR uploader. Keep historical combined
+  // evidence compatibility under API test; other browser tests cover new UI intake.
+  const evidenceOwner = await request.newContext({ baseURL: 'http://127.0.0.1:5080' });
+  await login(evidenceOwner, 'employee-' + suffix, changed);
+  const existingReports = await (await evidenceOwner.get('/api/reports')).json();
+  const evidenceReport = existingReports.find((r: any) => r.purpose === 'Client visit ' + suffix);
+  const versionedReport = (await (await evidenceOwner.get('/api/reports/' + evidenceReport.id)).json()).report;
+  const sharedFile = await evidenceOwner.post('/api/reports/' + evidenceReport.id + '/attachments', {
+    multipart: {
+      version: String(versionedReport.version),
+      coversAll: 'true',
+      reason: 'Legacy combined evidence coverage',
+      file: { name: 'combined-' + suffix + '.png', mimeType: 'image/png', buffer: receipt },
+    },
+    headers: { 'X-CSRF-TOKEN': await csrf(evidenceOwner), 'Idempotency-Key': crypto.randomUUID() },
+  });
+  expect(sharedFile.ok(), await sharedFile.text()).toBeTruthy();
+  await page.reload();
   await expect(page.getByRole('button', { name: 'Trimite la aprobare' })).toBeEnabled({
     timeout: 90000,
   });
@@ -593,7 +584,6 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     ).toHaveValue(String((n + 1) * 10) + '.00');
     await dialog.getByLabel('Furnizorul este din România?', { exact: true }).selectOption('no');
     await dialog.getByLabel('Tip cheltuială', { exact: true }).selectOption(cat);
-    await dialog.getByLabel('Centru de cost', { exact: true }).selectOption(cc);
     await dialog
       .getByLabel('Descriere / justificare', { exact: true })
       .fill('Confirmed OCR page ' + (n + 1));
