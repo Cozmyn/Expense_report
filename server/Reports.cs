@@ -315,10 +315,11 @@ public class Reports(Db db, Posting? posting = null)
 
     public async Task<List<Problem>> Validate(Report r, bool erp = false)
     {
-        var problems = Rules.Validate(r, await db.Masters.ToListAsync(), erp, await db.SupplierAccounts.ToListAsync());
+        var masters = await db.Masters.ToListAsync();
+        var problems = Rules.Validate(r, masters, erp, await db.SupplierAccounts.ToListAsync());
         foreach (var l in r.Lines.Where(l => !l.Archived && DateOnly.TryParse(l.Data().Date, out _)))
         {
-            var defaults = Rules.VatIssues(l, await db.Masters.ToListAsync());
+            var defaults = Rules.VatIssues(l, masters);
             problems.RemoveAll(p => p.LineId == l.Id && defaults.Any(x => x.Code == p.Code));
             problems.AddRange((await FinancialCalculations.Preview(db, l)).Issues);
         }
@@ -327,7 +328,21 @@ public class Reports(Db db, Posting? posting = null)
         var hashes = (await db.Evidence.Where(e => !e.Archived).ToListAsync())
             .GroupBy(e => e.Hash)
             .ToDictionary(g => g.Key, g => g.Select(e => e.LineId).ToList());
-        var otherBundles = await db.ReportAttachments.Where(e => !e.Archived && e.ReportId != r.Id).ToListAsync();
+        var otherBundleHashes = (await db.ReportAttachments
+            .Where(e => !e.Archived && e.ReportId != r.Id)
+            .Select(e => e.Hash)
+            .ToListAsync()).ToHashSet();
+        var otherReportLineIds = otherLines.Where(x => x.ReportId != r.Id).Select(x => x.Id).ToHashSet();
+        // Preserve lazy parsing so unrelated malformed history does not change validation outcomes.
+        var parsedLines = new Dictionary<Guid, ExpenseData>();
+        ExpenseData CachedData(Line line)
+        {
+            if (parsedLines.TryGetValue(line.Id, out var value))
+                return value;
+            value = line.Data();
+            parsedLines.Add(line.Id, value);
+            return value;
+        }
         foreach (var l in r.Lines.Where(l => !l.Archived && l.DuplicateDisposition == null))
         {
             var d = l.Data();
@@ -336,7 +351,7 @@ public class Reports(Db db, Posting? posting = null)
                     .Where(x => x.Id != l.Id)
                     .Any(x =>
                     {
-                        var o = x.Data();
+                        var o = CachedData(x);
                         return !string.IsNullOrWhiteSpace(d.Invoice)
                             && Rules.Cui(d.Cui) != ""
                             && Rules.Cui(o.Cui) == Rules.Cui(d.Cui)
@@ -345,13 +360,11 @@ public class Reports(Db db, Posting? posting = null)
                 || l.Evidence.Any(e => !e.Archived && hashes.GetValueOrDefault(e.Hash)?.Any(id => id != l.Id) == true);
             exact =
                 exact
-                || l.Evidence.Any(e => !e.Archived && otherBundles.Any(b => b.Hash == e.Hash))
+                || l.Evidence.Any(e => !e.Archived && otherBundleHashes.Contains(e.Hash))
                 || r.Attachments.Where(e => !e.Archived && e.Covers(l.Id))
                     .Any(e =>
-                        otherBundles.Any(b => b.Hash == e.Hash)
-                        || otherLines
-                            .Where(x => x.ReportId != r.Id)
-                            .Any(x => hashes.GetValueOrDefault(e.Hash)?.Contains(x.Id) == true)
+                        otherBundleHashes.Contains(e.Hash)
+                        || hashes.GetValueOrDefault(e.Hash)?.Any(id => otherReportLineIds.Contains(id)) == true
                     );
             if (exact)
                 problems.Add(
@@ -368,7 +381,7 @@ public class Reports(Db db, Posting? posting = null)
                     .Where(x => x.Id != l.Id)
                     .Any(x =>
                     {
-                        var o = x.Data();
+                        var o = CachedData(x);
                         return !string.IsNullOrWhiteSpace(d.Supplier)
                             && o.Supplier.Equals(d.Supplier, StringComparison.OrdinalIgnoreCase)
                             && o.Amount == d.Amount
