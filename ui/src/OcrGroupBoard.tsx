@@ -14,7 +14,8 @@ export default function OcrGroupBoard({
   propose,
   linkExisting,
 }: Any) {
-  const advancedRef = React.useRef<HTMLDetailsElement>(null);
+  const advancedRef = React.useRef<HTMLElement>(null);
+  const [activeGroupId, ActiveGroup] = useState<string | null>(null);
   const [focus, Focus] = useState<Region | null>(null),
     [focusPage, FP] = useState(1),
     [focusToken, FT] = useState(0);
@@ -116,6 +117,8 @@ export default function OcrGroupBoard({
   const review = data.review,
     groups = review.candidates as Any[],
     stale = review.version !== report.version;
+  const activeGroup = groups.find((g: Any) => g.id === activeGroupId)
+    || groups.find((g: Any) => g.state !== 'Verified') || groups[0];
   const select = (id: string, checked: boolean) =>
     S((old) => (checked ? [...old, id] : old.filter((x) => x !== id)));
   const warning = (value: string) => {
@@ -131,6 +134,10 @@ export default function OcrGroupBoard({
       'Consecutive printed page numbering; human verification required': [
         'Paginile par să aparțină aceleiași facturi; verifică',
         'Pages may belong to one invoice; please check',
+      ],
+      'Single receipt chosen by employee': [
+        'Un singur bon ales la încărcare',
+        'Single receipt selected at upload',
       ],
       'Human regrouping; review source history': [
         'Grupare modificată manual; verifică istoricul',
@@ -159,24 +166,20 @@ export default function OcrGroupBoard({
           'Review each receipt before creating an expense. You can select several receipts from one PDF.',
         )}
       </p>
-      <details className="quick-help">
-        <summary>{t('Mai multe bonuri într-un PDF?', 'Multiple receipts in one PDF?')}</summary>
+      <section className="quick-help">
+        <h4>{t('Mai multe bonuri într-un PDF?', 'Multiple receipts in one PDF?')}</h4>
         <ol>
           <li>{t('Deschide delimitarea și trasează o regiune pentru fiecare bon.', 'Open the selection tool and draw one region per receipt.')}</li>
           <li>{t('Creează câte un grup separat și verifică datele extrase.', 'Create one document group per receipt and review the extracted fields.')}</li>
           <li>{t('Confirmă fiecare grup pentru a crea cheltuieli separate.', 'Confirm each group to create separate expenses.')}</li>
         </ol>
-      </details>
-      <button
-        type="button"
-        className="secondary"
-        onClick={() => {
-          RG({ id: 'new-region', pages: [1] });
-          Regions([]);
-        }}
-      >
-        {t('Delimitează un bon din PDF', 'Select another receipt from PDF')}
-      </button>
+      </section>
+      {file.receiptMode !== 'Single' && (
+        <button type="button" className="secondary"
+          onClick={() => { RG({ id: 'new-region', pages: [1] }); Regions([]); }}>
+          {t('Nu este detectat un bon? Selectează-l din PDF', 'Missing a receipt? Select it in the PDF')}
+        </button>
+      )}
       {(changing || stale) && (
         <p role="status">
           {t(
@@ -227,7 +230,7 @@ export default function OcrGroupBoard({
               type="button"
               className="secondary"
               onClick={() => {
-                if (advancedRef.current) advancedRef.current.open = true;
+                advancedRef.current?.scrollIntoView({ block: 'nearest' });
                 advancedRef.current?.querySelector<HTMLInputElement>('input')?.focus();
               }}
             >
@@ -235,10 +238,9 @@ export default function OcrGroupBoard({
             </button>
           </div>
         )}
-        <details className="ocr-advanced-tools" ref={advancedRef} open={groups.length > 1 || review.unassignedPages.length > 0}>
-          <summary>
-            {t('Opțiuni avansate pentru pagini și grupare', 'Advanced page and grouping tools')}
-          </summary>
+        {(file.receiptMode !== 'Single' || review.unassignedPages.length > 0 || groups.length > 1) && (
+        <section className="ocr-group-tools" ref={advancedRef}>
+          <h4>{t('Verificarea paginilor și a bonurilor', 'Review pages and receipts')}</h4>
         <Field
           name={t('Motivul modificării grupării', 'Reason for grouping change')}
           note={t(
@@ -348,7 +350,25 @@ export default function OcrGroupBoard({
             {t('Separă paginile', 'Split pages')}
           </button>
         </div>
-        </details>
+        </section>
+        )}
+        {groups.length > 1 && (
+          <div className="receipt-group-switcher" role="group" aria-label={t('Selectează bonul pentru verificare', 'Choose receipt to review')}>
+            {groups.map((g: Any, index: number) => (
+              <button type="button" key={g.id}
+                className={activeGroup?.id === g.id ? 'primary' : 'secondary'}
+                aria-pressed={activeGroup?.id === g.id}
+                onClick={() => {
+                  ActiveGroup(g.id);
+                  FP(g.pages?.[0] || 1);
+                  Focus(g.regions?.[0] || null);
+                  FT((n) => n + 1);
+                }}>
+                {t('Bon', 'Receipt')} {index + 1} · {g.state === 'Verified' ? t('Verificat', 'Verified') : t('De verificat', 'Needs review')}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="ocr-review-layout">
           <aside className="ocr-review-original">
             <DocumentViewer
@@ -362,8 +382,9 @@ export default function OcrGroupBoard({
                 previewUrl: file.mime === 'image/heic' ? base + '/preview' : null,
               }}
               t={t}
-              focus={focus}
-              focusPage={focusPage}
+              focus={focus || activeGroup?.regions?.[0] || null}
+              regions={activeGroup?.regions || []}
+              focusPage={activeGroup?.pages?.[0] || focusPage}
               focusToken={focusToken}
             />
             {!focus && (
@@ -376,15 +397,15 @@ export default function OcrGroupBoard({
             )}
           </aside>
           <div className="ocr-review-groups">
-            {groups.map((g: Any, index: number) => (
-              <details className="capture-document" key={g.id} open>
-                <summary>
+            {groups.map((g: Any, index: number) => activeGroup?.id !== g.id ? null : (
+              <section className="capture-document" key={g.id}>
+                <h4>
                   {t('Document detectat', 'Detected document')} {index + 1} · {t('Pagini', 'Pages')}{' '}
                   {g.pages.join(', ')} ·{' '}
                   {g.state === 'Verified'
                     ? t('Verificat', 'Verified')
                     : t('De verificat', 'Needs review')}
-                </summary>
+                </h4>
                 <label className="confirmation">
                   <input
                     type="checkbox"
@@ -395,10 +416,10 @@ export default function OcrGroupBoard({
                   {t('Selectează documentul', 'Select document')} {index + 1}
                 </label>
                 <p className="small muted">{grouping(g.groupingReason)}</p>
-                <details>
-                  <summary>
+                <section>
+                  <h4>
                     {t('Dovezi și alternative de grupare', 'Grouping evidence and alternatives')}
-                  </summary>
+                  </h4>
                   {g.alternatives?.map((a: Any, n: number) => (
                     <div key={n}>
                       <strong>
@@ -416,7 +437,7 @@ export default function OcrGroupBoard({
                       )}
                     </div>
                   ))}
-                </details>
+                </section>
                 <dl className="ocr-fields">
                   {Object.entries(g.fields).map(([key, f]: [string, any]) => (
                     <div
@@ -436,10 +457,10 @@ export default function OcrGroupBoard({
                           {t('Verifică pe original', 'Check original')} · {t('pagina', 'page')}{' '}
                           {f.page}
                         </small>
-                        <details className="ocr-field-more">
-                          <summary>
+                        <section className="ocr-field-more">
+                          <h4>
                             {t('Cum a fost citit', 'Recognition details')}
-                          </summary>
+                          </h4>
                           <blockquote>{f.evidence}</blockquote>
                           <span className="small">
                             {typeof f.confidence === 'number'
@@ -453,7 +474,7 @@ export default function OcrGroupBoard({
                                     'Score unavailable; check the original',
                                   )}
                           </span>
-                        </details>
+                        </section>
                         <button
                           className="text-button"
                           onClick={() => {
@@ -565,7 +586,7 @@ export default function OcrGroupBoard({
                     </button>
                   </div>
                 )}
-              </details>
+              </section>
             ))}
           </div>
         </div>
@@ -745,11 +766,11 @@ export default function OcrGroupBoard({
             </div>
           </section>
         )}
-        <details>
-          <summary>
+        <section>
+          <h4>
             {t('Grupuri modificate sau eliminate', 'Changed or removed groups')} (
             {review.tombstones?.length || 0})
-          </summary>
+          </h4>
           {review.tombstones?.map((g: Any) => (
             <div className="simple-row" key={g.id}>
               <span>
@@ -766,7 +787,7 @@ export default function OcrGroupBoard({
               )}
             </div>
           ))}
-        </details>
+        </section>
         <button
           className="text-button"
           onClick={() => perform(async () => Events(await api(base + '/events')))}
@@ -815,10 +836,10 @@ export default function OcrGroupBoard({
           {t('Istoric valori corectate', 'Correction history')}
         </button>
         {feedback?.map((entry: Any, index: number) => (
-          <details key={index}>
-            <summary>
+          <section key={index}>
+            <h4>
               {new Date(entry.at).toLocaleString(t('ro-RO', 'en-GB'))} · {entry.actor}
-            </summary>
+            </h4>
             {entry.fields.length === 0 ? (
               <p>
                 {t(
@@ -861,7 +882,7 @@ export default function OcrGroupBoard({
                 </table>
               </div>
             )}
-          </details>
+          </section>
         ))}
         <button
           className="text-button"
@@ -870,13 +891,13 @@ export default function OcrGroupBoard({
           {t('Istoric extrageri originale', 'Original extraction history')}
         </button>
         {history?.map((a) => (
-          <details key={a.id}>
-            <summary>
+          <section key={a.id}>
+            <h4>
               {new Date(a.created).toLocaleString(t('ro-RO', 'en-GB'))} ·{' '}
               {a.fingerprint.slice(0, 12)}
-            </summary>
+            </h4>
             <pre className="ocr-text">{JSON.parse(a.json).text}</pre>
-          </details>
+          </section>
         ))}
       </fieldset>
     </section>
