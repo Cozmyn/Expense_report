@@ -362,7 +362,7 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
       <div className="finance-queue-summary" aria-label={t('Situația deconturilor', 'Report summary')}>
         <div><strong>{rows.length}</strong><span>{t('În coadă', 'In queue')}</span></div>
         <div><strong>{exceptions}</strong><span>{t('Cu excepții', 'With exceptions')}</span></div>
-        <button type="button" className="secondary" onClick={() => F({ ...filter, ready: filter.ready ? '' : 'yes' })}>
+        <button type="button" className="secondary" aria-pressed={!!filter.ready} onClick={() => F({ ...filter, ready: filter.ready ? '' : 'yes' })}>
           <strong>{ready}</strong>
           <span>{t('Gata pentru ERP', 'Ready for ERP')}{filter.ready ? ' ✓' : ''}</span>
         </button>
@@ -460,9 +460,19 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
         </button>
       </div>
       </details>
-      <p>
-        {shown.length} {t('deconturi', 'reports')}
+      <p role="status" aria-live="polite">
+        {shown.length} {t('deconturi afișate', 'reports shown')}
       </p>
+      {!shown.length && (
+        <div className="empty" role="status">
+          <p>{t('Niciun decont nu corespunde filtrelor.', 'No reports match the current filters.')}</p>
+          {activeFilters > 0 && (
+            <button type="button" className="secondary" onClick={resetFilters}>
+              {t('Șterge filtrele active', 'Clear active filters')}
+            </button>
+          )}
+        </div>
+      )}
       {shown.map((x) => (
         <button
           key={x.report.id}

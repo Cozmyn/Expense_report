@@ -655,7 +655,7 @@ function App() {
                 )}
               </div>
               {role('Manager') && (
-                <ManagerNextActions reports={reports} open={open} t={t} />
+                <ManagerNextActions reports={reports} open={open} openAll={() => P('approvals')} t={t} />
               )}
               {role('Finance') && (
                 <FinanceDashboard t={t} run={run} openQueue={() => P('finance')} />

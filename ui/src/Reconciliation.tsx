@@ -18,13 +18,13 @@ export default function Reconciliation({ t, masters, label, run, open }: Any) {
     [amount, A] = useState(''),
     [reason, R] = useState('');
   const keys = ['reference', 'date', 'merchant', 'amount', 'currency', 'settledRon'];
-  const names: Any = {
-    reference: 'Referință',
-    date: 'Data',
-    merchant: 'Comerciant',
-    amount: 'Sumă',
-    currency: 'Monedă',
-    settledRon: 'Sumă decontată RON',
+  const names: Record<string, [string, string]> = {
+    reference: ['Referință', 'Reference'],
+    date: ['Data', 'Date'],
+    merchant: ['Comerciant', 'Merchant'],
+    amount: ['Sumă', 'Amount'],
+    currency: ['Monedă', 'Currency'],
+    settledRon: ['Sumă decontată RON', 'Settled amount RON'],
   };
   const load = async () => {
     D(await api('/finance/transactions'));
@@ -35,11 +35,23 @@ export default function Reconciliation({ t, masters, label, run, open }: Any) {
     run(load);
   }, []);
   useEffect(() => {
+    let cancelled = false;
     P(null);
-    if (card) run(async () => Cols(await api('/preferences/bank-columns:' + card)));
+    H([]);
+    Csv('');
+    Cols({});
+    if (card)
+      run(async () => {
+        const saved = await api('/preferences/bank-columns:' + card);
+        if (!cancelled) Cols(saved || {});
+      });
+    return () => { cancelled = true; };
   }, [card]);
   useEffect(() => P(null), [csv, columns]);
   const bank = { cardId: card, csv, columns };
+  const columnMappingValid = !headers.length || keys.every((key) =>
+    headers.includes(columns[key] || key),
+  );
   const selected = lines.find((l) => l.id === line);
   return (
     <>
@@ -81,6 +93,14 @@ export default function Reconciliation({ t, masters, label, run, open }: Any) {
                   const result = await api('/finance/transactions/file', 'POST', form);
                   H(result.headers);
                   Csv(result.csv);
+                  Cols((existing: Any) =>
+                    Object.fromEntries(keys.map((key) => [
+                      key,
+                      result.headers.includes(existing[key])
+                        ? existing[key]
+                        : result.headers.includes(key) ? key : '',
+                    ])),
+                  );
                   P(null);
                 });
             }}
@@ -89,18 +109,27 @@ export default function Reconciliation({ t, masters, label, run, open }: Any) {
         {headers.length > 0 && (
           <div className="form-grid">
             {keys.map((k) => (
-              <Field key={k} name={t(names[k], k)}>
+              <Field key={k} name={t(...names[k])}>
                 <select
-                  value={columns[k] || k}
+                  value={columns[k] || (headers.includes(k) ? k : '')}
                   onChange={(e) => Cols({ ...columns, [k]: e.target.value })}
                 >
+                  <option value="">{t('Selectează coloana', 'Select column')}</option>
                   {headers.map((h) => (
-                    <option key={h}>{h}</option>
+                    <option key={h} value={h}>{h}</option>
                   ))}
                 </select>
               </Field>
             ))}
           </div>
+        )}
+        {headers.length > 0 && !columnMappingValid && (
+          <p className="issue warning" role="status">
+            {t(
+              'Asociază toate coloanele extrasului înainte de verificare.',
+              'Map every statement column before previewing.',
+            )}
+          </p>
         )}
         <Field
           name={t('Date CSV (sau lipește valorile)', 'CSV data (or paste values)')}
@@ -114,7 +143,7 @@ export default function Reconciliation({ t, masters, label, run, open }: Any) {
         <div className="actions">
           <button
             className="secondary"
-            disabled={!card || !csv}
+            disabled={!card || !csv || !columnMappingValid}
             onClick={() =>
               run(async () => P(await api('/finance/transactions/preview', 'POST', bank)))
             }
@@ -123,14 +152,14 @@ export default function Reconciliation({ t, masters, label, run, open }: Any) {
           </button>
           <button
             className="secondary"
-            disabled={!card}
+            disabled={!card || !columnMappingValid}
             onClick={() => run(() => api('/preferences/bank-columns:' + card, 'PUT', columns))}
           >
             {t('Salvează maparea cardului', 'Save card column mapping')}
           </button>
           <button
             className="primary"
-            disabled={!preview || preview.duplicates.length > 0 || preview.errors?.length > 0}
+            disabled={!preview || !columnMappingValid || preview.duplicates.length > 0 || preview.errors?.length > 0}
             onClick={() =>
               run(async () => {
                 await api('/finance/transactions/import', 'POST', bank);
@@ -229,6 +258,9 @@ export default function Reconciliation({ t, masters, label, run, open }: Any) {
               ))}
             </div>
           ))}
+        {!suggestions.some((s) => compare(s.remaining, '0') !== 0) && (
+          <p className="muted">{t('Nu există sugestii de asociere.', 'No matching suggestions yet.')}</p>
+        )}
       </section>
       <section className="panel">
         <h2>{t('Alocare manuală / parțială', 'Manual / partial allocation')}</h2>

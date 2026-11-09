@@ -2403,3 +2403,20 @@ textarea {
   }
   .session-expired-banner button { width: 100%; }
 }
+
+/* Role-specific UX completion: accessible admin search, responsive actions. */
+.admin-users-toolbar { align-items: flex-end; margin-top: 20px; }
+.admin-users-toolbar .field { flex: 1; max-width: 420px; margin-bottom: 0; min-width: 0; }
+.admin-users-toolbar input { width: 100%; }
+.admin-users-toolbar p { margin: 0 0 11px; white-space: nowrap; }
+.manager-next-actions > .secondary { margin-top: 15px; }
+.finance-queue-summary button[aria-pressed='true'] {
+  border-color: #075e50;
+  outline: 2px solid #075e50;
+  outline-offset: 2px;
+}
+@media (max-width: 760px) {
+  .admin-users-toolbar { align-items: stretch; }
+  .admin-users-toolbar .field { max-width: none; }
+  .admin-users-toolbar p { margin-bottom: 0; }
+}
