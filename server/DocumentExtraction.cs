@@ -454,34 +454,31 @@ public sealed class LocalDocumentExtractor(IConfiguration config) : IDocumentExt
             }
             var tools = await Task.WhenAll(
                 Check(config["Ocr:PdfText"] ?? "pdftotext", "-v"),
-                Check(config["Ocr:Tesseract"] ?? "tesseract", "--version"),
-                Check(config["Ocr:Tesseract"] ?? "tesseract", "--list-langs"),
                 Check(config["Ocr:PdfInfo"] ?? "pdfinfo", "-v"),
                 Check(config["Ocr:PdfRenderer"] ?? "pdftoppm", "-v"),
                 Check(config["Ocr:ImageRotator"] ?? "convert", "-version")
             );
+            var paddle = await PaddleOcrClient.Health(config, ct);
             string? First(string? value) =>
                 value
                     ?.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                     .FirstOrDefault();
             var text = First(tools[0]);
-            var image = First(tools[1]);
-            var languages = config["Ocr:Languages"] ?? "ron+eng";
-            var missing = MissingModels(languages + "+osd", tools[2]);
-            var normalization = tools[3] != null && tools[4] != null ? "Ready" : "Unavailable";
+            var image = paddle.Engine;
+            const string languages = "ro+en";
+            var missing = MissingModels(languages, string.Join("\n", paddle.Languages));
+            var normalization = tools[1] != null && tools[2] != null ? "Ready" : "Unavailable";
             var ready =
-                text != null && image != null && missing.Length == 0 && normalization == "Ready" && tools[5] != null;
+                text != null && image != null && missing.Length == 0 && normalization == "Ready" && tools[3] != null;
             cached = new(
-                ready ? "Ready"
-                    : text == null && image == null ? "Unavailable"
-                    : "Partial",
+                ready ? "Ready" : image == null ? "Unavailable" : "Partial",
                 Version,
                 text,
                 image,
                 languages,
                 missing,
                 normalization,
-                tools[5] != null ? "Ready" : "Unavailable"
+                tools[3] != null ? "Ready" : "Unavailable"
             );
             checkedAt = DateTime.UtcNow;
             return cached;
@@ -603,13 +600,8 @@ public sealed class LocalDocumentExtractor(IConfiguration config) : IDocumentExt
                             );
                             await progress(new("Extracting", i, images.Count, pages.Count(p => p.Error != null)));
                         }
-                        var tsv = await Run(
-                            config["Ocr:Tesseract"] ?? "tesseract",
-                            [images[i], "stdout", "-l", config["Ocr:Languages"] ?? "ron+eng", "--psm", "1", "tsv"],
-                            ct
-                        );
                         page = await DocumentOrientation.Recover(
-                            DocumentGeometry.Tsv(i + 1, tsv),
+                            await PaddleOcrClient.Recognize(config, images[i], i + 1, ct),
                             images[i],
                             config,
                             ct
@@ -636,6 +628,7 @@ public sealed class LocalDocumentExtractor(IConfiguration config) : IDocumentExt
             var health = await Health(ct);
             return result with
             {
+                Provider = "PaddleOCR",
                 EngineVersion = string.Join(
                     " | ",
                     new[]
