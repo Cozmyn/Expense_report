@@ -5,11 +5,11 @@ namespace Decont.Tests;
 
 public class SupplierOcrLearningTests
 {
-    private static OcrResult Receipt(string cui = "18546290", string? existingTotal = null)
+    private static OcrResult Receipt(string cui = "18546294", string? existingTotal = null)
     {
         var words = new List<OcrWord>
         {
-            new("CUI 18546290", new SourceBox(.10m, .15m, .4m, .035m), .93m),
+            new("CUI 18546294", new SourceBox(.10m, .15m, .4m, .035m), .93m),
             new("TOTAL 123,45 RON", new SourceBox(.10m, .72m, .5m, .04m), .94m),
         };
         var fields = new Dictionary<string, OcrField>
@@ -30,8 +30,8 @@ public class SupplierOcrLearningTests
         var region = new SourceBox(.10m, .72m, .5m, .04m);
         var examples = new[]
         {
-            new SupplierOcrLearning.Example("18546290", Guid.NewGuid(), "amount", region),
-            new SupplierOcrLearning.Example("18546290", Guid.NewGuid(), "amount", region),
+            new SupplierOcrLearning.Example("18546294", Guid.NewGuid(), "amount", region),
+            new SupplierOcrLearning.Example("18546294", Guid.NewGuid(), "amount", region),
         };
         var result = SupplierOcrLearning.Suggest(Receipt(), examples);
         var field = result.Candidates[0].Fields["amount"];
@@ -47,7 +47,7 @@ public class SupplierOcrLearningTests
     public void NeverLearnFromOneReceiptOrAnotherSupplier()
     {
         var example = new SupplierOcrLearning.Example(
-            "18546290", Guid.NewGuid(), "amount", new(.10m, .72m, .5m, .04m)
+            "18546294", Guid.NewGuid(), "amount", new(.10m, .72m, .5m, .04m)
         );
         Assert.False(SupplierOcrLearning.Suggest(Receipt(), [example]).Candidates[0].Fields.ContainsKey("amount"));
         Assert.False(SupplierOcrLearning.Suggest(
@@ -58,7 +58,7 @@ public class SupplierOcrLearningTests
     [Fact]
     public void NeverOverrideAParsedAmountOrApplyInconsistentLayouts()
     {
-        var a = new SupplierOcrLearning.Example("18546290", Guid.NewGuid(), "amount", new(.10m, .72m, .5m, .04m));
+        var a = new SupplierOcrLearning.Example("18546294", Guid.NewGuid(), "amount", new(.10m, .72m, .5m, .04m));
         var b = a with { Bundle = Guid.NewGuid(), Box = new SourceBox(.85m, .15m, .1m, .03m) };
         Assert.False(SupplierOcrLearning.Suggest(Receipt(), [a, b]).Candidates[0].Fields.ContainsKey("amount"));
         Assert.Equal(
