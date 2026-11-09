@@ -551,16 +551,33 @@ export default function ReceiptModal({
                 document={{ ...original, reportId: expense.reportId }}
                 t={t}
                 regions={expense.ocrCandidate?.regions || []}
+                highlights={sourceHighlights}
+                onRegionSelect={scanField ? ScanRegion : undefined}
                 focus={focusedSource}
                 focusPage={focusedPage}
                 focusToken={focusedToken}
               />
               <p className="small muted">
-                {t(
-                  'Copiază datele și defalcarea TVA exact de pe bon. Fișierul nou va fi scanat după salvare.',
-                  'Copy receipt data and VAT exactly. New files are scanned after saving.',
-                )}
+                {t('Zonele verzi sunt valori citite și folosite în formular; zona albastră indică informația selectată.',
+                   'Green regions are recognised values used in the form; the blue region is the selected source.')}
               </p>
+              {scanField && (
+                <section className="ocr-scan-panel" role="region" aria-label={t('Selectare valoare din document', 'Select value from document')}>
+                  <h4>{t('Selectează valoarea pe document', 'Select the value on the document')}</h4>
+                  <p>{t('Apasă „Delimitează regiunea”, trasează peste text și confirmă. Poți oricând scrie manual în câmp.',
+                      'Choose “Select source region”, draw over the text and confirm. You can always type the value manually.')}</p>
+                  {scanRegion && <p role="status">{t('Regiune selectată', 'Region selected')}: {t('pagina', 'page')} {scanRegion.page}</p>}
+                  {scanError && <p className="error" role="alert">{scanError}</p>}
+                  <div className="actions">
+                    <button type="button" className="primary" disabled={!scanRegion || scanBusy} onClick={applyScan}>
+                      {scanBusy ? t('Se citește…', 'Reading…') : t('Folosește selecția', 'Use selected text')}
+                    </button>
+                    <button type="button" className="secondary" onClick={() => { ScanField(null); ScanRegion(null); ScanError(''); }}>
+                      {t('Completez manual', 'Enter manually')}
+                    </button>
+                  </div>
+                </section>
+              )}
             </aside>
           )}
           <form
@@ -729,7 +746,7 @@ export default function ReceiptModal({
                     ))}
                   </select>
                 </Field>
-                <Field name={t('Data bonului / documentului', 'Receipt / document date')}>
+                <Field name={t('Data bonului / documentului', 'Receipt / document date')} action={scanAction('date')}>
                   <input
                     data-ocr-field="date"
                     required
@@ -877,7 +894,7 @@ export default function ReceiptModal({
                   )}
                 </h3>
                 <div className="form-grid">
-                  <Field name={t('CUI furnizor', 'Supplier VAT ID')}>
+                  <Field name={t('CUI furnizor', 'Supplier VAT ID')} action={scanAction('cui')}>
                     <input
                       data-ocr-field="cui"
                       required
@@ -926,10 +943,10 @@ export default function ReceiptModal({
                   </div>
                 )}
                 {d.cui && (
-                  <details className="receipt-optional">
-                    <summary>
+                  <section className="receipt-optional">
+                    <h4>
                       {t('Verificare suplimentară a furnizorului', 'Additional supplier checks')}
-                    </summary>
+                    </h4>
                     <div className="actions">
                     <button
                       type="button"
@@ -989,7 +1006,7 @@ export default function ReceiptModal({
                         </>
                       )}
                     </div>
-                  </details>
+                  </section>
                 )}
                 {lookup?.found &&
                   expense.ocrCandidate?.fields?.supplier?.value &&
@@ -1008,7 +1025,7 @@ export default function ReceiptModal({
                     {lookupError}
                   </p>
                 )}
-                <Field name={t('Denumire furnizor', 'Supplier name')}>
+                <Field name={t('Denumire furnizor', 'Supplier name')} action={scanAction('supplier')}>
                   <input
                     data-ocr-field="supplier"
                     required
@@ -1035,7 +1052,7 @@ export default function ReceiptModal({
             )}
             <section className="receipt-section">
               <h3>{t('Descriere și sumă', 'Description and amount')}</h3>
-              <Field name={t('Descriere / justificare', 'Description / business justification')}>
+              <Field name={t('Descriere / justificare', 'Description / business justification')} action={scanAction('description')}>
                 <textarea
                   data-ocr-field="description"
                   required
@@ -1044,7 +1061,7 @@ export default function ReceiptModal({
                 />
               </Field>
               <div className="form-grid">
-                <Field name={t('Moneda bonului', 'Receipt currency')}>
+                <Field name={t('Moneda bonului', 'Receipt currency')} action={scanAction('currency')}>
                   <input
                     data-ocr-field="currency"
                     required
@@ -1061,7 +1078,7 @@ export default function ReceiptModal({
                   />
                 </Field>
                 <Field
-                  name={t('Total bon în moneda documentului', 'Receipt total in document currency')}
+                  name={t('Total bon în moneda documentului', 'Receipt total in document currency')} action={scanAction('amount')}
                 >
                   <input
                     data-ocr-field="amount"
@@ -1176,8 +1193,8 @@ export default function ReceiptModal({
                           onChange={(e) => updateTax(row.pct, 'vat', e.target.value)}
                         />
                       </Field>
-                      <details>
-                        <summary>{t('Dovadă TVA', 'VAT evidence')}</summary>
+                      <section>
+                        <h4>{t('Dovadă TVA', 'VAT evidence')}</h4>
                         <Field name={t('Stare TVA ' + row.pct + '%', 'VAT state ' + row.pct + '%')}>
                           <select
                             value={row.state ?? ''}
@@ -1212,7 +1229,7 @@ export default function ReceiptModal({
                             }
                           />
                         </Field>
-                      </details>
+                      </section>
                       <span>
                         {formatMoney(
                           add(row.base || '0', row.vat || '0'),
