@@ -2056,6 +2056,8 @@ textarea {
 .report-link small {
   color: var(--muted);
   font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
 }
 .report-cards {
   display: none;
@@ -2114,6 +2116,19 @@ textarea {
   line-height: 1.5;
 }
 @media (max-width: 760px) {
+  .list-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .list-toolbar .search,
+  .list-toolbar select {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+  }
+  .list-toolbar select {
+    font-size: 14px;
+  }
   .dashboard-next-step {
     align-items: stretch;
     flex-direction: column;
