@@ -1,0 +1,37 @@
+name: Production preflight self-tests (offline)
+
+on:
+  push:
+    paths:
+      - deploy/production_preflight.py
+      - deploy/test_production_preflight.py
+      - .github/workflows/production-preflight.yml
+  pull_request:
+    paths:
+      - deploy/production_preflight.py
+      - deploy/test_production_preflight.py
+      - .github/workflows/production-preflight.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  configuration-preflight-tests:
+    name: Read-only production preflight tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test configuration checks without network or secrets
+        run: python3 -m unittest discover -s deploy -p 'test_production_preflight.py' -v
+      - name: Ensure empty production configuration is rejected
+        run: |
+          if env -i PATH="$PATH" python3 deploy/production_preflight.py --json > /dev/null; then
+            echo 'Error: production preflight accepted missing configuration'
+            exit 1
+          fi
+          echo 'Missing production configuration correctly blocked.'
