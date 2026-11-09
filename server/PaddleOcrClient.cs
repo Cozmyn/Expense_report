@@ -63,7 +63,11 @@ public static class PaddleOcrClient
             "Dimensiuni OCR invalide.",
             "Invalid OCR dimensions."
         );
-        var words = root.GetProperty("words")
+        // PaddleOCR reports bounding boxes per recognized *line*. The existing receipt
+        // parser counts whitespace-separated words when locating several documents on one
+        // page. Split line text into tokens with proportional approximate geometry, while
+        // retaining the exact line text below for evidence and regex parsing.
+        var lines = root.GetProperty("words")
             .EnumerateArray()
             .Take(5000)
             .Select(row => new OcrWord(
@@ -76,12 +80,34 @@ public static class PaddleOcrClient
                 ),
                 row.GetProperty("confidence").GetDecimal()
             ))
-            .Where(word =>
-                word.Box.X >= 0 && word.Box.Y >= 0 && word.Box.Width > 0 && word.Box.Height > 0
-                && word.Box.X + word.Box.Width <= 1 && word.Box.Y + word.Box.Height <= 1
+            .Where(line =>
+                line.Box.X >= 0 && line.Box.Y >= 0 && line.Box.Width > 0 && line.Box.Height > 0
+                && line.Box.X + line.Box.Width <= 1 && line.Box.Y + line.Box.Height <= 1
             )
             .ToList();
-        var text = string.Join("\n", words.Select(w => w.Text));
+        List<OcrWord> words = [];
+        foreach (var line in lines)
+        {
+            foreach (
+                System.Text.RegularExpressions.Match token in
+                System.Text.RegularExpressions.Regex.Matches(line.Text, @"\S+")
+            )
+            {
+                var left = (decimal)token.Index / line.Text.Length;
+                var fraction = (decimal)token.Length / line.Text.Length;
+                words.Add(new OcrWord(
+                    token.Value,
+                    new SourceBox(
+                        line.Box.X + line.Box.Width * left,
+                        line.Box.Y,
+                        line.Box.Width * fraction,
+                        line.Box.Height
+                    ),
+                    line.Confidence
+                ));
+            }
+        }
+        var text = string.Join("\n", lines.Select(w => w.Text));
         Guard.Require(
             text.Length <= 200000,
             "ocr_text_limit",
