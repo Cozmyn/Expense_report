@@ -43,6 +43,8 @@ public static class SchemaUpgrades
                 ("Jobs", "FailureCode", "TEXT NULL"),
                 ("ReportAttachments", "UploadedBy", "TEXT NOT NULL DEFAULT ''"),
                 ("ReportAttachments", "Capture", "BOOLEAN NOT NULL DEFAULT FALSE"),
+                ("ReportAttachments", "ReceiptMode", "TEXT NOT NULL DEFAULT 'Auto'"),
+                ("Reports", "CostCenter", "TEXT NOT NULL DEFAULT ''"),
                 ("Reports", "EmployeeName", "TEXT NOT NULL DEFAULT ''"),
                 ("Reports", "EmployeeWorker", "TEXT NOT NULL DEFAULT ''"),
                 ("Reports", "DepartmentCode", "TEXT NOT NULL DEFAULT ''"),
@@ -223,6 +225,11 @@ public static class SchemaUpgrades
         if (!await db.SchemaReleases.AnyAsync(x => x.Id == 9))
         {
             db.SchemaReleases.Add(new() { Id = 9, Name = "Traceable workbook-compatible postings and Finance review" });
+            await db.SaveChangesAsync();
+        }
+        if (!await db.SchemaReleases.AnyAsync(x => x.Id == 10))
+        {
+            db.SchemaReleases.Add(new() { Id = 10, Name = "Unified receipt intake and report-level cost centre" });
             await db.SaveChangesAsync();
         }
         await db.Database.ExecuteSqlRawAsync(
