@@ -364,7 +364,7 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
           <span>{t('Gata pentru ERP', 'Ready for ERP')}{filter.ready ? ' ✓' : ''}</span>
         </button>
       </div>
-      <section className="finance-advanced-filters" onToggle={(event) => ShowFilters(event.currentTarget.open)}>
+      <section className="finance-filters">
         <h4>
           {t('Caută și filtrează deconturile', 'Search and filter reports')}
           {activeFilters > 0 ? ' · ' + activeFilters : ''}
