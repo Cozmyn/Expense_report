@@ -1,23 +1,479 @@
-using Decont;using Xunit;using Microsoft.AspNetCore.Mvc.Testing;using Microsoft.AspNetCore.Hosting;using Microsoft.Extensions.Configuration;using Microsoft.Extensions.DependencyInjection;using Microsoft.Extensions.DependencyInjection.Extensions;using Microsoft.AspNetCore.Identity;using Microsoft.EntityFrameworkCore;using System.Net;using System.Net.Http.Json;using System.Text.Json;using Npgsql;using Microsoft.AspNetCore.DataProtection;using Microsoft.Extensions.Hosting;
-namespace Decont.Tests;
-public sealed class Factory:WebApplicationFactory<Program>{readonly string root=Path.Combine(Path.GetTempPath(),"decont-tests-"+Guid.NewGuid());protected override void ConfigureWebHost(IWebHostBuilder builder){Directory.CreateDirectory(root);var pg=Environment.GetEnvironmentVariable("TEST_POSTGRES");string? testConnection=null;if(!string.IsNullOrWhiteSpace(pg)){var cs=new NpgsqlConnectionStringBuilder(pg);var name="test_"+Guid.NewGuid().ToString("N");using var admin=new NpgsqlConnection(cs.ConnectionString);admin.Open();using var command=new NpgsqlCommand("CREATE DATABASE "+name,admin);command.ExecuteNonQuery();cs.Database=name;testConnection=cs.ConnectionString;}builder.ConfigureServices(services=>{services.RemoveAll<IDataProtectionProvider>();services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());foreach(var worker in services.Where(d=>d.ServiceType==typeof(IHostedService)&&(d.ImplementationType==typeof(Worker)||d.ImplementationType==typeof(ReminderWorker))).ToList())services.Remove(worker);services.RemoveAll<DbContextOptions<Db>>();services.RemoveAll<Microsoft.EntityFrameworkCore.Infrastructure.IDbContextOptionsConfiguration<Db>>();services.RemoveAll<Db>();services.AddDbContext<Db>(o=>{if(testConnection!=null)o.UseNpgsql(testConnection);else o.UseSqlite("Data Source="+Path.Combine(root,"tests.db"));});});builder.UseEnvironment("Development").ConfigureAppConfiguration((_,c)=>c.AddInMemoryCollection(new Dictionary<string,string?>{{"Data:Directory",root},{"Storage:Directory",Path.Combine(root,"objects")},{"Database:Provider","Sqlite"},{"Worker:Disabled","true"}}));}public async Task Seed(){using var scope=Services.CreateScope();var db=scope.ServiceProvider.GetRequiredService<Db>();await db.Database.EnsureCreatedAsync();var roles=scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();foreach(var role in Admin.Roles)if(!await roles.RoleExistsAsync(role))await roles.CreateAsync(new(role));var um=scope.ServiceProvider.GetRequiredService<UserManager<User>>();foreach(var (name,role) in new[]{("alice","Employee"),("bob","Employee"),("manager","Manager"),("admin","Admin"),("finance","Finance")}){var u=new User{UserName=name,Email=name+"@example.invalid",Name=name,Worker=name,ChangePassword=false};var result=await um.CreateAsync(u,"Valid-test-Password1!");Assert.True(result.Succeeded,string.Join(",",result.Errors.Select(e=>e.Code)));await um.AddToRoleAsync(u,role);}}}
-public class HttpTests {
- [Fact]public async Task AnonymousRequestAndMissingCsrfAreRejected(){await using var factory=new Factory();await factory.Seed();var client=factory.CreateClient();Assert.Equal(HttpStatusCode.Unauthorized,(await client.GetAsync("/api/reports")).StatusCode);Assert.Equal(HttpStatusCode.BadRequest,(await client.PostAsJsonAsync("/api/auth/login",new{username="alice",password="Valid-test-Password1!"})).StatusCode);}
- [Fact]public async Task AuthenticatedEmployeeCannotReadOtherEmployeeOrReachAdmin(){await using var factory=new Factory();await factory.Seed();var alice=await Login(factory,"alice");var bob=await Login(factory,"bob");var key=Guid.NewGuid().ToString();alice.DefaultRequestHeaders.Add("Idempotency-Key",key);var created=await alice.PostAsJsonAsync("/api/reports",new{purpose="Visit"});Assert.Equal(HttpStatusCode.OK,created.StatusCode);var json=await created.Content.ReadFromJsonAsync<JsonElement>();var id=json.GetProperty("id").GetGuid();Assert.Equal(HttpStatusCode.NotFound,(await bob.GetAsync("/api/reports/"+id)).StatusCode);Assert.Equal(HttpStatusCode.Forbidden,(await alice.GetAsync("/api/admin/users")).StatusCode);var repeated=await alice.PostAsJsonAsync("/api/reports",new{purpose="Visit"});Assert.Equal(await created.Content.ReadAsStringAsync(),await repeated.Content.ReadAsStringAsync());Assert.Equal(1,(await alice.GetFromJsonAsync<JsonElement>("/api/reports")).GetArrayLength());}
- [Fact]public async Task StaleWriteAndChangedIdempotencyPayloadAreRejected(){await using var factory=new Factory();await factory.Seed();var client=await Login(factory,"alice");client.DefaultRequestHeaders.Add("Idempotency-Key",Guid.NewGuid().ToString());var created=await client.PostAsJsonAsync("/api/reports",new{purpose="First"});var report=await created.Content.ReadFromJsonAsync<JsonElement>();var id=report.GetProperty("id").GetGuid();var changed=await client.PostAsJsonAsync("/api/reports",new{purpose="Different"});Assert.Equal(HttpStatusCode.Conflict,changed.StatusCode);client.DefaultRequestHeaders.Remove("Idempotency-Key");client.DefaultRequestHeaders.Add("Idempotency-Key",Guid.NewGuid().ToString());Assert.Equal(HttpStatusCode.OK,(await client.PatchAsJsonAsync("/api/reports/"+id,new{version=1,purpose="Updated"})).StatusCode);client.DefaultRequestHeaders.Remove("Idempotency-Key");client.DefaultRequestHeaders.Add("Idempotency-Key",Guid.NewGuid().ToString());Assert.Equal(HttpStatusCode.Conflict,(await client.PatchAsJsonAsync("/api/reports/"+id,new{version=1,purpose="Stale"})).StatusCode);}
- [Fact]public async Task AdminDisableImmediatelyRevokesExistingSession(){await using var factory=new Factory();await factory.Seed();var admin=await Login(factory,"admin");var bob=await Login(factory,"bob");var me=await bob.GetFromJsonAsync<JsonElement>("/api/me");admin.DefaultRequestHeaders.Add("Idempotency-Key",Guid.NewGuid().ToString());var response=await admin.PutAsJsonAsync("/api/admin/users/"+me.GetProperty("id").GetString(),new UserInput("bob","Bob","bob@example.invalid","bob",null,false,["Employee"],null,"Access revoked in test"));Assert.Equal(HttpStatusCode.OK,response.StatusCode);Assert.Equal(HttpStatusCode.Unauthorized,(await bob.GetAsync("/api/me")).StatusCode);}
- [Fact]public async Task LogoutRevokesTheServerSession(){await using var factory=new Factory();await factory.Seed();var client=await Login(factory,"alice");Assert.Equal(HttpStatusCode.NoContent,(await client.PostAsync("/api/auth/logout",null)).StatusCode);Assert.Equal(HttpStatusCode.Unauthorized,(await client.GetAsync("/api/me")).StatusCode);}
- [Fact]public async Task CardAllocationsRejectOverflowAndUseActualSettlement(){await using var factory=new Factory();await factory.Seed();var client=await Login(factory,"finance");Guid reportId,lineId,transactionId;var card=Guid.NewGuid();using(var scope=factory.Services.CreateScope()){var db=scope.ServiceProvider.GetRequiredService<Db>();var employee=await db.Users.SingleAsync(u=>u.UserName=="alice");var manager=await db.Users.SingleAsync(u=>u.UserName=="manager");var r=new Report{EmployeeId=employee.Id,ManagerId=manager.Id,State=States.Finance,Purpose="Card reconciliation test",Lines=[new(){Position=1,EstimatedRon=100,Json=Serialization.Write(new ExpenseData("Shop",null,"T1","2026-01-01","DE","InvoiceWithoutCui","GENERAL","Test","CompanyCard",card,"CC",null,100,"EUR",[]))}]};var tx=new CardTransaction{CardId=card,Reference="REF",Date="2026-01-01",Merchant="Shop",Amount=100,Currency="EUR",SettledRon=105};db.Reports.Add(r);db.Transactions.Add(tx);await db.SaveChangesAsync();reportId=r.Id;lineId=r.Lines[0].Id;transactionId=tx.Id;}async Task<HttpResponseMessage> Match(decimal amount,long version){client.DefaultRequestHeaders.Remove("Idempotency-Key");client.DefaultRequestHeaders.Add("Idempotency-Key",Guid.NewGuid().ToString());return await client.PostAsJsonAsync("/api/finance/matches",new MatchInput(reportId,version,lineId,transactionId,amount));}var first=await Match(40,1);Assert.True(first.StatusCode==HttpStatusCode.OK,await first.Content.ReadAsStringAsync());var partial=await first.Content.ReadFromJsonAsync<JsonElement>();Assert.False(partial.GetProperty("lines")[0].GetProperty("reconciled").GetBoolean());Assert.Equal(HttpStatusCode.UnprocessableEntity,(await Match(61,2)).StatusCode);var final=await Match(60,2);Assert.True(final.StatusCode==HttpStatusCode.OK,await final.Content.ReadAsStringAsync());var complete=await final.Content.ReadFromJsonAsync<JsonElement>();Assert.True(complete.GetProperty("lines")[0].GetProperty("reconciled").GetBoolean());Assert.Equal(100m,complete.GetProperty("total").GetDecimal());Assert.Equal(105m,complete.GetProperty("lines")[0].GetProperty("settledRon").GetDecimal());}
- [Fact]public async Task NewLinesDuplicatesAndAttachmentsAreInserted(){await using var factory=new Factory();await factory.Seed();var client=await Login(factory,"alice");void Key(){client.DefaultRequestHeaders.Remove("Idempotency-Key");client.DefaultRequestHeaders.Add("Idempotency-Key",Guid.NewGuid().ToString());}Key();var created=await client.PostAsJsonAsync("/api/reports",new{purpose="New expenses"});var report=await created.Content.ReadFromJsonAsync<JsonElement>();var id=report.GetProperty("id").GetGuid();Key();var data=new ExpenseData("Shop",null,"DOC-1","2026-01-01","DE","InvoiceWithoutCui","GENERAL","Test expense","Personal",null,"CC",null,100,"RON",[]);var added=await client.PostAsJsonAsync("/api/reports/"+id+"/lines",new LineEdit(1,data,null));Assert.True(added.StatusCode==HttpStatusCode.OK,await added.Content.ReadAsStringAsync());var saved=await added.Content.ReadFromJsonAsync<JsonElement>();var line=saved.GetProperty("lines")[0].GetProperty("id").GetGuid();Assert.Equal(2,saved.GetProperty("version").GetInt64());Key();var duplicated=await client.PostAsJsonAsync($"/api/reports/{id}/lines/{line}/duplicate",new VersionRequest(2,null));Assert.True(duplicated.StatusCode==HttpStatusCode.OK,await duplicated.Content.ReadAsStringAsync());Assert.Equal(2,(await duplicated.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("lines").GetArrayLength());using var form=new MultipartFormDataContent();form.Add(new StringContent("3"),"version");form.Add(new ByteArrayContent(Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a16kAAAAASUVORK5CYII=")),"file","receipt.png");var upload=await client.PostAsync($"/api/reports/{id}/lines/{line}/evidence",form);Assert.True(upload.StatusCode==HttpStatusCode.OK,await upload.Content.ReadAsStringAsync());var evidence=(await upload.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("e");Assert.Equal("Pending",evidence.GetProperty("scan").GetString());Assert.Equal(HttpStatusCode.UnprocessableEntity,(await client.GetAsync("/api/evidence/"+evidence.GetProperty("id").GetString())).StatusCode);}
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Decont;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
+using Npgsql;
+using Xunit;
 
- [Fact]public async Task VatPreviewUsesServerRonToleranceAndDoesNotPersist(){await using var f=new Factory();await f.Seed();Guid rateId;using(var scope=f.Services.CreateScope()){var db=scope.ServiceProvider.GetRequiredService<Db>();var rate=new Master{Kind="vat",Code="21",From=new(2020,1,1),Json="{\"rate\":21}"};db.Masters.AddRange(rate,new Master{Kind="fx",Code="EUR",From=new(2020,1,1),Json="{\"ronRate\":5}"});await db.SaveChangesAsync();rateId=rate.Id;}
-  var d=new ExpenseData("Supplier","18546294","TEST","2026-01-01","RO","InvoiceWithCui","GENERAL","Test","Personal",null,"CC",null,121.21m,"EUR",[new(rateId,100,21.21m)],true,false,"EUR");
-  var anonymous=f.CreateClient();var token=await anonymous.GetFromJsonAsync<JsonElement>("/api/auth/csrf");anonymous.DefaultRequestHeaders.Add("X-CSRF-TOKEN",token.GetProperty("token").GetString());Assert.Equal(HttpStatusCode.Unauthorized,(await anonymous.PostAsJsonAsync("/api/vat-validation",d)).StatusCode);
-  var client=await Login(f,"alice");var response=await client.PostAsJsonAsync("/api/vat-validation",d);Assert.Equal(HttpStatusCode.OK,response.StatusCode);var body=await response.Content.ReadFromJsonAsync<JsonElement>();Assert.Contains(body.GetProperty("issues").EnumerateArray(),x=>x.GetProperty("code").GetString()=="vat_arithmetic");
-  var valid=await client.PostAsJsonAsync("/api/vat-validation",d with{Amount=121.08m,Taxes=[new(rateId,100,21.08m)]});Assert.Equal(HttpStatusCode.OK,valid.StatusCode);Assert.DoesNotContain((await valid.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("issues").EnumerateArray(),x=>x.GetProperty("blocking").GetBoolean());
-  Assert.Equal(HttpStatusCode.UnprocessableEntity,(await client.PostAsJsonAsync("/api/vat-validation",d with{Amount=0})).StatusCode);
-  using(var scope=f.Services.CreateScope()){var db=scope.ServiceProvider.GetRequiredService<Db>();Assert.Empty(await db.Reports.ToListAsync());Assert.Empty(await db.Lines.ToListAsync());}
- }
- static async Task<HttpClient> Login(Factory factory,string username){var client=factory.CreateClient(new(){HandleCookies=true,AllowAutoRedirect=false});var csrf=await client.GetFromJsonAsync<JsonElement>("/api/auth/csrf");client.DefaultRequestHeaders.Add("X-CSRF-TOKEN",csrf.GetProperty("token").GetString());var result=await client.PostAsJsonAsync("/api/auth/login",new{username,password="Valid-test-Password1!"});Assert.Equal(HttpStatusCode.OK,result.StatusCode);csrf=await client.GetFromJsonAsync<JsonElement>("/api/auth/csrf");client.DefaultRequestHeaders.Remove("X-CSRF-TOKEN");client.DefaultRequestHeaders.Add("X-CSRF-TOKEN",csrf.GetProperty("token").GetString());return client;}
+namespace Decont.Tests;
+
+public sealed class Factory : WebApplicationFactory<Program>
+{
+    readonly string root = Path.Combine(Path.GetTempPath(), "decont-tests-" + Guid.NewGuid());
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        Directory.CreateDirectory(root);
+        var pg = Environment.GetEnvironmentVariable("TEST_POSTGRES");
+        string? testConnection = null;
+        if (!string.IsNullOrWhiteSpace(pg))
+        {
+            var cs = new NpgsqlConnectionStringBuilder(pg);
+            var name = "test_" + Guid.NewGuid().ToString("N");
+            using var admin = new NpgsqlConnection(cs.ConnectionString);
+            admin.Open();
+            using var command = new NpgsqlCommand("CREATE DATABASE " + name, admin);
+            command.ExecuteNonQuery();
+            cs.Database = name;
+            testConnection = cs.ConnectionString;
+        }
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<IDataProtectionProvider>();
+            services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+            foreach (
+                var worker in services
+                    .Where(d =>
+                        d.ServiceType == typeof(IHostedService)
+                        && (d.ImplementationType == typeof(Worker) || d.ImplementationType == typeof(ReminderWorker))
+                    )
+                    .ToList()
+            )
+                services.Remove(worker);
+            services.RemoveAll<DbContextOptions<Db>>();
+            services.RemoveAll<Microsoft.EntityFrameworkCore.Infrastructure.IDbContextOptionsConfiguration<Db>>();
+            services.RemoveAll<Db>();
+            services.AddDbContext<Db>(o =>
+            {
+                if (testConnection != null)
+                    o.UseNpgsql(testConnection);
+                else
+                    o.UseSqlite("Data Source=" + Path.Combine(root, "tests.db"));
+            });
+        });
+        builder
+            .UseEnvironment("Development")
+            .ConfigureAppConfiguration(
+                (_, c) =>
+                    c.AddInMemoryCollection(
+                        new Dictionary<string, string?>
+                        {
+                            { "Data:Directory", root },
+                            { "Storage:Directory", Path.Combine(root, "objects") },
+                            { "Database:Provider", "Sqlite" },
+                            { "Worker:Disabled", "true" },
+                        }
+                    )
+            );
+    }
+
+    public async Task Seed()
+    {
+        using var scope = Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        await db.Database.EnsureCreatedAsync();
+        var roles = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+        foreach (var role in Admin.Roles)
+            if (!await roles.RoleExistsAsync(role))
+                await roles.CreateAsync(new(role));
+        var um = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+        foreach (
+            var (name, role) in new[]
+            {
+                ("alice", "Employee"),
+                ("bob", "Employee"),
+                ("manager", "Manager"),
+                ("admin", "Admin"),
+                ("finance", "Finance"),
+            }
+        )
+        {
+            var u = new User
+            {
+                UserName = name,
+                Email = name + "@example.invalid",
+                Name = name,
+                Worker = name,
+                ChangePassword = false,
+            };
+            var result = await um.CreateAsync(u, "Valid-test-Password1!");
+            Assert.True(result.Succeeded, string.Join(",", result.Errors.Select(e => e.Code)));
+            await um.AddToRoleAsync(u, role);
+        }
+    }
 }
 
+public class HttpTests
+{
+    [Fact]
+    public async Task AnonymousRequestAndMissingCsrfAreRejected()
+    {
+        await using var factory = new Factory();
+        await factory.Seed();
+        var client = factory.CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/reports")).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            (
+                await client.PostAsJsonAsync(
+                    "/api/auth/login",
+                    new { username = "alice", password = "Valid-test-Password1!" }
+                )
+            ).StatusCode
+        );
+    }
+
+    [Fact]
+    public async Task AuthenticatedEmployeeCannotReadOtherEmployeeOrReachAdmin()
+    {
+        await using var factory = new Factory();
+        await factory.Seed();
+        var alice = await Login(factory, "alice");
+        var bob = await Login(factory, "bob");
+        var key = Guid.NewGuid().ToString();
+        alice.DefaultRequestHeaders.Add("Idempotency-Key", key);
+        var created = await alice.PostAsJsonAsync("/api/reports", new { purpose = "Visit" });
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        var json = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var id = json.GetProperty("id").GetGuid();
+        Assert.Equal(HttpStatusCode.NotFound, (await bob.GetAsync("/api/reports/" + id)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await alice.GetAsync("/api/admin/users")).StatusCode);
+        var repeated = await alice.PostAsJsonAsync("/api/reports", new { purpose = "Visit" });
+        Assert.Equal(await created.Content.ReadAsStringAsync(), await repeated.Content.ReadAsStringAsync());
+        Assert.Equal(1, (await alice.GetFromJsonAsync<JsonElement>("/api/reports")).GetArrayLength());
+    }
+
+    [Fact]
+    public async Task StaleWriteAndChangedIdempotencyPayloadAreRejected()
+    {
+        await using var factory = new Factory();
+        await factory.Seed();
+        var client = await Login(factory, "alice");
+        client.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        var created = await client.PostAsJsonAsync("/api/reports", new { purpose = "First" });
+        var report = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var id = report.GetProperty("id").GetGuid();
+        var changed = await client.PostAsJsonAsync("/api/reports", new { purpose = "Different" });
+        Assert.Equal(HttpStatusCode.Conflict, changed.StatusCode);
+        client.DefaultRequestHeaders.Remove("Idempotency-Key");
+        client.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await client.PatchAsJsonAsync("/api/reports/" + id, new { version = 1, purpose = "Updated" })).StatusCode
+        );
+        client.DefaultRequestHeaders.Remove("Idempotency-Key");
+        client.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        Assert.Equal(
+            HttpStatusCode.Conflict,
+            (await client.PatchAsJsonAsync("/api/reports/" + id, new { version = 1, purpose = "Stale" })).StatusCode
+        );
+    }
+
+    [Fact]
+    public async Task AdminDisableImmediatelyRevokesExistingSession()
+    {
+        await using var factory = new Factory();
+        await factory.Seed();
+        var admin = await Login(factory, "admin");
+        var bob = await Login(factory, "bob");
+        var me = await bob.GetFromJsonAsync<JsonElement>("/api/me");
+        admin.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        var response = await admin.PutAsJsonAsync(
+            "/api/admin/users/" + me.GetProperty("id").GetString(),
+            new UserInput(
+                "bob",
+                "Bob",
+                "bob@example.invalid",
+                "bob",
+                null,
+                false,
+                ["Employee"],
+                null,
+                "Access revoked in test"
+            )
+        );
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await bob.GetAsync("/api/me")).StatusCode);
+    }
+
+    [Fact]
+    public async Task LogoutRevokesTheServerSession()
+    {
+        await using var factory = new Factory();
+        await factory.Seed();
+        var client = await Login(factory, "alice");
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync("/api/auth/logout", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/me")).StatusCode);
+    }
+
+    [Fact]
+    public async Task CardAllocationsRejectOverflowAndUseActualSettlement()
+    {
+        await using var factory = new Factory();
+        await factory.Seed();
+        var client = await Login(factory, "finance");
+        Guid reportId,
+            lineId,
+            transactionId;
+        var card = Guid.NewGuid();
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<Db>();
+            var employee = await db.Users.SingleAsync(u => u.UserName == "alice");
+            var manager = await db.Users.SingleAsync(u => u.UserName == "manager");
+            var r = new Report
+            {
+                EmployeeId = employee.Id,
+                ManagerId = manager.Id,
+                State = States.Finance,
+                Purpose = "Card reconciliation test",
+                Lines =
+                [
+                    new()
+                    {
+                        Position = 1,
+                        EstimatedRon = 100,
+                        Json = Serialization.Write(
+                            new ExpenseData(
+                                "Shop",
+                                null,
+                                "T1",
+                                "2026-01-01",
+                                "DE",
+                                "InvoiceWithoutCui",
+                                "GENERAL",
+                                "Test",
+                                "CompanyCard",
+                                card,
+                                "CC",
+                                null,
+                                100,
+                                "EUR",
+                                []
+                            )
+                        ),
+                    },
+                ],
+            };
+            var tx = new CardTransaction
+            {
+                CardId = card,
+                Reference = "REF",
+                Date = "2026-01-01",
+                Merchant = "Shop",
+                Amount = 100,
+                Currency = "EUR",
+                SettledRon = 105,
+            };
+            db.Reports.Add(r);
+            db.Transactions.Add(tx);
+            await db.SaveChangesAsync();
+            reportId = r.Id;
+            lineId = r.Lines[0].Id;
+            transactionId = tx.Id;
+        }
+        async Task<HttpResponseMessage> Match(decimal amount, long version)
+        {
+            client.DefaultRequestHeaders.Remove("Idempotency-Key");
+            client.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+            return await client.PostAsJsonAsync(
+                "/api/finance/matches",
+                new MatchInput(reportId, version, lineId, transactionId, amount)
+            );
+        }
+        var first = await Match(40, 1);
+        Assert.True(first.StatusCode == HttpStatusCode.OK, await first.Content.ReadAsStringAsync());
+        var partial = await first.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(partial.GetProperty("lines")[0].GetProperty("reconciled").GetBoolean());
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await Match(61, 2)).StatusCode);
+        var final = await Match(60, 2);
+        Assert.True(final.StatusCode == HttpStatusCode.OK, await final.Content.ReadAsStringAsync());
+        var complete = await final.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(complete.GetProperty("lines")[0].GetProperty("reconciled").GetBoolean());
+        Assert.Equal(100m, complete.GetProperty("total").GetDecimal());
+        Assert.Equal(105m, complete.GetProperty("lines")[0].GetProperty("settledRon").GetDecimal());
+    }
+
+    [Fact]
+    public async Task NewLinesDuplicatesAndAttachmentsAreInserted()
+    {
+        await using var factory = new Factory();
+        await factory.Seed();
+        var client = await Login(factory, "alice");
+        void Key()
+        {
+            client.DefaultRequestHeaders.Remove("Idempotency-Key");
+            client.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        }
+        Key();
+        var created = await client.PostAsJsonAsync("/api/reports", new { purpose = "New expenses" });
+        var report = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var id = report.GetProperty("id").GetGuid();
+        Key();
+        var data = new ExpenseData(
+            "Shop",
+            null,
+            "DOC-1",
+            "2026-01-01",
+            "DE",
+            "InvoiceWithoutCui",
+            "GENERAL",
+            "Test expense",
+            "Personal",
+            null,
+            "CC",
+            null,
+            100,
+            "RON",
+            []
+        );
+        var added = await client.PostAsJsonAsync("/api/reports/" + id + "/lines", new LineEdit(1, data, null));
+        Assert.True(added.StatusCode == HttpStatusCode.OK, await added.Content.ReadAsStringAsync());
+        var saved = await added.Content.ReadFromJsonAsync<JsonElement>();
+        var line = saved.GetProperty("lines")[0].GetProperty("id").GetGuid();
+        Assert.Equal(2, saved.GetProperty("version").GetInt64());
+        Key();
+        var duplicated = await client.PostAsJsonAsync(
+            $"/api/reports/{id}/lines/{line}/duplicate",
+            new VersionRequest(2, null)
+        );
+        Assert.True(duplicated.StatusCode == HttpStatusCode.OK, await duplicated.Content.ReadAsStringAsync());
+        Assert.Equal(
+            2,
+            (await duplicated.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("lines").GetArrayLength()
+        );
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent("3"), "version");
+        form.Add(
+            new ByteArrayContent(
+                Convert.FromBase64String(
+                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a16kAAAAASUVORK5CYII="
+                )
+            ),
+            "file",
+            "receipt.png"
+        );
+        var upload = await client.PostAsync($"/api/reports/{id}/lines/{line}/evidence", form);
+        Assert.True(upload.StatusCode == HttpStatusCode.OK, await upload.Content.ReadAsStringAsync());
+        var evidence = (await upload.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("e");
+        Assert.Equal("Pending", evidence.GetProperty("scan").GetString());
+        Assert.Equal(
+            HttpStatusCode.UnprocessableEntity,
+            (await client.GetAsync("/api/evidence/" + evidence.GetProperty("id").GetString())).StatusCode
+        );
+    }
+
+    [Fact]
+    public async Task VatPreviewUsesServerRonToleranceAndDoesNotPersist()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        Guid rateId;
+        using (var scope = f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<Db>();
+            var rate = new Master
+            {
+                Kind = "vat",
+                Code = "21",
+                From = new(2020, 1, 1),
+                Json = "{\"rate\":21}",
+            };
+            db.Masters.AddRange(
+                rate,
+                new Master
+                {
+                    Kind = "fx",
+                    Code = "EUR",
+                    From = new(2020, 1, 1),
+                    Json = "{\"ronRate\":5}",
+                }
+            );
+            await db.SaveChangesAsync();
+            rateId = rate.Id;
+        }
+        var d = new ExpenseData(
+            "Supplier",
+            "18546294",
+            "TEST",
+            "2026-01-01",
+            "RO",
+            "InvoiceWithCui",
+            "GENERAL",
+            "Test",
+            "Personal",
+            null,
+            "CC",
+            null,
+            121.21m,
+            "EUR",
+            [new(rateId, 100, 21.21m)],
+            true,
+            false,
+            "EUR"
+        );
+        var anonymous = f.CreateClient();
+        var token = await anonymous.GetFromJsonAsync<JsonElement>("/api/auth/csrf");
+        anonymous.DefaultRequestHeaders.Add("X-CSRF-TOKEN", token.GetProperty("token").GetString());
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            (await anonymous.PostAsJsonAsync("/api/vat-validation", d)).StatusCode
+        );
+        var client = await Login(f, "alice");
+        var response = await client.PostAsJsonAsync("/api/vat-validation", d);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Contains(
+            body.GetProperty("issues").EnumerateArray(),
+            x => x.GetProperty("code").GetString() == "vat_arithmetic"
+        );
+        var valid = await client.PostAsJsonAsync(
+            "/api/vat-validation",
+            d with
+            {
+                Amount = 121.08m,
+                Taxes = [new(rateId, 100, 21.08m)],
+            }
+        );
+        Assert.Equal(HttpStatusCode.OK, valid.StatusCode);
+        Assert.DoesNotContain(
+            (await valid.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("issues").EnumerateArray(),
+            x => x.GetProperty("blocking").GetBoolean()
+        );
+        Assert.Equal(
+            HttpStatusCode.UnprocessableEntity,
+            (await client.PostAsJsonAsync("/api/vat-validation", d with { Amount = 0 })).StatusCode
+        );
+        using (var scope = f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<Db>();
+            Assert.Empty(await db.Reports.ToListAsync());
+            Assert.Empty(await db.Lines.ToListAsync());
+        }
+    }
+
+    static async Task<HttpClient> Login(Factory factory, string username)
+    {
+        var client = factory.CreateClient(new() { HandleCookies = true, AllowAutoRedirect = false });
+        var csrf = await client.GetFromJsonAsync<JsonElement>("/api/auth/csrf");
+        client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", csrf.GetProperty("token").GetString());
+        var result = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new { username, password = "Valid-test-Password1!" }
+        );
+        Assert.Equal(HttpStatusCode.OK, result.StatusCode);
+        csrf = await client.GetFromJsonAsync<JsonElement>("/api/auth/csrf");
+        client.DefaultRequestHeaders.Remove("X-CSRF-TOKEN");
+        client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", csrf.GetProperty("token").GetString());
+        return client;
+    }
+}

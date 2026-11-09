@@ -1,8 +1,305 @@
-import{test,expect,request,APIRequestContext}from'@playwright/test';
-const initial='Valid-test-Password1!',changed='Changed-test-Password2!';
-async function csrf(c:APIRequestContext){return(await(await c.get('/api/auth/csrf')).json()).token;}
-async function mutate(c:APIRequestContext,path:string,data:any,method='POST'){const r=await c.fetch('/api'+path,{method,data,headers:{'X-CSRF-TOKEN':await csrf(c),'Idempotency-Key':crypto.randomUUID()}});expect(r.ok(),await r.text()).toBeTruthy();return r.status()===204?null:r.json();}
-async function login(c:APIRequestContext,name:string,password:string){let r=await c.post('/api/auth/login',{data:{username:name,password},headers:{'X-CSRF-TOKEN':await csrf(c)}});if(r.status()===429){await new Promise(resolve=>setTimeout(resolve,60000));r=await c.post('/api/auth/login',{data:{username:name,password},headers:{'X-CSRF-TOKEN':await csrf(c)}});}return r;}
-async function openReport(p:any,purpose:string){await p.goto('/');await expect(p.getByRole('heading',{name:'Privire de ansamblu',exact:true})).toBeVisible();await p.getByRole('button',{name:purpose}).click();await expect(p.getByRole('heading',{name:purpose,exact:true})).toBeVisible();}
-async function navigate(p:any,label:string){const menu=p.getByRole('button',{name:'Deschide meniul',exact:true});if(await menu.isVisible())await menu.click();await p.getByRole('button',{name:label,exact:true}).click();}
-test('Reversible reset, statement charges and independent Finance policy approval',async({browser},info)=>{test.setTimeout(300000);const tag='p3-'+info.project.name;const baseURL='http://127.0.0.1:5080';const admin=await request.newContext({baseURL});let auth=await login(admin,'ci-admin',changed);if(auth.status()===401)auth=await login(admin,'ci-admin',process.env.E2E_ADMIN_PASSWORD!);expect(auth.ok(),await auth.text()).toBeTruthy();if((await auth.json()).changePassword)await mutate(admin,'/auth/change-password',{current:process.env.E2E_ADMIN_PASSWORD,new:changed});const create=async(name:string,roles:string[],managerId:string|null=null)=>mutate(admin,'/admin/users',{username:name,name,email:name+'@example.invalid',worker:name,managerId,active:true,roles,password:initial,reason:'Isolated synthetic PDF03 regression'});const manager=await create(tag+'-manager',['Manager']);await create(tag+'-employee',['Employee'],manager.id);await create(tag+'-finance',['Finance']);await create(tag+'-reviewer',['Finance']);const employee=await request.newContext({baseURL}),finance=await request.newContext({baseURL}),reviewer=await request.newContext({baseURL}),managerClient=await request.newContext({baseURL});for(const[c,name]of[[employee,tag+'-employee'],[finance,tag+'-finance'],[reviewer,tag+'-reviewer'],[managerClient,tag+'-manager']]as[APIRequestContext,string][]){expect((await login(c,name,initial)).ok()).toBeTruthy();await mutate(c,'/auth/change-password',{current:initial,new:changed});}const master=async(kind:string,code:string,data:any)=>mutate(admin,'/configuration/masters',{kind,code,nameRo:code,nameEn:code,json:JSON.stringify(data),from:'2020-01-01',to:null,active:true,reason:'Synthetic controlled configuration'});const cat='FEE-'+tag,cc='CC-'+tag;await master('expenseTypes',cat,{});await master('costCenters',cc,{erpCode:cc});const card=await master('cards','CARD-'+tag,{lastFour:'1234',issuer:'Synthetic bank',currency:'EUR'});await mutate(finance,'/finance/currency-policies',{currency:'EUR',from:'2020-01-01',policy:{exponent:2,rateDecimals:6,rounding:0,roundingToleranceRon:'2',estimateRate:'5'},reason:'Synthetic estimated rate for test'});let report=await mutate(employee,'/reports',{purpose:'Finance controls '+tag});report=await mutate(employee,'/reports/'+report.id,{version:report.version,purpose:report.purpose,payment:'CompanyCard',cardId:card.id},'PATCH');report=await mutate(employee,'/reports/'+report.id+'/lines',{version:report.version,data:{supplier:'',cui:null,invoice:'DOC-'+tag,date:'2026-01-01',country:'DE',documentType:'Receipt',category:cat,description:'Foreign business expense',payment:'CompanyCard',cardId:card.id,costCenter:cc,project:null,amount:'10',currency:'EUR',taxCurrency:'EUR',taxes:[],hasCompanyCui:false}});const source=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a16kAAAAASUVORK5CYII=','base64');const uploaded=await employee.post('/api/reports/'+report.id+'/attachments',{multipart:{version:String(report.version),coversAll:'true',file:{name:'statement-'+tag+'.png',mimeType:'image/png',buffer:source}},headers:{'X-CSRF-TOKEN':await csrf(employee),'Idempotency-Key':crypto.randomUUID()}});expect(uploaded.ok(),await uploaded.text()).toBeTruthy();const detail=async()=> (await(await employee.get('/api/reports/'+report.id)).json()).report;await expect.poll(async()=> (await detail()).attachments[0].scan,{timeout:90000}).toBe('Clean');const employeeContext=await browser.newContext({storageState:await employee.storageState()});const ep=await employeeContext.newPage();await openReport(ep,report.purpose);await ep.getByRole('button',{name:'Istoric și aprobări',exact:true}).click();await ep.getByText('Golire și restaurare',{exact:true}).click();await ep.getByLabel('Confirmă numărul decontului',{exact:true}).fill(report.number);await ep.getByLabel('Motiv golire/restaurare',{exact:true}).fill('Verify reversible reset without deleting originals');await ep.getByRole('button',{name:'Golește reversibil decontul',exact:true}).click();await expect.poll(async()=> (await detail()).lines.length).toBe(0);await ep.getByRole('button',{name:'Restaurează bonurile',exact:true}).click();await expect.poll(async()=> (await detail()).lines.length).toBe(1);expect((await detail()).attachments).toHaveLength(1);await ep.screenshot({path:info.outputPath('01-reset-and-restore.png'),fullPage:true});report=await detail();await mutate(employee,'/reports/'+report.id+'/submit',{version:report.version});report=await detail();await mutate(managerClient,'/reports/'+report.id+'/actions/approve',{version:report.version});report=await detail();const revision=report.revision;const bank={cardId:card.id,csv:'reference,date,merchant,amount,currency,settledRon\nTX-'+tag+',2026-01-01,Foreign shop,10,EUR,51',columns:{}};await mutate(finance,'/finance/transactions/import',bank);const financeContext=await browser.newContext({storageState:await finance.storageState()});const fp=await financeContext.newPage();await fp.goto('/');await expect(fp.getByRole('heading',{name:'Privire de ansamblu',exact:true})).toBeVisible();await navigate(fp,'Carduri și tranzacții');await fp.getByText('Principal, comisioane și adaos FX',{exact:true}).click();await fp.getByLabel('Tranzacție de clasificat',{exact:true}).selectOption({label:'TX-'+tag+' · 51,00 RON'});await fp.getByLabel('Decont pentru costuri',{exact:true}).selectOption(report.id);await fp.getByLabel('Comision RON',{exact:true}).fill('0.70');await fp.getByLabel('Adaos FX RON',{exact:true}).fill('0.30');await fp.getByRole('button',{name:'Recompune principalul',exact:true}).click();await expect(fp.getByLabel('Principal RON',{exact:true})).toHaveValue('50.00');await fp.getByLabel('Extras justificativ',{exact:true}).selectOption((await detail()).attachments[0].id);await fp.getByLabel('Categorie costuri bancare',{exact:true}).selectOption(cat);await fp.getByLabel('Centru costuri bancare',{exact:true}).selectOption(cc);await fp.getByLabel('Motiv clasificare',{exact:true}).fill('Bank statement principal and charges checked');await fp.getByRole('button',{name:'Confirmă clasificarea',exact:true}).click();await expect.poll(async()=> (await detail()).lines.length).toBe(3);await fp.screenshot({path:info.outputPath('02-bank-charge-classification.png'),fullPage:true});const transaction=(await(await finance.get('/api/finance/transactions')).json()).transactions.find((x:any)=>x.reference==='TX-'+tag);report=await detail();await mutate(finance,'/finance/matches',{reportId:report.id,version:report.version,lineId:report.lines[0].id,transactionId:transaction.id,amount:'10'});await openReport(fp,report.purpose);await fp.getByRole('button',{name:'Calcul și FX',exact:true}).click();const fxRow=fp.locator('article.expense').filter({has:fp.getByRole('button',{name:'Confirmă suma din bancă',exact:true})});await fxRow.getByLabel('Motiv verificare',{exact:true}).fill('Confirm principal without double booking fees');await fxRow.getByRole('button',{name:'Confirmă suma din bancă',exact:true}).click();await expect(fxRow.locator('summary').filter({hasText:'Istoric calcul și FX'})).toContainText('(1)');await fxRow.getByRole('button',{name:'Confirmă baza și totalul',exact:true}).click();await expect(fxRow.locator('summary').filter({hasText:'Istoric calcul și FX'})).toContainText('(2)');report=await detail();expect(report.revision).toBe(revision);expect(report.total).toBe(51);await fxRow.getByText('Compară versiunile calculate',{exact:true}).click();await expect(fxRow.getByText('Prima versiune acceptată.',{exact:true})).toBeVisible();await fp.screenshot({path:info.outputPath('03-calculation-provenance.png'),fullPage:true});await fp.getByText('Politici TVA și aprobare',{exact:true}).click();await fp.getByLabel('Companie',{exact:true}).fill('CI-'+tag);await fp.getByLabel('Valabil din',{exact:true}).first().fill('2020-01-01');await fp.getByLabel('Referință autoritate',{exact:true}).fill('Synthetic Accounting policy reference');await fp.getByLabel('Motiv politică',{exact:true}).fill('Independent policy approval demonstration');await fp.getByRole('button',{name:'Salvează ciorna politicii',exact:true}).click();const policy=fp.locator('.expense').filter({has:fp.getByText('CI-'+tag+' · RO · * · *',{exact:true})});await expect(policy.getByRole('button',{name:'Aprobă politica',exact:true})).toBeDisabled();await fp.screenshot({path:info.outputPath('04-policy-draft.png'),fullPage:true});const reviewerContext=await browser.newContext({storageState:await reviewer.storageState()});const rp=await reviewerContext.newPage();await openReport(rp,report.purpose);await rp.getByRole('button',{name:'Calcul și FX',exact:true}).click();await rp.getByText('Politici TVA și aprobare',{exact:true}).click();await rp.getByLabel('Motiv politică',{exact:true}).fill('Independent Finance reviewer checked policy');const reviewed=rp.locator('.expense').filter({has:rp.getByText('CI-'+tag+' · RO · * · *',{exact:true})});await reviewed.getByRole('button',{name:'Aprobă politica',exact:true}).click();await expect(reviewed.getByRole('button',{name:'Închide politica',exact:true})).toBeVisible();await rp.screenshot({path:info.outputPath('05-policy-independent-approval.png'),fullPage:true});await navigate(rp,'Configurare Finance');await expect(rp.getByRole('heading',{name:'Configurare Finance',exact:true})).toBeVisible();await rp.getByText('Acceptanță Finance și ERP',{exact:true}).click();await expect(rp.getByRole('button',{name:'Înregistrează acceptanța Finance',exact:true})).toBeDisabled();await rp.screenshot({path:info.outputPath('06-central-finance-settings.png'),fullPage:true});await expect.poll(()=>rp.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(rp.viewportSize()!.width);await employeeContext.close();await financeContext.close();await reviewerContext.close();});
+import { test, expect, request, APIRequestContext } from '@playwright/test';
+const initial = 'Valid-test-Password1!',
+  changed = 'Changed-test-Password2!';
+async function csrf(c: APIRequestContext) {
+  return (await (await c.get('/api/auth/csrf')).json()).token;
+}
+async function mutate(c: APIRequestContext, path: string, data: any, method = 'POST') {
+  const r = await c.fetch('/api' + path, {
+    method,
+    data,
+    headers: { 'X-CSRF-TOKEN': await csrf(c), 'Idempotency-Key': crypto.randomUUID() },
+  });
+  expect(r.ok(), await r.text()).toBeTruthy();
+  return r.status() === 204 ? null : r.json();
+}
+async function login(c: APIRequestContext, name: string, password: string) {
+  let r = await c.post('/api/auth/login', {
+    data: { username: name, password },
+    headers: { 'X-CSRF-TOKEN': await csrf(c) },
+  });
+  if (r.status() === 429) {
+    await new Promise((resolve) => setTimeout(resolve, 60000));
+    r = await c.post('/api/auth/login', {
+      data: { username: name, password },
+      headers: { 'X-CSRF-TOKEN': await csrf(c) },
+    });
+  }
+  return r;
+}
+async function openReport(p: any, purpose: string) {
+  await p.goto('/');
+  await expect(p.getByRole('heading', { name: 'Privire de ansamblu', exact: true })).toBeVisible();
+  await p.getByRole('button', { name: purpose }).click();
+  await expect(p.getByRole('heading', { name: purpose, exact: true })).toBeVisible();
+}
+async function navigate(p: any, label: string) {
+  const menu = p.getByRole('button', { name: 'Deschide meniul', exact: true });
+  if (await menu.isVisible()) await menu.click();
+  await p.getByRole('button', { name: label, exact: true }).click();
+}
+test('Reversible reset, statement charges and independent Finance policy approval', async ({
+  browser,
+}, info) => {
+  test.setTimeout(300000);
+  const tag = 'p3-' + info.project.name;
+  const baseURL = 'http://127.0.0.1:5080';
+  const admin = await request.newContext({ baseURL });
+  let auth = await login(admin, 'ci-admin', changed);
+  if (auth.status() === 401) auth = await login(admin, 'ci-admin', process.env.E2E_ADMIN_PASSWORD!);
+  expect(auth.ok(), await auth.text()).toBeTruthy();
+  if ((await auth.json()).changePassword)
+    await mutate(admin, '/auth/change-password', {
+      current: process.env.E2E_ADMIN_PASSWORD,
+      new: changed,
+    });
+  const create = async (name: string, roles: string[], managerId: string | null = null) =>
+    mutate(admin, '/admin/users', {
+      username: name,
+      name,
+      email: name + '@example.invalid',
+      worker: name,
+      managerId,
+      active: true,
+      roles,
+      password: initial,
+      reason: 'Isolated synthetic PDF03 regression',
+    });
+  const manager = await create(tag + '-manager', ['Manager']);
+  await create(tag + '-employee', ['Employee'], manager.id);
+  await create(tag + '-finance', ['Finance']);
+  await create(tag + '-reviewer', ['Finance']);
+  const employee = await request.newContext({ baseURL }),
+    finance = await request.newContext({ baseURL }),
+    reviewer = await request.newContext({ baseURL }),
+    managerClient = await request.newContext({ baseURL });
+  for (const [c, name] of [
+    [employee, tag + '-employee'],
+    [finance, tag + '-finance'],
+    [reviewer, tag + '-reviewer'],
+    [managerClient, tag + '-manager'],
+  ] as [APIRequestContext, string][]) {
+    expect((await login(c, name, initial)).ok()).toBeTruthy();
+    await mutate(c, '/auth/change-password', { current: initial, new: changed });
+  }
+  const master = async (kind: string, code: string, data: any) =>
+    mutate(admin, '/configuration/masters', {
+      kind,
+      code,
+      nameRo: code,
+      nameEn: code,
+      json: JSON.stringify(data),
+      from: '2020-01-01',
+      to: null,
+      active: true,
+      reason: 'Synthetic controlled configuration',
+    });
+  const cat = 'FEE-' + tag,
+    cc = 'CC-' + tag;
+  await master('expenseTypes', cat, {});
+  await master('costCenters', cc, { erpCode: cc });
+  const card = await master('cards', 'CARD-' + tag, {
+    lastFour: '1234',
+    issuer: 'Synthetic bank',
+    currency: 'EUR',
+  });
+  await mutate(finance, '/finance/currency-policies', {
+    currency: 'EUR',
+    from: '2020-01-01',
+    policy: {
+      exponent: 2,
+      rateDecimals: 6,
+      rounding: 0,
+      roundingToleranceRon: '2',
+      estimateRate: '5',
+    },
+    reason: 'Synthetic estimated rate for test',
+  });
+  let report = await mutate(employee, '/reports', { purpose: 'Finance controls ' + tag });
+  report = await mutate(
+    employee,
+    '/reports/' + report.id,
+    { version: report.version, purpose: report.purpose, payment: 'CompanyCard', cardId: card.id },
+    'PATCH',
+  );
+  report = await mutate(employee, '/reports/' + report.id + '/lines', {
+    version: report.version,
+    data: {
+      supplier: '',
+      cui: null,
+      invoice: 'DOC-' + tag,
+      date: '2026-01-01',
+      country: 'DE',
+      documentType: 'Receipt',
+      category: cat,
+      description: 'Foreign business expense',
+      payment: 'CompanyCard',
+      cardId: card.id,
+      costCenter: cc,
+      project: null,
+      amount: '10',
+      currency: 'EUR',
+      taxCurrency: 'EUR',
+      taxes: [],
+      hasCompanyCui: false,
+    },
+  });
+  const source = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a16kAAAAASUVORK5CYII=',
+    'base64',
+  );
+  const uploaded = await employee.post('/api/reports/' + report.id + '/attachments', {
+    multipart: {
+      version: String(report.version),
+      coversAll: 'true',
+      file: { name: 'statement-' + tag + '.png', mimeType: 'image/png', buffer: source },
+    },
+    headers: { 'X-CSRF-TOKEN': await csrf(employee), 'Idempotency-Key': crypto.randomUUID() },
+  });
+  expect(uploaded.ok(), await uploaded.text()).toBeTruthy();
+  const detail = async () =>
+    (await (await employee.get('/api/reports/' + report.id)).json()).report;
+  await expect
+    .poll(async () => (await detail()).attachments[0].scan, { timeout: 90000 })
+    .toBe('Clean');
+  const employeeContext = await browser.newContext({ storageState: await employee.storageState() });
+  const ep = await employeeContext.newPage();
+  await openReport(ep, report.purpose);
+  await ep.getByRole('button', { name: 'Istoric și aprobări', exact: true }).click();
+  await ep.getByText('Golire și restaurare', { exact: true }).click();
+  await ep.getByLabel('Confirmă numărul decontului', { exact: true }).fill(report.number);
+  await ep
+    .getByLabel('Motiv golire/restaurare', { exact: true })
+    .fill('Verify reversible reset without deleting originals');
+  await ep.getByRole('button', { name: 'Golește reversibil decontul', exact: true }).click();
+  await expect.poll(async () => (await detail()).lines.length).toBe(0);
+  await ep.getByRole('button', { name: 'Restaurează bonurile', exact: true }).click();
+  await expect.poll(async () => (await detail()).lines.length).toBe(1);
+  expect((await detail()).attachments).toHaveLength(1);
+  await ep.screenshot({ path: info.outputPath('01-reset-and-restore.png'), fullPage: true });
+  report = await detail();
+  await mutate(employee, '/reports/' + report.id + '/submit', { version: report.version });
+  report = await detail();
+  await mutate(managerClient, '/reports/' + report.id + '/actions/approve', {
+    version: report.version,
+  });
+  report = await detail();
+  const revision = report.revision;
+  const bank = {
+    cardId: card.id,
+    csv:
+      'reference,date,merchant,amount,currency,settledRon\nTX-' +
+      tag +
+      ',2026-01-01,Foreign shop,10,EUR,51',
+    columns: {},
+  };
+  await mutate(finance, '/finance/transactions/import', bank);
+  const financeContext = await browser.newContext({ storageState: await finance.storageState() });
+  const fp = await financeContext.newPage();
+  await fp.goto('/');
+  await expect(fp.getByRole('heading', { name: 'Privire de ansamblu', exact: true })).toBeVisible();
+  await navigate(fp, 'Carduri și tranzacții');
+  await fp.getByText('Principal, comisioane și adaos FX', { exact: true }).click();
+  await fp
+    .getByLabel('Tranzacție de clasificat', { exact: true })
+    .selectOption({ label: 'TX-' + tag + ' · 51,00 RON' });
+  await fp.getByLabel('Decont pentru costuri', { exact: true }).selectOption(report.id);
+  await fp.getByLabel('Comision RON', { exact: true }).fill('0.70');
+  await fp.getByLabel('Adaos FX RON', { exact: true }).fill('0.30');
+  await fp.getByRole('button', { name: 'Recompune principalul', exact: true }).click();
+  await expect(fp.getByLabel('Principal RON', { exact: true })).toHaveValue('50.00');
+  await fp
+    .getByLabel('Extras justificativ', { exact: true })
+    .selectOption((await detail()).attachments[0].id);
+  await fp.getByLabel('Categorie costuri bancare', { exact: true }).selectOption(cat);
+  await fp.getByLabel('Centru costuri bancare', { exact: true }).selectOption(cc);
+  await fp
+    .getByLabel('Motiv clasificare', { exact: true })
+    .fill('Bank statement principal and charges checked');
+  await fp.getByRole('button', { name: 'Confirmă clasificarea', exact: true }).click();
+  await expect.poll(async () => (await detail()).lines.length).toBe(3);
+  await fp.screenshot({
+    path: info.outputPath('02-bank-charge-classification.png'),
+    fullPage: true,
+  });
+  const transaction = (
+    await (await finance.get('/api/finance/transactions')).json()
+  ).transactions.find((x: any) => x.reference === 'TX-' + tag);
+  report = await detail();
+  await mutate(finance, '/finance/matches', {
+    reportId: report.id,
+    version: report.version,
+    lineId: report.lines[0].id,
+    transactionId: transaction.id,
+    amount: '10',
+  });
+  await openReport(fp, report.purpose);
+  await fp.getByRole('button', { name: 'Calcul și FX', exact: true }).click();
+  const fxRow = fp
+    .locator('article.expense')
+    .filter({ has: fp.getByRole('button', { name: 'Confirmă suma din bancă', exact: true }) });
+  await fxRow
+    .getByLabel('Motiv verificare', { exact: true })
+    .fill('Confirm principal without double booking fees');
+  await fxRow.getByRole('button', { name: 'Confirmă suma din bancă', exact: true }).click();
+  await expect(fxRow.locator('summary').filter({ hasText: 'Istoric calcul și FX' })).toContainText(
+    '(1)',
+  );
+  await fxRow.getByRole('button', { name: 'Confirmă baza și totalul', exact: true }).click();
+  await expect(fxRow.locator('summary').filter({ hasText: 'Istoric calcul și FX' })).toContainText(
+    '(2)',
+  );
+  report = await detail();
+  expect(report.revision).toBe(revision);
+  expect(report.total).toBe(51);
+  await fxRow.getByText('Compară versiunile calculate', { exact: true }).click();
+  await expect(fxRow.getByText('Prima versiune acceptată.', { exact: true })).toBeVisible();
+  await fp.screenshot({ path: info.outputPath('03-calculation-provenance.png'), fullPage: true });
+  await fp.getByText('Politici TVA și aprobare', { exact: true }).click();
+  await fp.getByLabel('Companie', { exact: true }).fill('CI-' + tag);
+  await fp.getByLabel('Valabil din', { exact: true }).first().fill('2020-01-01');
+  await fp
+    .getByLabel('Referință autoritate', { exact: true })
+    .fill('Synthetic Accounting policy reference');
+  await fp
+    .getByLabel('Motiv politică', { exact: true })
+    .fill('Independent policy approval demonstration');
+  await fp.getByRole('button', { name: 'Salvează ciorna politicii', exact: true }).click();
+  const policy = fp
+    .locator('.expense')
+    .filter({ has: fp.getByText('CI-' + tag + ' · RO · * · *', { exact: true }) });
+  await expect(policy.getByRole('button', { name: 'Aprobă politica', exact: true })).toBeDisabled();
+  await fp.screenshot({ path: info.outputPath('04-policy-draft.png'), fullPage: true });
+  const reviewerContext = await browser.newContext({ storageState: await reviewer.storageState() });
+  const rp = await reviewerContext.newPage();
+  await openReport(rp, report.purpose);
+  await rp.getByRole('button', { name: 'Calcul și FX', exact: true }).click();
+  await rp.getByText('Politici TVA și aprobare', { exact: true }).click();
+  await rp
+    .getByLabel('Motiv politică', { exact: true })
+    .fill('Independent Finance reviewer checked policy');
+  const reviewed = rp
+    .locator('.expense')
+    .filter({ has: rp.getByText('CI-' + tag + ' · RO · * · *', { exact: true }) });
+  await reviewed.getByRole('button', { name: 'Aprobă politica', exact: true }).click();
+  await expect(
+    reviewed.getByRole('button', { name: 'Închide politica', exact: true }),
+  ).toBeVisible();
+  await rp.screenshot({
+    path: info.outputPath('05-policy-independent-approval.png'),
+    fullPage: true,
+  });
+  await navigate(rp, 'Configurare Finance');
+  await expect(rp.getByRole('heading', { name: 'Configurare Finance', exact: true })).toBeVisible();
+  await rp.getByText('Acceptanță Finance și ERP', { exact: true }).click();
+  await expect(
+    rp.getByRole('button', { name: 'Înregistrează acceptanța Finance', exact: true }),
+  ).toBeDisabled();
+  await rp.screenshot({ path: info.outputPath('06-central-finance-settings.png'), fullPage: true });
+  await expect
+    .poll(() => rp.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual(rp.viewportSize()!.width);
+  await employeeContext.close();
+  await financeContext.close();
+  await reviewerContext.close();
+});

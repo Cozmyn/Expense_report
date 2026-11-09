@@ -1,32 +1,767 @@
 using Microsoft.EntityFrameworkCore;
+
 namespace Decont;
-public static class Finance {
- public static void Map(RouteGroupBuilder api){var f=api.MapGroup("/finance").RequireAuthorization(p=>p.RequireRole("Finance"));
- f.MapGet("/vendors",async(Db db)=>{var vendors=await db.Vendors.ToListAsync();var lines=await db.Lines.Where(l=>!l.Archived).ToListAsync();return vendors.Select(v=>new{v.Id,v.ReportId,v.Cui,v.Supplier,v.State,v.Account,documentDate=lines.Where(l=>l.ReportId==v.ReportId&&Rules.Cui(l.Data().Cui)==v.Cui).Select(l=>l.Data().Date).Order().FirstOrDefault()});});f.MapGet("/vendor-accounts",async(Db db)=>await db.SupplierAccounts.OrderBy(a=>a.Cui).ThenBy(a=>a.From).ToListAsync());
- f.MapPost("/vendors/{id:guid}/resolve",async(Guid id,VendorInput i,Db db,Reports svc,HttpContext c)=>await Api.Atomic(db,c,i,async()=>{Guard.Reason(i.Reason);Guard.Require(!string.IsNullOrWhiteSpace(i.Account),"account","Completează contul ERP.","ERP account required.");var v=await db.Vendors.FindAsync(id)??throw new DomainException("missing","Solicitare inexistentă.","Request not found.",404);Guard.Require(v.State=="Pending","state","Solicitarea a fost rezolvată.","Request already resolved.");var report=await svc.Get(v.ReportId,c.User);var dates=report.Lines.Where(l=>!l.Archived&&Rules.DomesticVat(l.Data())&&Rules.Cui(l.Data().Cui)==v.Cui).Select(l=>DateOnly.Parse(l.Data().Date)).ToList();Guard.Require(dates.Count>0,"vendor","Furnizorul nu mai apare în bonurile active.","Supplier is no longer used by active receipts.");var first=dates.Min();Guard.Require(i.From<=first,"vendor_date",$"Data de valabilitate trebuie să fie cel târziu {first:yyyy-MM-dd}, data primului bon.",$"Effective date must be no later than {first:yyyy-MM-dd}, the first receipt date.");var masters=await db.Masters.Where(m=>m.Kind=="suppliers"&&m.Code==v.Cui).ToListAsync();if(!masters.Any(m=>Rules.Effective(m,i.From))){var next=masters.Where(m=>m.Active&&m.From>i.From).OrderBy(m=>m.From).FirstOrDefault();db.Masters.Add(new(){Kind="suppliers",Code=v.Cui,NameRo=v.Supplier,NameEn=v.Supplier,From=i.From,To=next?.From.AddDays(-1),Json="{}"});}var accounts=await db.SupplierAccounts.Where(a=>a.Cui==v.Cui).ToListAsync();Guard.Require(!accounts.Any(a=>a.From<=i.From&&(a.To==null||a.To>=i.From)),"overlap","Există o mapare ERP valabilă. Verifică istoricul conturilor furnizorului.","An ERP account mapping already applies. Check supplier account history.");var nextAccount=accounts.Where(a=>a.From>i.From).OrderBy(a=>a.From).FirstOrDefault();db.SupplierAccounts.Add(new(){Cui=v.Cui,Account=i.Account.Trim(),From=i.From,To=nextAccount?.From.AddDays(-1),Actor=Reports.Actor(c.User)});v.State="Resolved";v.Account=i.Account;svc.Log(c.User,v.ReportId,id.ToString(),"VendorResolved",after:new{i.Account,i.From},reason:i.Reason);await svc.Notify(report,report.EmployeeId,"VendorResolved");return v;}));
- f.MapGet("/lines",async(Db db)=>{var lines=await db.Lines.Where(l=>!l.Archived).ToListAsync();var reports=await db.Reports.ToDictionaryAsync(r=>r.Id);var matches=await db.Matches.ToListAsync();return lines.Where(l=>(States.FinanceEdit(reports[l.ReportId].State)||reports[l.ReportId].State==States.Manager||reports[l.ReportId].State==States.Reapproval)&&l.Data().Payment=="CompanyCard").Select(l=>new{l.Id,l.ReportId,l.Position,data=l.Data(),reportNumber=reports[l.ReportId].Number,state=reports[l.ReportId].State,version=reports[l.ReportId].Version,remaining=l.Data().Amount-matches.Where(m=>m.LineId==l.Id).Sum(m=>m.Amount)});});
- f.MapGet("/transactions",async(Db db)=>new{transactions=await db.Transactions.ToListAsync(),matches=await db.Matches.ToListAsync()});
- f.MapPost("/transactions/preview",async(BankInput i,Db db)=>{await Card(db,i.CardId);var parsed=Csv.Read(i.Csv);Guard.Require(parsed.Count is >1 and <=10001,"rows","Import gol sau prea mare.","Empty or oversized import.");List<CardTransaction> rows=[];List<object> errors=[];for(int index=1;index<parsed.Count;index++){try{rows.AddRange(Parse(i with{Csv=SpreadsheetImports.CsvText([parsed[0],parsed[index]])}));}catch(DomainException ex){errors.Add(new{row=index+1,message=ex.Message});}}var existing=await db.Transactions.Where(t=>t.CardId==i.CardId).Select(t=>t.Reference).ToListAsync();var duplicates=rows.Where(t=>existing.Contains(t.Reference)).Select(t=>t.Reference).Concat(rows.GroupBy(t=>t.Reference).Where(g=>g.Count()>1).Select(g=>g.Key)).Distinct();return new{rows,errors,duplicates,count=rows.Count};});
- f.MapPost("/transactions/import",async(BankInput i,Db db,Reports svc,HttpContext c)=>await Api.Atomic(db,c,i,async()=>{await Card(db,i.CardId);var rows=Parse(i);Guard.Require(rows.Select(r=>r.Reference).Distinct().Count()==rows.Count,"duplicate","Referințe duplicate în fișier.","Duplicate references in file.");var existing=await db.Transactions.Where(t=>t.CardId==i.CardId).Select(t=>t.Reference).ToListAsync();Guard.Require(!rows.Any(t=>existing.Contains(t.Reference)),"duplicate","Importul include tranzacții existente.","Import contains existing transactions.");db.Transactions.AddRange(rows);svc.Log(c.User,null,i.CardId.ToString(),"StatementImported",after:new{count=rows.Count,hash=Serialization.Hash(i.Csv)});return new{count=rows.Count};}));
- f.MapGet("/suggestions",async(Db db)=>{var employees=await db.Reports.ToDictionaryAsync(r=>r.Id,r=>r.EmployeeId);var eligible=await db.Reports.Where(r=>r.State==States.Finance||r.State==States.Ready||r.State==States.Manager||r.State==States.Reapproval).Select(r=>r.Id).ToListAsync();return BankSuggestions.Build(await db.Lines.Where(l=>!l.Archived&&eligible.Contains(l.ReportId)).ToListAsync(),await db.Transactions.ToListAsync(),await db.Matches.ToListAsync(),employees);});
- f.MapPost("/matches",async(MatchInput i,Db db,Reports svc,HttpContext c)=>await Api.Atomic(db,c,i,async()=>{var r=await svc.Version(i.ReportId,i.Version,c.User);Guard.Require(States.FinanceEdit(r.State)||r.State is States.Manager or States.Reapproval,"state","Decontul nu poate fi reconciliat în această stare.","Cannot reconcile this report state.");var l=r.Lines.Single(l=>l.Id==i.LineId&&!l.Archived);if(r.State==States.Ready)r.State=States.Finance;var d=l.Data();var t=await db.Transactions.FindAsync(i.TransactionId)??throw new DomainException("missing","Tranzacție inexistentă.","Transaction not found.",404);Guard.Require(d.Payment=="CompanyCard"&&d.CardId==t.CardId&&d.Currency==t.Currency&&i.Amount!=0&&Math.Sign(i.Amount)==Math.Sign(t.Amount)&&Math.Sign(i.Amount)==Math.Sign(d.Amount),"match","Asociere invalidă.","Invalid card match.");var tm=await db.Matches.Where(m=>m.TransactionId==t.Id).ToListAsync();var lm=await db.Matches.Where(m=>m.LineId==l.Id).ToListAsync();Guard.Require(Math.Abs(tm.Sum(m=>m.Amount)+i.Amount)<=Math.Abs(t.Amount)&&Math.Abs(lm.Sum(m=>m.Amount)+i.Amount)<=Math.Abs(d.Amount),"allocation","Suma depășește disponibilul.","Allocation exceeds the remaining amount.");var principal=await BankTreatments.Principal(db,t);var allocationPolicy=(await FinancialCalculations.Policy(db,d.Currency,DateOnly.Parse(d.Date))).Policy;var allocated=tm.Sum(m=>m.Amount)+i.Amount;var ron=allocated==t.Amount?principal-tm.Sum(m=>m.Ron):InvoiceArithmetic.Quantize(principal*i.Amount/t.Amount,2,allocationPolicy.Rounding);var m=new Match{LineId=l.Id,TransactionId=t.Id,Amount=i.Amount,Ron=ron,Actor=Reports.Actor(c.User)};db.Matches.Add(m);l.Reconciled=lm.Sum(x=>x.Amount)+i.Amount==d.Amount;l.SettledRon=l.Reconciled?lm.Sum(x=>x.Ron)+ron:null;l.OverrideReason=null;FinancialCalculations.Invalidate(l,true);Reports.Touch(r);svc.Log(c.User,r.Id,l.Id.ToString(),"CardMatched",after:m);return Api.View(r);}));
- f.MapPost("/matches/{id:guid}/undo",async(Guid id,VersionRequest i,Db db,Reports svc,HttpContext c)=>await Api.Atomic(db,c,i,async()=>{Guard.Reason(i.Reason);var m=await db.Matches.FindAsync(id)??throw new DomainException("missing","Asociere inexistentă.","Match not found.",404);var line=await db.Lines.FindAsync(m.LineId);var r=await svc.Version(line!.ReportId,i.Version,c.User);Guard.Require(States.FinanceEdit(r.State)||r.State is States.Manager or States.Reapproval,"state","Decontul nu poate fi modificat.","Cannot change this report.");var l=r.Lines.Single(l=>l.Id==m.LineId);if(r.State==States.Ready)r.State=States.Finance;db.Matches.Remove(m);l.Reconciled=false;l.SettledRon=null;FinancialCalculations.Invalidate(l,true);Reports.Touch(r);svc.Log(c.User,r.Id,l.Id.ToString(),"CardMatchUndone",before:m,reason:i.Reason);return Api.View(r);}));
- f.MapPost("/reports/{id:guid}/lines/{line:guid}/disposition",async(Guid id,Guid line,Disposition i,Db db,Reports svc,HttpContext c)=>await Api.Atomic(db,c,i,async()=>{Guard.Reason(i.Reason);var r=await svc.Version(id,i.Version,c.User);Guard.Require(States.FinanceEdit(r.State),"state","Decontul nu poate fi modificat.","Cannot change this report.");var l=r.Lines.Single(l=>l.Id==line&&!l.Archived);if(i.Kind=="cardOverride"){Guard.Require(l.Data().Payment=="CompanyCard","card","Cheltuiala nu este plătită cu cardul.","Expense is not a company card payment.");l.OverrideReason=i.Reason;}else if(i.Kind=="vatOverride"){throw new DomainException("vat_correction_required","Corectează baza, TVA-ul sau totalul pe baza documentului; un motiv nu poate înlocui verificarea.","Correct base, VAT or gross from source evidence; a reason cannot replace validation.");}else if(i.Kind=="notDuplicate"||i.Kind=="duplicateAllowed")l.DuplicateDisposition=i.Reason;else if(i.Kind=="duplicate"){Guard.Require(!await db.Matches.AnyAsync(m=>m.LineId==l.Id),"matched","Anulează alocările înainte de arhivare.","Undo allocations before archival.");l.Archived=true;}else throw new DomainException("kind","Decizie invalidă.","Invalid disposition.");Reports.Touch(r);svc.Log(c.User,id,line.ToString(),i.Kind,after:i.Reason,reason:i.Reason);return Api.View(r);}));
- f.MapPost("/reports/{id:guid}/legal-hold",async(Guid id,HoldInput i,Db db,Reports svc,HttpContext c)=>await Api.Atomic(db,c,i,async()=>{Guard.Reason(i.Reason);var r=await svc.Version(id,i.Version,c.User);var before=r.LegalHold;r.LegalHold=i.Hold;Reports.Touch(r);svc.Log(c.User,id,"Retention","LegalHoldChanged",before,i.Hold,i.Reason);return Api.View(r);}));
- f.MapGet("/batches",async(Db db)=>await db.Batches.Select(b=>new{b.Id,b.ReportId,b.Revision,b.Cycle,b.RuleVersion,b.Hash,b.FileHash,b.State,b.Reference,b.At,b.PostedAt}).ToListAsync());
- f.MapPost("/reports/{id:guid}/export",async(Guid id,VersionRequest i,Db db,Reports svc,Posting posting,IStore store,HttpContext c)=>await Api.Atomic(db,c,i,async()=>await PostingWorkflow.Export(id,i,db,svc,posting,store,c)));
- f.MapPost("/batches/{id:guid}/posted",async(Guid id,PostingInput i,Db db,Reports svc,HttpContext c)=>await Api.Atomic(db,c,i,async()=>{Guard.Require(!string.IsNullOrWhiteSpace(i.Reference),"reference","Referința ERP este obligatorie.","ERP posting reference required.");var b=await db.Batches.FindAsync(id)??throw new DomainException("missing","Export inexistent.","Batch not found.",404);var r=await svc.Version(b.ReportId,i.Version,c.User);Guard.Require(b.State=="Exported"&&r.State==States.Exported,"state","Exportul nu poate fi postat.","Batch cannot be posted.");b.State="Posted";b.Reference=i.Reference;b.PostedAt=DateTime.UtcNow;r.State=States.Posted;r.RetainUntil=DateTime.UtcNow.AddYears(5);Reports.Touch(r);svc.Log(c.User,r.Id,b.Id.ToString(),"ERPPosted",after:new{i.Reference,b.Hash});await svc.Notify(r,r.EmployeeId,"Posted");return Api.View(r);}));
- f.MapPost("/batches/{id:guid}/reopen",async(Guid id,ReopenInput i,Db db,Reports svc,HttpContext c)=>await Api.Atomic(db,c,i,async()=>{Guard.Require(c.User.IsInRole("FinanceReopen"),"permission","Este necesar dreptul FinanceReopen.","FinanceReopen permission required.",403);Guard.Reason(i.Reason);Guard.Require(i.ReversalReference.Trim().Length>=3,"reversal","Completează referința reversării efectuate în ERP.","Provide the reference of the reversal performed in ERP.");var b=await db.Batches.FindAsync(id)??throw new DomainException("missing","Export inexistent.","Batch not found.",404);var r=await svc.Version(b.ReportId,i.Version,c.User);Guard.Require(b.State=="Posted"&&r.State is States.Posted or States.Closed,"state","Se poate redeschide numai un export postat.","Only a posted export can be reopened.");b.State="Reversed";svc.Snapshot(r,c.User);r.State=States.Reapproval;Reports.Touch(r);svc.Log(c.User,r.Id,id.ToString(),"PostedBatchReopened",after:new{i.ReversalReference,b.Hash},reason:i.Reason);await svc.Notify(r,r.ManagerId,"ReapprovalRequired");return Api.View(r);}));
- f.MapPost("/batches/{id:guid}/void",async(Guid id,VersionRequest i,Db db,Reports svc,HttpContext c)=>await Api.Atomic(db,c,i,async()=>{Guard.Require(c.User.IsInRole("FinanceReopen"),"permission","Este necesar dreptul FinanceReopen.","FinanceReopen permission required.",403);Guard.Reason(i.Reason);var b=await db.Batches.FindAsync(id)??throw new DomainException("missing","Export inexistent.","Batch not found.",404);Guard.Require(b.State=="Exported","posted","Exporturile postate necesită reversare ERP externă.","Posted batches require an external ERP reversal.");var r=await svc.Version(b.ReportId,i.Version,c.User);b.State="Voided";r.State=States.Finance;Reports.Touch(r);svc.Log(c.User,r.Id,b.Id.ToString(),"BatchVoided",after:b.Hash,reason:i.Reason);return Api.View(r);}));
- }
- static async Task Card(Db db,Guid id)=>Guard.Require(await db.Masters.AnyAsync(m=>m.Id==id&&m.Kind=="cards"&&m.Active),"card","Card invalid.","Invalid card.");
- public static List<CardTransaction> Parse(BankInput i){Guard.Require(i.Csv.Length<=5*1024*1024,"size","Fișier prea mare.","File too large.");var parsed=Csv.Read(i.Csv);Guard.Require(parsed.Count is >1 and <=10001,"csv","CSV gol.","CSV is empty.");var headers=parsed[0];string Get(string[] row,string name){var index=Array.IndexOf(headers,i.Columns.GetValueOrDefault(name)??name);Guard.Require(index>=0&&index<row.Length,"column","Coloană lipsă: "+name,"Column missing: "+name);return row[index];}List<CardTransaction> rows=[];foreach(var row in parsed.Skip(1)){Guard.Require(DateOnly.TryParseExact(Get(row,"date"),"yyyy-MM-dd",out var date),"date","Folosește data ISO YYYY-MM-DD.","Use ISO dates YYYY-MM-DD.");var validAmount=decimal.TryParse(Get(row,"amount"),System.Globalization.NumberStyles.Number,System.Globalization.CultureInfo.InvariantCulture,out var amount);var validRon=decimal.TryParse(Get(row,"settledRon"),System.Globalization.NumberStyles.Number,System.Globalization.CultureInfo.InvariantCulture,out var ron);Guard.Require(validAmount&&validRon&&amount!=0&&ron!=0&&Math.Sign(amount)==Math.Sign(ron),"amount","Sumele trebuie să fie nenule și să aibă același semn.","Amounts must be nonzero and have the same sign.");Guard.Require(amount==InvoiceArithmetic.Quantize(amount,6,InvoiceRounding.HalfAwayFromZero)&&ron==Rules.Money(ron),"bank_precision","Păstrează suma originală cu cel mult 6 zecimale și suma RON cu cel mult 2. Nu se rotunjesc automat datele importate.","Keep original amount within 6 decimals and RON within 2. Imported source amounts are not silently rounded.");Guard.Require(!string.IsNullOrWhiteSpace(Get(row,"reference"))&&Get(row,"currency").Length==3&&Get(row,"currency").All(char.IsAsciiLetter),"row","Referință sau monedă invalidă.","Invalid reference or currency.");rows.Add(new(){CardId=i.CardId,Reference=Get(row,"reference"),Date=date.ToString("yyyy-MM-dd"),Merchant=Get(row,"merchant"),Amount=amount,Currency=Get(row,"currency").ToUpperInvariant(),SettledRon=Rules.Money(ron)});}return rows;}
-}
-public record VendorInput(string Account,DateOnly From,string Reason);public record BankInput(Guid CardId,string Csv,Dictionary<string,string> Columns);public record MatchInput(Guid ReportId,long Version,Guid LineId,Guid TransactionId,decimal Amount);public record Disposition(long Version,string Kind,string Reason);public record HoldInput(long Version,bool Hold,string Reason);public record PostingInput(long Version,string Reference);
-public static class Csv {
- public static List<string[]> Read(string source,char delimiter=','){List<string[]> rows=[];List<string> row=[];var field=new System.Text.StringBuilder();var quoted=false;for(int j=0;j<source.Length;j++){var c=source[j];if(c=='"'){if(quoted&&j+1<source.Length&&source[j+1]=='"'){field.Append('"');j++;}else quoted=!quoted;}else if(c==delimiter&&!quoted){row.Add(field.ToString());field.Clear();}else if(c=='\n'&&!quoted){row.Add(field.ToString().TrimEnd('\r'));field.Clear();if(row.Any(x=>x!=""))rows.Add(row.ToArray());row.Clear();}else field.Append(c);}Guard.Require(!quoted,"csv","Ghilimele CSV neînchise.","Unclosed CSV quote.");if(field.Length>0||row.Count>0){row.Add(field.ToString().TrimEnd('\r'));rows.Add(row.ToArray());}return rows;}
- public static string Cell(object? x){var s=Convert.ToString(x,System.Globalization.CultureInfo.InvariantCulture)??"";if(s.StartsWith('=')||s.StartsWith('+')||s.StartsWith('-')||s.StartsWith('@'))s="'"+s;return "\""+s.Replace("\"","\"\"")+"\"";}
+
+public static class Finance
+{
+    public static void Map(RouteGroupBuilder api)
+    {
+        var f = api.MapGroup("/finance").RequireAuthorization(p => p.RequireRole("Finance"));
+        f.MapGet(
+            "/vendors",
+            async (Db db) =>
+            {
+                var vendors = await db.Vendors.ToListAsync();
+                var lines = await db.Lines.Where(l => !l.Archived).ToListAsync();
+                return vendors.Select(v => new
+                {
+                    v.Id,
+                    v.ReportId,
+                    v.Cui,
+                    v.Supplier,
+                    v.State,
+                    v.Account,
+                    documentDate = lines
+                        .Where(l => l.ReportId == v.ReportId && Rules.Cui(l.Data().Cui) == v.Cui)
+                        .Select(l => l.Data().Date)
+                        .Order()
+                        .FirstOrDefault(),
+                });
+            }
+        );
+        f.MapGet(
+            "/vendor-accounts",
+            async (Db db) => await db.SupplierAccounts.OrderBy(a => a.Cui).ThenBy(a => a.From).ToListAsync()
+        );
+        f.MapPost(
+            "/vendors/{id:guid}/resolve",
+            async (Guid id, VendorInput i, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        Guard.Reason(i.Reason);
+                        Guard.Require(
+                            !string.IsNullOrWhiteSpace(i.Account),
+                            "account",
+                            "Completează contul ERP.",
+                            "ERP account required."
+                        );
+                        var v =
+                            await db.Vendors.FindAsync(id)
+                            ?? throw new DomainException(
+                                "missing",
+                                "Solicitare inexistentă.",
+                                "Request not found.",
+                                404
+                            );
+                        Guard.Require(
+                            v.State == "Pending",
+                            "state",
+                            "Solicitarea a fost rezolvată.",
+                            "Request already resolved."
+                        );
+                        var report = await svc.Get(v.ReportId, c.User);
+                        var dates = report
+                            .Lines.Where(l =>
+                                !l.Archived && Rules.DomesticVat(l.Data()) && Rules.Cui(l.Data().Cui) == v.Cui
+                            )
+                            .Select(l => DateOnly.Parse(l.Data().Date))
+                            .ToList();
+                        Guard.Require(
+                            dates.Count > 0,
+                            "vendor",
+                            "Furnizorul nu mai apare în bonurile active.",
+                            "Supplier is no longer used by active receipts."
+                        );
+                        var first = dates.Min();
+                        Guard.Require(
+                            i.From <= first,
+                            "vendor_date",
+                            $"Data de valabilitate trebuie să fie cel târziu {first:yyyy-MM-dd}, data primului bon.",
+                            $"Effective date must be no later than {first:yyyy-MM-dd}, the first receipt date."
+                        );
+                        var masters = await db
+                            .Masters.Where(m => m.Kind == "suppliers" && m.Code == v.Cui)
+                            .ToListAsync();
+                        if (!masters.Any(m => Rules.Effective(m, i.From)))
+                        {
+                            var next = masters
+                                .Where(m => m.Active && m.From > i.From)
+                                .OrderBy(m => m.From)
+                                .FirstOrDefault();
+                            db.Masters.Add(
+                                new()
+                                {
+                                    Kind = "suppliers",
+                                    Code = v.Cui,
+                                    NameRo = v.Supplier,
+                                    NameEn = v.Supplier,
+                                    From = i.From,
+                                    To = next?.From.AddDays(-1),
+                                    Json = "{}",
+                                }
+                            );
+                        }
+                        var accounts = await db.SupplierAccounts.Where(a => a.Cui == v.Cui).ToListAsync();
+                        Guard.Require(
+                            !accounts.Any(a => a.From <= i.From && (a.To == null || a.To >= i.From)),
+                            "overlap",
+                            "Există o mapare ERP valabilă. Verifică istoricul conturilor furnizorului.",
+                            "An ERP account mapping already applies. Check supplier account history."
+                        );
+                        var nextAccount = accounts.Where(a => a.From > i.From).OrderBy(a => a.From).FirstOrDefault();
+                        db.SupplierAccounts.Add(
+                            new()
+                            {
+                                Cui = v.Cui,
+                                Account = i.Account.Trim(),
+                                From = i.From,
+                                To = nextAccount?.From.AddDays(-1),
+                                Actor = Reports.Actor(c.User),
+                            }
+                        );
+                        v.State = "Resolved";
+                        v.Account = i.Account;
+                        svc.Log(
+                            c.User,
+                            v.ReportId,
+                            id.ToString(),
+                            "VendorResolved",
+                            after: new { i.Account, i.From },
+                            reason: i.Reason
+                        );
+                        await svc.Notify(report, report.EmployeeId, "VendorResolved");
+                        return v;
+                    }
+                )
+        );
+        f.MapGet(
+            "/lines",
+            async (Db db) =>
+            {
+                var lines = await db.Lines.Where(l => !l.Archived).ToListAsync();
+                var reports = await db.Reports.ToDictionaryAsync(r => r.Id);
+                var matches = await db.Matches.ToListAsync();
+                return lines
+                    .Where(l =>
+                        (
+                            States.FinanceEdit(reports[l.ReportId].State)
+                            || reports[l.ReportId].State == States.Manager
+                            || reports[l.ReportId].State == States.Reapproval
+                        )
+                        && l.Data().Payment == "CompanyCard"
+                    )
+                    .Select(l => new
+                    {
+                        l.Id,
+                        l.ReportId,
+                        l.Position,
+                        data = l.Data(),
+                        reportNumber = reports[l.ReportId].Number,
+                        state = reports[l.ReportId].State,
+                        version = reports[l.ReportId].Version,
+                        remaining = l.Data().Amount - matches.Where(m => m.LineId == l.Id).Sum(m => m.Amount),
+                    });
+            }
+        );
+        f.MapGet(
+            "/transactions",
+            async (Db db) =>
+                new { transactions = await db.Transactions.ToListAsync(), matches = await db.Matches.ToListAsync() }
+        );
+        f.MapPost(
+            "/transactions/preview",
+            async (BankInput i, Db db) =>
+            {
+                await Card(db, i.CardId);
+                var parsed = Csv.Read(i.Csv);
+                Guard.Require(
+                    parsed.Count is > 1 and <= 10001,
+                    "rows",
+                    "Import gol sau prea mare.",
+                    "Empty or oversized import."
+                );
+                List<CardTransaction> rows = [];
+                List<object> errors = [];
+                for (int index = 1; index < parsed.Count; index++)
+                {
+                    try
+                    {
+                        rows.AddRange(Parse(i with { Csv = SpreadsheetImports.CsvText([parsed[0], parsed[index]]) }));
+                    }
+                    catch (DomainException ex)
+                    {
+                        errors.Add(new { row = index + 1, message = ex.Message });
+                    }
+                }
+                var existing = await db
+                    .Transactions.Where(t => t.CardId == i.CardId)
+                    .Select(t => t.Reference)
+                    .ToListAsync();
+                var duplicates = rows.Where(t => existing.Contains(t.Reference))
+                    .Select(t => t.Reference)
+                    .Concat(rows.GroupBy(t => t.Reference).Where(g => g.Count() > 1).Select(g => g.Key))
+                    .Distinct();
+                return new
+                {
+                    rows,
+                    errors,
+                    duplicates,
+                    count = rows.Count,
+                };
+            }
+        );
+        f.MapPost(
+            "/transactions/import",
+            async (BankInput i, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        await Card(db, i.CardId);
+                        var rows = Parse(i);
+                        Guard.Require(
+                            rows.Select(r => r.Reference).Distinct().Count() == rows.Count,
+                            "duplicate",
+                            "Referințe duplicate în fișier.",
+                            "Duplicate references in file."
+                        );
+                        var existing = await db
+                            .Transactions.Where(t => t.CardId == i.CardId)
+                            .Select(t => t.Reference)
+                            .ToListAsync();
+                        Guard.Require(
+                            !rows.Any(t => existing.Contains(t.Reference)),
+                            "duplicate",
+                            "Importul include tranzacții existente.",
+                            "Import contains existing transactions."
+                        );
+                        db.Transactions.AddRange(rows);
+                        svc.Log(
+                            c.User,
+                            null,
+                            i.CardId.ToString(),
+                            "StatementImported",
+                            after: new { count = rows.Count, hash = Serialization.Hash(i.Csv) }
+                        );
+                        return new { count = rows.Count };
+                    }
+                )
+        );
+        f.MapGet(
+            "/suggestions",
+            async (Db db) =>
+            {
+                var employees = await db.Reports.ToDictionaryAsync(r => r.Id, r => r.EmployeeId);
+                var eligible = await db
+                    .Reports.Where(r =>
+                        r.State == States.Finance
+                        || r.State == States.Ready
+                        || r.State == States.Manager
+                        || r.State == States.Reapproval
+                    )
+                    .Select(r => r.Id)
+                    .ToListAsync();
+                return BankSuggestions.Build(
+                    await db.Lines.Where(l => !l.Archived && eligible.Contains(l.ReportId)).ToListAsync(),
+                    await db.Transactions.ToListAsync(),
+                    await db.Matches.ToListAsync(),
+                    employees
+                );
+            }
+        );
+        f.MapPost(
+            "/matches",
+            async (MatchInput i, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        var r = await svc.Version(i.ReportId, i.Version, c.User);
+                        Guard.Require(
+                            States.FinanceEdit(r.State) || r.State is States.Manager or States.Reapproval,
+                            "state",
+                            "Decontul nu poate fi reconciliat în această stare.",
+                            "Cannot reconcile this report state."
+                        );
+                        var l = r.Lines.Single(l => l.Id == i.LineId && !l.Archived);
+                        if (r.State == States.Ready)
+                            r.State = States.Finance;
+                        var d = l.Data();
+                        var t =
+                            await db.Transactions.FindAsync(i.TransactionId)
+                            ?? throw new DomainException(
+                                "missing",
+                                "Tranzacție inexistentă.",
+                                "Transaction not found.",
+                                404
+                            );
+                        Guard.Require(
+                            d.Payment == "CompanyCard"
+                                && d.CardId == t.CardId
+                                && d.Currency == t.Currency
+                                && i.Amount != 0
+                                && Math.Sign(i.Amount) == Math.Sign(t.Amount)
+                                && Math.Sign(i.Amount) == Math.Sign(d.Amount),
+                            "match",
+                            "Asociere invalidă.",
+                            "Invalid card match."
+                        );
+                        var tm = await db.Matches.Where(m => m.TransactionId == t.Id).ToListAsync();
+                        var lm = await db.Matches.Where(m => m.LineId == l.Id).ToListAsync();
+                        Guard.Require(
+                            Math.Abs(tm.Sum(m => m.Amount) + i.Amount) <= Math.Abs(t.Amount)
+                                && Math.Abs(lm.Sum(m => m.Amount) + i.Amount) <= Math.Abs(d.Amount),
+                            "allocation",
+                            "Suma depășește disponibilul.",
+                            "Allocation exceeds the remaining amount."
+                        );
+                        var principal = await BankTreatments.Principal(db, t);
+                        var allocationPolicy = (
+                            await FinancialCalculations.Policy(db, d.Currency, DateOnly.Parse(d.Date))
+                        ).Policy;
+                        var allocated = tm.Sum(m => m.Amount) + i.Amount;
+                        var ron =
+                            allocated == t.Amount
+                                ? principal - tm.Sum(m => m.Ron)
+                                : InvoiceArithmetic.Quantize(
+                                    principal * i.Amount / t.Amount,
+                                    2,
+                                    allocationPolicy.Rounding
+                                );
+                        var m = new Match
+                        {
+                            LineId = l.Id,
+                            TransactionId = t.Id,
+                            Amount = i.Amount,
+                            Ron = ron,
+                            Actor = Reports.Actor(c.User),
+                        };
+                        db.Matches.Add(m);
+                        l.Reconciled = lm.Sum(x => x.Amount) + i.Amount == d.Amount;
+                        l.SettledRon = l.Reconciled ? lm.Sum(x => x.Ron) + ron : null;
+                        l.OverrideReason = null;
+                        FinancialCalculations.Invalidate(l, true);
+                        Reports.Touch(r);
+                        svc.Log(c.User, r.Id, l.Id.ToString(), "CardMatched", after: m);
+                        return Api.View(r);
+                    }
+                )
+        );
+        f.MapPost(
+            "/matches/{id:guid}/undo",
+            async (Guid id, VersionRequest i, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        Guard.Reason(i.Reason);
+                        var m =
+                            await db.Matches.FindAsync(id)
+                            ?? throw new DomainException("missing", "Asociere inexistentă.", "Match not found.", 404);
+                        var line = await db.Lines.FindAsync(m.LineId);
+                        var r = await svc.Version(line!.ReportId, i.Version, c.User);
+                        Guard.Require(
+                            States.FinanceEdit(r.State) || r.State is States.Manager or States.Reapproval,
+                            "state",
+                            "Decontul nu poate fi modificat.",
+                            "Cannot change this report."
+                        );
+                        var l = r.Lines.Single(l => l.Id == m.LineId);
+                        if (r.State == States.Ready)
+                            r.State = States.Finance;
+                        db.Matches.Remove(m);
+                        l.Reconciled = false;
+                        l.SettledRon = null;
+                        FinancialCalculations.Invalidate(l, true);
+                        Reports.Touch(r);
+                        svc.Log(c.User, r.Id, l.Id.ToString(), "CardMatchUndone", before: m, reason: i.Reason);
+                        return Api.View(r);
+                    }
+                )
+        );
+        f.MapPost(
+            "/reports/{id:guid}/lines/{line:guid}/disposition",
+            async (Guid id, Guid line, Disposition i, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        Guard.Reason(i.Reason);
+                        var r = await svc.Version(id, i.Version, c.User);
+                        Guard.Require(
+                            States.FinanceEdit(r.State),
+                            "state",
+                            "Decontul nu poate fi modificat.",
+                            "Cannot change this report."
+                        );
+                        var l = r.Lines.Single(l => l.Id == line && !l.Archived);
+                        if (i.Kind == "cardOverride")
+                        {
+                            Guard.Require(
+                                l.Data().Payment == "CompanyCard",
+                                "card",
+                                "Cheltuiala nu este plătită cu cardul.",
+                                "Expense is not a company card payment."
+                            );
+                            l.OverrideReason = i.Reason;
+                        }
+                        else if (i.Kind == "vatOverride")
+                        {
+                            throw new DomainException(
+                                "vat_correction_required",
+                                "Corectează baza, TVA-ul sau totalul pe baza documentului; un motiv nu poate înlocui verificarea.",
+                                "Correct base, VAT or gross from source evidence; a reason cannot replace validation."
+                            );
+                        }
+                        else if (i.Kind == "notDuplicate" || i.Kind == "duplicateAllowed")
+                            l.DuplicateDisposition = i.Reason;
+                        else if (i.Kind == "duplicate")
+                        {
+                            Guard.Require(
+                                !await db.Matches.AnyAsync(m => m.LineId == l.Id),
+                                "matched",
+                                "Anulează alocările înainte de arhivare.",
+                                "Undo allocations before archival."
+                            );
+                            l.Archived = true;
+                        }
+                        else
+                            throw new DomainException("kind", "Decizie invalidă.", "Invalid disposition.");
+                        Reports.Touch(r);
+                        svc.Log(c.User, id, line.ToString(), i.Kind, after: i.Reason, reason: i.Reason);
+                        return Api.View(r);
+                    }
+                )
+        );
+        f.MapPost(
+            "/reports/{id:guid}/legal-hold",
+            async (Guid id, HoldInput i, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        Guard.Reason(i.Reason);
+                        var r = await svc.Version(id, i.Version, c.User);
+                        var before = r.LegalHold;
+                        r.LegalHold = i.Hold;
+                        Reports.Touch(r);
+                        svc.Log(c.User, id, "Retention", "LegalHoldChanged", before, i.Hold, i.Reason);
+                        return Api.View(r);
+                    }
+                )
+        );
+        f.MapGet(
+            "/batches",
+            async (Db db) =>
+                await db
+                    .Batches.Select(b => new
+                    {
+                        b.Id,
+                        b.ReportId,
+                        b.Revision,
+                        b.Cycle,
+                        b.RuleVersion,
+                        b.Hash,
+                        b.FileHash,
+                        b.State,
+                        b.Reference,
+                        b.At,
+                        b.PostedAt,
+                    })
+                    .ToListAsync()
+        );
+        f.MapPost(
+            "/reports/{id:guid}/export",
+            async (Guid id, VersionRequest i, Db db, Reports svc, Posting posting, IStore store, HttpContext c) =>
+                await Api.Atomic(db, c, i, async () => await PostingWorkflow.Export(id, i, db, svc, posting, store, c))
+        );
+        f.MapPost(
+            "/batches/{id:guid}/posted",
+            async (Guid id, PostingInput i, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        Guard.Require(
+                            !string.IsNullOrWhiteSpace(i.Reference),
+                            "reference",
+                            "Referința ERP este obligatorie.",
+                            "ERP posting reference required."
+                        );
+                        var b =
+                            await db.Batches.FindAsync(id)
+                            ?? throw new DomainException("missing", "Export inexistent.", "Batch not found.", 404);
+                        var r = await svc.Version(b.ReportId, i.Version, c.User);
+                        Guard.Require(
+                            b.State == "Exported" && r.State == States.Exported,
+                            "state",
+                            "Exportul nu poate fi postat.",
+                            "Batch cannot be posted."
+                        );
+                        b.State = "Posted";
+                        b.Reference = i.Reference;
+                        b.PostedAt = DateTime.UtcNow;
+                        r.State = States.Posted;
+                        r.RetainUntil = DateTime.UtcNow.AddYears(5);
+                        Reports.Touch(r);
+                        svc.Log(c.User, r.Id, b.Id.ToString(), "ERPPosted", after: new { i.Reference, b.Hash });
+                        await svc.Notify(r, r.EmployeeId, "Posted");
+                        return Api.View(r);
+                    }
+                )
+        );
+        f.MapPost(
+            "/batches/{id:guid}/reopen",
+            async (Guid id, ReopenInput i, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        Guard.Require(
+                            c.User.IsInRole("FinanceReopen"),
+                            "permission",
+                            "Este necesar dreptul FinanceReopen.",
+                            "FinanceReopen permission required.",
+                            403
+                        );
+                        Guard.Reason(i.Reason);
+                        Guard.Require(
+                            i.ReversalReference.Trim().Length >= 3,
+                            "reversal",
+                            "Completează referința reversării efectuate în ERP.",
+                            "Provide the reference of the reversal performed in ERP."
+                        );
+                        var b =
+                            await db.Batches.FindAsync(id)
+                            ?? throw new DomainException("missing", "Export inexistent.", "Batch not found.", 404);
+                        var r = await svc.Version(b.ReportId, i.Version, c.User);
+                        Guard.Require(
+                            b.State == "Posted" && r.State is States.Posted or States.Closed,
+                            "state",
+                            "Se poate redeschide numai un export postat.",
+                            "Only a posted export can be reopened."
+                        );
+                        b.State = "Reversed";
+                        svc.Snapshot(r, c.User);
+                        r.State = States.Reapproval;
+                        Reports.Touch(r);
+                        svc.Log(
+                            c.User,
+                            r.Id,
+                            id.ToString(),
+                            "PostedBatchReopened",
+                            after: new { i.ReversalReference, b.Hash },
+                            reason: i.Reason
+                        );
+                        await svc.Notify(r, r.ManagerId, "ReapprovalRequired");
+                        return Api.View(r);
+                    }
+                )
+        );
+        f.MapPost(
+            "/batches/{id:guid}/void",
+            async (Guid id, VersionRequest i, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        Guard.Require(
+                            c.User.IsInRole("FinanceReopen"),
+                            "permission",
+                            "Este necesar dreptul FinanceReopen.",
+                            "FinanceReopen permission required.",
+                            403
+                        );
+                        Guard.Reason(i.Reason);
+                        var b =
+                            await db.Batches.FindAsync(id)
+                            ?? throw new DomainException("missing", "Export inexistent.", "Batch not found.", 404);
+                        Guard.Require(
+                            b.State == "Exported",
+                            "posted",
+                            "Exporturile postate necesită reversare ERP externă.",
+                            "Posted batches require an external ERP reversal."
+                        );
+                        var r = await svc.Version(b.ReportId, i.Version, c.User);
+                        b.State = "Voided";
+                        r.State = States.Finance;
+                        Reports.Touch(r);
+                        svc.Log(c.User, r.Id, b.Id.ToString(), "BatchVoided", after: b.Hash, reason: i.Reason);
+                        return Api.View(r);
+                    }
+                )
+        );
+    }
+
+    static async Task Card(Db db, Guid id) =>
+        Guard.Require(
+            await db.Masters.AnyAsync(m => m.Id == id && m.Kind == "cards" && m.Active),
+            "card",
+            "Card invalid.",
+            "Invalid card."
+        );
+
+    public static List<CardTransaction> Parse(BankInput i)
+    {
+        Guard.Require(i.Csv.Length <= 5 * 1024 * 1024, "size", "Fișier prea mare.", "File too large.");
+        var parsed = Csv.Read(i.Csv);
+        Guard.Require(parsed.Count is > 1 and <= 10001, "csv", "CSV gol.", "CSV is empty.");
+        var headers = parsed[0];
+        string Get(string[] row, string name)
+        {
+            var index = Array.IndexOf(headers, i.Columns.GetValueOrDefault(name) ?? name);
+            Guard.Require(
+                index >= 0 && index < row.Length,
+                "column",
+                "Coloană lipsă: " + name,
+                "Column missing: " + name
+            );
+            return row[index];
+        }
+        List<CardTransaction> rows = [];
+        foreach (var row in parsed.Skip(1))
+        {
+            Guard.Require(
+                DateOnly.TryParseExact(Get(row, "date"), "yyyy-MM-dd", out var date),
+                "date",
+                "Folosește data ISO YYYY-MM-DD.",
+                "Use ISO dates YYYY-MM-DD."
+            );
+            var validAmount = decimal.TryParse(
+                Get(row, "amount"),
+                System.Globalization.NumberStyles.Number,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var amount
+            );
+            var validRon = decimal.TryParse(
+                Get(row, "settledRon"),
+                System.Globalization.NumberStyles.Number,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var ron
+            );
+            Guard.Require(
+                validAmount && validRon && amount != 0 && ron != 0 && Math.Sign(amount) == Math.Sign(ron),
+                "amount",
+                "Sumele trebuie să fie nenule și să aibă același semn.",
+                "Amounts must be nonzero and have the same sign."
+            );
+            Guard.Require(
+                amount == InvoiceArithmetic.Quantize(amount, 6, InvoiceRounding.HalfAwayFromZero)
+                    && ron == Rules.Money(ron),
+                "bank_precision",
+                "Păstrează suma originală cu cel mult 6 zecimale și suma RON cu cel mult 2. Nu se rotunjesc automat datele importate.",
+                "Keep original amount within 6 decimals and RON within 2. Imported source amounts are not silently rounded."
+            );
+            Guard.Require(
+                !string.IsNullOrWhiteSpace(Get(row, "reference"))
+                    && Get(row, "currency").Length == 3
+                    && Get(row, "currency").All(char.IsAsciiLetter),
+                "row",
+                "Referință sau monedă invalidă.",
+                "Invalid reference or currency."
+            );
+            rows.Add(
+                new()
+                {
+                    CardId = i.CardId,
+                    Reference = Get(row, "reference"),
+                    Date = date.ToString("yyyy-MM-dd"),
+                    Merchant = Get(row, "merchant"),
+                    Amount = amount,
+                    Currency = Get(row, "currency").ToUpperInvariant(),
+                    SettledRon = Rules.Money(ron),
+                }
+            );
+        }
+        return rows;
+    }
 }
 
-public record ReopenInput(long Version,string Reason,string ReversalReference);
+public record VendorInput(string Account, DateOnly From, string Reason);
 
+public record BankInput(Guid CardId, string Csv, Dictionary<string, string> Columns);
+
+public record MatchInput(Guid ReportId, long Version, Guid LineId, Guid TransactionId, decimal Amount);
+
+public record Disposition(long Version, string Kind, string Reason);
+
+public record HoldInput(long Version, bool Hold, string Reason);
+
+public record PostingInput(long Version, string Reference);
+
+public static class Csv
+{
+    public static List<string[]> Read(string source, char delimiter = ',')
+    {
+        List<string[]> rows = [];
+        List<string> row = [];
+        var field = new System.Text.StringBuilder();
+        var quoted = false;
+        for (int j = 0; j < source.Length; j++)
+        {
+            var c = source[j];
+            if (c == '"')
+            {
+                if (quoted && j + 1 < source.Length && source[j + 1] == '"')
+                {
+                    field.Append('"');
+                    j++;
+                }
+                else
+                    quoted = !quoted;
+            }
+            else if (c == delimiter && !quoted)
+            {
+                row.Add(field.ToString());
+                field.Clear();
+            }
+            else if (c == '\n' && !quoted)
+            {
+                row.Add(field.ToString().TrimEnd('\r'));
+                field.Clear();
+                if (row.Any(x => x != ""))
+                    rows.Add(row.ToArray());
+                row.Clear();
+            }
+            else
+                field.Append(c);
+        }
+        Guard.Require(!quoted, "csv", "Ghilimele CSV neînchise.", "Unclosed CSV quote.");
+        if (field.Length > 0 || row.Count > 0)
+        {
+            row.Add(field.ToString().TrimEnd('\r'));
+            rows.Add(row.ToArray());
+        }
+        return rows;
+    }
+
+    public static string Cell(object? x)
+    {
+        var s = Convert.ToString(x, System.Globalization.CultureInfo.InvariantCulture) ?? "";
+        if (s.StartsWith('=') || s.StartsWith('+') || s.StartsWith('-') || s.StartsWith('@'))
+            s = "'" + s;
+        return "\"" + s.Replace("\"", "\"\"") + "\"";
+    }
+}
+
+public record ReopenInput(long Version, string Reason, string ReversalReference);

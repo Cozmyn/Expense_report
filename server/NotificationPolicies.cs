@@ -1,7 +1,122 @@
 using Microsoft.EntityFrameworkCore;
+
 namespace Decont;
-public static class NotificationPolicies {
- public static async Task<(bool,bool)> Channels(Db db,string action){var rules=await db.Masters.Where(m=>m.Kind=="notificationRules"&&(m.Code==action||m.Code=="default")).ToListAsync();var rule=rules.Where(m=>Rules.Effective(m,DateOnly.FromDateTime(DateTime.UtcNow))).OrderByDescending(m=>m.Code==action).FirstOrDefault();if(rule==null)return(true,true);var data=Rules.Data(rule);bool Enabled(string key)=>!data.TryGetProperty(key,out var value)||value.GetBoolean();return(Enabled("inApp"),Enabled("email"));}
- public static async Task Remind(Db db,Reports svc,DateTime now){var settings=await db.Masters.Where(m=>m.Kind=="notificationRules"&&m.Code=="reminders").ToListAsync();var rule=settings.FirstOrDefault(m=>Rules.Effective(m,DateOnly.FromDateTime(now)));if(rule==null)return;var hours=Rules.Number(rule,"afterHours");var repeat=Rules.Number(rule,"repeatHours");var escalate=Rules.Number(rule,"escalateHours");Guard.Require(hours>=1&&repeat>=1,"reminders","Intervale de notificare invalide.","Invalid notification intervals.");var states=new[]{States.Manager,States.Reapproval,States.Finance,States.Returned};var reports=await db.Reports.Where(r=>states.Contains(r.State)).ToListAsync();var finance=await db.UserRoles.Join(db.Roles,x=>x.RoleId,y=>y.Id,(x,y)=>new{x.UserId,y.Name}).Where(x=>x.Name=="Finance").Select(x=>x.UserId).ToListAsync();foreach(var r in reports){var age=(now-r.Updated).TotalHours;if(age<(double)hours)continue;var targets=r.State==States.Finance?finance:new List<string>{r.State==States.Returned?r.EmployeeId:r.ManagerId};var eventName="Reminder:"+r.State+":"+r.Revision;var cutoff=now.AddHours(-(double)repeat);foreach(var target in targets){if(await db.Notices.AnyAsync(n=>n.UserId==target&&n.ReportId==r.Id&&n.Event==eventName&&n.At>=cutoff))continue;await svc.Notify(r,target,eventName);}if(escalate>0&&age>=(double)escalate){var role=Rules.Text(rule,"escalationRole");if(role=="")role="Finance";var recipients=await db.UserRoles.Join(db.Roles,x=>x.RoleId,y=>y.Id,(x,y)=>new{x.UserId,y.Name}).Where(x=>x.Name==role).Select(x=>x.UserId).ToListAsync();foreach(var target in recipients){var ev="Escalation:"+r.State+":"+r.Revision;if(!await db.Notices.AnyAsync(n=>n.UserId==target&&n.ReportId==r.Id&&n.Event==ev&&n.At>=cutoff))await svc.Notify(r,target,ev);}}}}
+
+public static class NotificationPolicies
+{
+    public static async Task<(bool, bool)> Channels(Db db, string action)
+    {
+        var rules = await db
+            .Masters.Where(m => m.Kind == "notificationRules" && (m.Code == action || m.Code == "default"))
+            .ToListAsync();
+        var rule = rules
+            .Where(m => Rules.Effective(m, DateOnly.FromDateTime(DateTime.UtcNow)))
+            .OrderByDescending(m => m.Code == action)
+            .FirstOrDefault();
+        if (rule == null)
+            return (true, true);
+        var data = Rules.Data(rule);
+        bool Enabled(string key) => !data.TryGetProperty(key, out var value) || value.GetBoolean();
+        return (Enabled("inApp"), Enabled("email"));
+    }
+
+    public static async Task Remind(Db db, Reports svc, DateTime now)
+    {
+        var settings = await db
+            .Masters.Where(m => m.Kind == "notificationRules" && m.Code == "reminders")
+            .ToListAsync();
+        var rule = settings.FirstOrDefault(m => Rules.Effective(m, DateOnly.FromDateTime(now)));
+        if (rule == null)
+            return;
+        var hours = Rules.Number(rule, "afterHours");
+        var repeat = Rules.Number(rule, "repeatHours");
+        var escalate = Rules.Number(rule, "escalateHours");
+        Guard.Require(
+            hours >= 1 && repeat >= 1,
+            "reminders",
+            "Intervale de notificare invalide.",
+            "Invalid notification intervals."
+        );
+        var states = new[] { States.Manager, States.Reapproval, States.Finance, States.Returned };
+        var reports = await db.Reports.Where(r => states.Contains(r.State)).ToListAsync();
+        var finance = await db
+            .UserRoles.Join(db.Roles, x => x.RoleId, y => y.Id, (x, y) => new { x.UserId, y.Name })
+            .Where(x => x.Name == "Finance")
+            .Select(x => x.UserId)
+            .ToListAsync();
+        foreach (var r in reports)
+        {
+            var age = (now - r.Updated).TotalHours;
+            if (age < (double)hours)
+                continue;
+            var targets =
+                r.State == States.Finance
+                    ? finance
+                    : new List<string> { r.State == States.Returned ? r.EmployeeId : r.ManagerId };
+            var eventName = "Reminder:" + r.State + ":" + r.Revision;
+            var cutoff = now.AddHours(-(double)repeat);
+            foreach (var target in targets)
+            {
+                if (
+                    await db.Notices.AnyAsync(n =>
+                        n.UserId == target && n.ReportId == r.Id && n.Event == eventName && n.At >= cutoff
+                    )
+                )
+                    continue;
+                await svc.Notify(r, target, eventName);
+            }
+            if (escalate > 0 && age >= (double)escalate)
+            {
+                var role = Rules.Text(rule, "escalationRole");
+                if (role == "")
+                    role = "Finance";
+                var recipients = await db
+                    .UserRoles.Join(db.Roles, x => x.RoleId, y => y.Id, (x, y) => new { x.UserId, y.Name })
+                    .Where(x => x.Name == role)
+                    .Select(x => x.UserId)
+                    .ToListAsync();
+                foreach (var target in recipients)
+                {
+                    var ev = "Escalation:" + r.State + ":" + r.Revision;
+                    if (
+                        !await db.Notices.AnyAsync(n =>
+                            n.UserId == target && n.ReportId == r.Id && n.Event == ev && n.At >= cutoff
+                        )
+                    )
+                        await svc.Notify(r, target, ev);
+                }
+            }
+        }
+    }
 }
-public class ReminderWorker(IServiceScopeFactory scopes,ILogger<ReminderWorker> log):BackgroundService {protected override async Task ExecuteAsync(CancellationToken ct){using var timer=new PeriodicTimer(TimeSpan.FromMinutes(1));while(await timer.WaitForNextTickAsync(ct)){try{using var scope=scopes.CreateScope();var db=scope.ServiceProvider.GetRequiredService<Db>();await using var transaction=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);await NotificationPolicies.Remind(db,scope.ServiceProvider.GetRequiredService<Reports>(),DateTime.UtcNow);await db.SaveChangesAsync(ct);await transaction.CommitAsync(ct);}catch(Exception e)when(!ct.IsCancellationRequested){log.LogError(e,"Reminder processing failed");}}}}
+
+public class ReminderWorker(IServiceScopeFactory scopes, ILogger<ReminderWorker> log) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+        while (await timer.WaitForNextTickAsync(ct))
+        {
+            try
+            {
+                using var scope = scopes.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<Db>();
+                await using var transaction = await db.Database.BeginTransactionAsync(
+                    System.Data.IsolationLevel.Serializable,
+                    ct
+                );
+                await NotificationPolicies.Remind(
+                    db,
+                    scope.ServiceProvider.GetRequiredService<Reports>(),
+                    DateTime.UtcNow
+                );
+                await db.SaveChangesAsync(ct);
+                await transaction.CommitAsync(ct);
+            }
+            catch (Exception e) when (!ct.IsCancellationRequested)
+            {
+                log.LogError(e, "Reminder processing failed");
+            }
+        }
+    }
+}

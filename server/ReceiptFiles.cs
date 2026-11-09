@@ -1,28 +1,320 @@
-using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
+using Microsoft.EntityFrameworkCore;
+
 namespace Decont;
-public static class ReceiptFiles {
- public static void Map(RouteGroupBuilder api){
-  api.MapGet("/suppliers/lookup",async(string cui,string date,Db db)=>{
-   var code=Rules.Cui(cui);var valid=Rules.ValidCui(code);Guard.Require(DateOnly.TryParse(date,out var day),"date","Data bonului este invalidă.","Invalid receipt date.");
-   var matches=await db.Masters.Where(m=>m.Kind=="suppliers"&&m.Code==code).ToListAsync();var found=matches.SingleOrDefault(m=>Rules.Effective(m,day));
-   return Results.Ok(new{cui=code,valid,found=found!=null,name=found?.NameRo,nameEn=found?.NameEn,hasErpAccount=found!=null&&(Rules.Text(found,"vendorAccount")!=""||await db.SupplierAccounts.AnyAsync(a=>a.Cui==code&&a.From<=day&&(a.To==null||a.To>=day))),messageRo=!valid?"CUI invalid. Verifică cifrele de pe bon.":found!=null?"Furnizor găsit în baza internă.":"Furnizorul nu există în baza internă. Verifică CUI-ul pe bon; dacă este corect, confirmă și păstrează-l. Finance va adăuga furnizorul.",messageEn=!valid?"Invalid VAT ID. Check the receipt.":found!=null?"Supplier found in the internal database.":"Supplier is absent from the internal database. Check the VAT ID; if correct, confirm and keep it. Finance will add the supplier."});
-  });
-  api.MapPost("/reports/{id:guid}/attachments",async(Guid id,HttpContext c,Db db,Reports svc,IStore store)=>await Upload(id,null,c,db,svc,store));
-  api.MapGet("/report-attachments/{id:guid}",async(Guid id,Db db,Reports svc,IStore store,HttpContext c)=>{var e=await db.ReportAttachments.SingleOrDefaultAsync(e=>e.Id==id)??throw new DomainException("missing","Document inexistent.","Document not found.",404);await svc.Get(e.ReportId,c.User);Guard.Require(e.Scan=="Clean","quarantine","Documentul nu a trecut scanarea.","Document has not passed scanning.");var bytes=await store.Get(e.Key);Guard.Require(Convert.ToHexString(SHA256.HashData(bytes))==e.Hash,"integrity","Document modificat.","Document integrity failed.");return Results.File(bytes,e.Mime,enableRangeProcessing:true);});
-  api.MapPost("/reports/{id:guid}/attachments/{aid:guid}/coverage",async(Guid id,Guid aid,VersionRequest i,Db db,Reports svc,HttpContext c)=>await Api.Atomic(db,c,i,async()=>{var r=await svc.Version(id,i.Version,c.User);svc.Edit(r,c.User,i.Reason);var e=r.Attachments.Single(e=>e.Id==aid&&!e.Archived);var before=e.CoveredLines;e.CoveredLines=Serialization.Write(r.Lines.Where(l=>!l.Archived).Select(l=>l.Id).ToList());Reports.Touch(r);svc.Log(c.User,id,aid.ToString(),"ReceiptCoverageConfirmed",before,e.CoveredLines,i.Reason);return Api.View(r);}));
-  api.MapPost("/reports/{id:guid}/attachments/{aid:guid}/archive",async(Guid id,Guid aid,VersionRequest i,Db db,Reports svc,HttpContext c)=>await Api.Atomic(db,c,i,async()=>{var r=await svc.Version(id,i.Version,c.User);svc.Edit(r,c.User,i.Reason);var e=r.Attachments.Single(e=>e.Id==aid&&!e.Archived);Guard.Reason(i.Reason);var groups=await db.DocumentGroups.Where(g=>g.BundleId==aid).ToListAsync();var before=groups.Select(g=>new{g.Id,g.State,g.ExpenseId,g.VerifiedAt}).ToList();foreach(var group in groups){group.State="SourceArchived";group.ExpenseId=null;}e.Archived=true;Reports.Touch(r);svc.Log(c.User,id,aid.ToString(),"ReportDocumentArchived",before,new{e.Archived},i.Reason);return Api.View(r);}));
- }
- public static async Task<IResult> Upload(Guid id,Guid? lineId,HttpContext c,Db db,Reports svc,IStore store,UploadGrant? grant=null){
-  var form=await c.Request.ReadFormAsync();Guard.Require(long.TryParse(form["version"],out var version),"version","Versiune lipsă.","Version missing.");
-  var file=form.Files.GetFile("file")??throw new DomainException("file","Selectează fișierul bonului.","Select the receipt file.");var policies=await db.Masters.Where(m=>m.Kind=="policies"&&m.Code=="uploads").ToListAsync();var policy=policies.FirstOrDefault(m=>Rules.Effective(m,DateOnly.FromDateTime(DateTime.UtcNow)));var maxFile=policy!=null&&Rules.Number(policy,"maxFileMb")>0?(long)Rules.Number(policy,"maxFileMb")*1024*1024:Files.MaxFile;var maxReport=policy!=null&&Rules.Number(policy,"maxReportMb")>0?(long)Rules.Number(policy,"maxReportMb")*1024*1024:Files.MaxReport;Guard.Require(file.Length>0&&file.Length<=maxFile,"file_size", $"Limita este de {maxFile/1024/1024} MB per fișier.",$"File limit is {maxFile/1024/1024} MB.");
-  using var ms=new MemoryStream();await file.CopyToAsync(ms);var bytes=ms.ToArray();var mime=Files.Mime(bytes,file.FileName);var hash=Convert.ToHexString(SHA256.HashData(bytes));if(grant!=null)Guard.Require(grant.Version==version&&grant.Size==bytes.Length&&grant.Mime==mime&&grant.Hash==hash&&grant.Name==file.FileName,"upload_mismatch","Fișierul nu corespunde autorizației. Selectează-l din nou.","File does not match the upload authorisation. Select it again.",409);await svc.Get(id,c.User);return await Api.Atomic(db,c,new{id,lineId,version,hash,file.FileName,reason=form["reason"].ToString(),coversAll=form["coversAll"].ToString(),capture=grant!=null||c.Request.Path.Value?.EndsWith("/capture")==true,documentId=grant?.Document},async()=>{var r=await svc.Version(id,version,c.User);svc.Edit(r,c.User,form["reason"]);
-  var line=lineId==null?null:r.Lines.SingleOrDefault(l=>l.Id==lineId&&!l.Archived);Guard.Require(lineId==null||line!=null,"line","Bon inexistent.","Receipt not found.",404);
-  Guard.Require(r.Lines.SelectMany(l=>l.Evidence).Sum(e=>e.Size)+r.Attachments.Sum(e=>e.Size)+file.Length<=maxReport,"report_size",$"Limita documentelor este de {maxReport/1024/1024} MB per decont.",$"Report file limit is {maxReport/1024/1024} MB.");
-  var capture=grant!=null||c.Request.Path.Value?.EndsWith("/capture")==true;if(lineId==null&&!capture)Guard.Require(form["coversAll"]=="true"&&r.Lines.Any(l=>!l.Archived),"coverage","Confirmă că fișierul include toate bonurile introduse în decont.","Confirm the file contains all receipts currently entered in the report.");
-  IOriginalDocument document;
-  if(line!=null){var e=new Evidence{LineId=line.Id,Name=Path.GetFileName(file.FileName),Mime=mime,Hash=hash,Size=bytes.Length};e.Key=$"originals/{id}/{e.Id}";line.Evidence.Add(e);db.Evidence.Add(e);document=e;db.Jobs.Add(new(){Kind="Scan",Json=e.Id.ToString()});}
-  else {var e=new ReportAttachment{Id=grant?.Document??Guid.NewGuid(),Scan=grant==null?"Pending":"AwaitingCompletion",UploadedBy=Reports.Actor(c.User),Capture=capture,ReportId=id,Name=Path.GetFileName(file.FileName),Mime=mime,Hash=hash,Size=bytes.Length,CoveredLines=capture?"[]":Serialization.Write(r.Lines.Where(l=>!l.Archived).Select(l=>l.Id).ToList())};e.Key=$"originals/{id}/{e.Id}";r.Attachments.Add(e);db.ReportAttachments.Add(e);document=e;if(grant==null)db.Jobs.Add(new(){Kind="ScanReport",Json=e.Id.ToString()});}
-  await store.Put(document.Key,bytes,mime);DocumentEvents.Emit(db,id,document.Id,"DocumentUploaded",Reports.Actor(c.User),document.Hash,new{document.Hash,document.Size,mime,capture});Reports.Touch(r);svc.Log(c.User,id,document.Id.ToString(),line==null?"CombinedReceiptsUploaded":"EvidenceUploaded",after:new{document.Name,document.Hash,document.Size,lineId,coveredLines=line==null?r.Lines.Where(l=>!l.Archived).Select(l=>l.Id):null},reason:form["reason"]);return new{e=document,r.Version};});
- }
+
+public static class ReceiptFiles
+{
+    public static void Map(RouteGroupBuilder api)
+    {
+        api.MapGet(
+            "/suppliers/lookup",
+            async (string cui, string date, Db db) =>
+            {
+                var code = Rules.Cui(cui);
+                var valid = Rules.ValidCui(code);
+                Guard.Require(
+                    DateOnly.TryParse(date, out var day),
+                    "date",
+                    "Data bonului este invalidă.",
+                    "Invalid receipt date."
+                );
+                var matches = await db.Masters.Where(m => m.Kind == "suppliers" && m.Code == code).ToListAsync();
+                var found = matches.SingleOrDefault(m => Rules.Effective(m, day));
+                return Results.Ok(
+                    new
+                    {
+                        cui = code,
+                        valid,
+                        found = found != null,
+                        name = found?.NameRo,
+                        nameEn = found?.NameEn,
+                        hasErpAccount = found != null
+                            && (
+                                Rules.Text(found, "vendorAccount") != ""
+                                || await db.SupplierAccounts.AnyAsync(a =>
+                                    a.Cui == code && a.From <= day && (a.To == null || a.To >= day)
+                                )
+                            ),
+                        messageRo = !valid ? "CUI invalid. Verifică cifrele de pe bon."
+                        : found != null ? "Furnizor găsit în baza internă."
+                        : "Furnizorul nu există în baza internă. Verifică CUI-ul pe bon; dacă este corect, confirmă și păstrează-l. Finance va adăuga furnizorul.",
+                        messageEn = !valid ? "Invalid VAT ID. Check the receipt."
+                        : found != null ? "Supplier found in the internal database."
+                        : "Supplier is absent from the internal database. Check the VAT ID; if correct, confirm and keep it. Finance will add the supplier.",
+                    }
+                );
+            }
+        );
+        api.MapPost(
+            "/reports/{id:guid}/attachments",
+            async (Guid id, HttpContext c, Db db, Reports svc, IStore store) =>
+                await Upload(id, null, c, db, svc, store)
+        );
+        api.MapGet(
+            "/report-attachments/{id:guid}",
+            async (Guid id, Db db, Reports svc, IStore store, HttpContext c) =>
+            {
+                var e =
+                    await db.ReportAttachments.SingleOrDefaultAsync(e => e.Id == id)
+                    ?? throw new DomainException("missing", "Document inexistent.", "Document not found.", 404);
+                await svc.Get(e.ReportId, c.User);
+                Guard.Require(
+                    e.Scan == "Clean",
+                    "quarantine",
+                    "Documentul nu a trecut scanarea.",
+                    "Document has not passed scanning."
+                );
+                var bytes = await store.Get(e.Key);
+                Guard.Require(
+                    Convert.ToHexString(SHA256.HashData(bytes)) == e.Hash,
+                    "integrity",
+                    "Document modificat.",
+                    "Document integrity failed."
+                );
+                return Results.File(bytes, e.Mime, enableRangeProcessing: true);
+            }
+        );
+        api.MapPost(
+            "/reports/{id:guid}/attachments/{aid:guid}/coverage",
+            async (Guid id, Guid aid, VersionRequest i, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        var r = await svc.Version(id, i.Version, c.User);
+                        svc.Edit(r, c.User, i.Reason);
+                        var e = r.Attachments.Single(e => e.Id == aid && !e.Archived);
+                        var before = e.CoveredLines;
+                        e.CoveredLines = Serialization.Write(
+                            r.Lines.Where(l => !l.Archived).Select(l => l.Id).ToList()
+                        );
+                        Reports.Touch(r);
+                        svc.Log(
+                            c.User,
+                            id,
+                            aid.ToString(),
+                            "ReceiptCoverageConfirmed",
+                            before,
+                            e.CoveredLines,
+                            i.Reason
+                        );
+                        return Api.View(r);
+                    }
+                )
+        );
+        api.MapPost(
+            "/reports/{id:guid}/attachments/{aid:guid}/archive",
+            async (Guid id, Guid aid, VersionRequest i, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        var r = await svc.Version(id, i.Version, c.User);
+                        svc.Edit(r, c.User, i.Reason);
+                        var e = r.Attachments.Single(e => e.Id == aid && !e.Archived);
+                        Guard.Reason(i.Reason);
+                        var groups = await db.DocumentGroups.Where(g => g.BundleId == aid).ToListAsync();
+                        var before = groups
+                            .Select(g => new
+                            {
+                                g.Id,
+                                g.State,
+                                g.ExpenseId,
+                                g.VerifiedAt,
+                            })
+                            .ToList();
+                        foreach (var group in groups)
+                        {
+                            group.State = "SourceArchived";
+                            group.ExpenseId = null;
+                        }
+                        e.Archived = true;
+                        Reports.Touch(r);
+                        svc.Log(
+                            c.User,
+                            id,
+                            aid.ToString(),
+                            "ReportDocumentArchived",
+                            before,
+                            new { e.Archived },
+                            i.Reason
+                        );
+                        return Api.View(r);
+                    }
+                )
+        );
+    }
+
+    public static async Task<IResult> Upload(
+        Guid id,
+        Guid? lineId,
+        HttpContext c,
+        Db db,
+        Reports svc,
+        IStore store,
+        UploadGrant? grant = null
+    )
+    {
+        var form = await c.Request.ReadFormAsync();
+        Guard.Require(
+            long.TryParse(form["version"], out var version),
+            "version",
+            "Versiune lipsă.",
+            "Version missing."
+        );
+        var file =
+            form.Files.GetFile("file")
+            ?? throw new DomainException("file", "Selectează fișierul bonului.", "Select the receipt file.");
+        var policies = await db.Masters.Where(m => m.Kind == "policies" && m.Code == "uploads").ToListAsync();
+        var policy = policies.FirstOrDefault(m => Rules.Effective(m, DateOnly.FromDateTime(DateTime.UtcNow)));
+        var maxFile =
+            policy != null && Rules.Number(policy, "maxFileMb") > 0
+                ? (long)Rules.Number(policy, "maxFileMb") * 1024 * 1024
+                : Files.MaxFile;
+        var maxReport =
+            policy != null && Rules.Number(policy, "maxReportMb") > 0
+                ? (long)Rules.Number(policy, "maxReportMb") * 1024 * 1024
+                : Files.MaxReport;
+        Guard.Require(
+            file.Length > 0 && file.Length <= maxFile,
+            "file_size",
+            $"Limita este de {maxFile / 1024 / 1024} MB per fișier.",
+            $"File limit is {maxFile / 1024 / 1024} MB."
+        );
+        using var ms = new MemoryStream();
+        await file.CopyToAsync(ms);
+        var bytes = ms.ToArray();
+        var mime = Files.Mime(bytes, file.FileName);
+        var hash = Convert.ToHexString(SHA256.HashData(bytes));
+        if (grant != null)
+            Guard.Require(
+                grant.Version == version
+                    && grant.Size == bytes.Length
+                    && grant.Mime == mime
+                    && grant.Hash == hash
+                    && grant.Name == file.FileName,
+                "upload_mismatch",
+                "Fișierul nu corespunde autorizației. Selectează-l din nou.",
+                "File does not match the upload authorisation. Select it again.",
+                409
+            );
+        await svc.Get(id, c.User);
+        return await Api.Atomic(
+            db,
+            c,
+            new
+            {
+                id,
+                lineId,
+                version,
+                hash,
+                file.FileName,
+                reason = form["reason"].ToString(),
+                coversAll = form["coversAll"].ToString(),
+                capture = grant != null || c.Request.Path.Value?.EndsWith("/capture") == true,
+                documentId = grant?.Document,
+            },
+            async () =>
+            {
+                var r = await svc.Version(id, version, c.User);
+                svc.Edit(r, c.User, form["reason"]);
+                var line = lineId == null ? null : r.Lines.SingleOrDefault(l => l.Id == lineId && !l.Archived);
+                Guard.Require(lineId == null || line != null, "line", "Bon inexistent.", "Receipt not found.", 404);
+                Guard.Require(
+                    r.Lines.SelectMany(l => l.Evidence).Sum(e => e.Size) + r.Attachments.Sum(e => e.Size) + file.Length
+                        <= maxReport,
+                    "report_size",
+                    $"Limita documentelor este de {maxReport / 1024 / 1024} MB per decont.",
+                    $"Report file limit is {maxReport / 1024 / 1024} MB."
+                );
+                var capture = grant != null || c.Request.Path.Value?.EndsWith("/capture") == true;
+                if (lineId == null && !capture)
+                    Guard.Require(
+                        form["coversAll"] == "true" && r.Lines.Any(l => !l.Archived),
+                        "coverage",
+                        "Confirmă că fișierul include toate bonurile introduse în decont.",
+                        "Confirm the file contains all receipts currently entered in the report."
+                    );
+                IOriginalDocument document;
+                if (line != null)
+                {
+                    var e = new Evidence
+                    {
+                        LineId = line.Id,
+                        Name = Path.GetFileName(file.FileName),
+                        Mime = mime,
+                        Hash = hash,
+                        Size = bytes.Length,
+                    };
+                    e.Key = $"originals/{id}/{e.Id}";
+                    line.Evidence.Add(e);
+                    db.Evidence.Add(e);
+                    document = e;
+                    db.Jobs.Add(new() { Kind = "Scan", Json = e.Id.ToString() });
+                }
+                else
+                {
+                    var e = new ReportAttachment
+                    {
+                        Id = grant?.Document ?? Guid.NewGuid(),
+                        Scan = grant == null ? "Pending" : "AwaitingCompletion",
+                        UploadedBy = Reports.Actor(c.User),
+                        Capture = capture,
+                        ReportId = id,
+                        Name = Path.GetFileName(file.FileName),
+                        Mime = mime,
+                        Hash = hash,
+                        Size = bytes.Length,
+                        CoveredLines = capture
+                            ? "[]"
+                            : Serialization.Write(r.Lines.Where(l => !l.Archived).Select(l => l.Id).ToList()),
+                    };
+                    e.Key = $"originals/{id}/{e.Id}";
+                    r.Attachments.Add(e);
+                    db.ReportAttachments.Add(e);
+                    document = e;
+                    if (grant == null)
+                        db.Jobs.Add(new() { Kind = "ScanReport", Json = e.Id.ToString() });
+                }
+                await store.Put(document.Key, bytes, mime);
+                DocumentEvents.Emit(
+                    db,
+                    id,
+                    document.Id,
+                    "DocumentUploaded",
+                    Reports.Actor(c.User),
+                    document.Hash,
+                    new
+                    {
+                        document.Hash,
+                        document.Size,
+                        mime,
+                        capture,
+                    }
+                );
+                Reports.Touch(r);
+                svc.Log(
+                    c.User,
+                    id,
+                    document.Id.ToString(),
+                    line == null ? "CombinedReceiptsUploaded" : "EvidenceUploaded",
+                    after: new
+                    {
+                        document.Name,
+                        document.Hash,
+                        document.Size,
+                        lineId,
+                        coveredLines = line == null ? r.Lines.Where(l => !l.Archived).Select(l => l.Id) : null,
+                    },
+                    reason: form["reason"]
+                );
+                return new { e = document, r.Version };
+            }
+        );
+    }
 }

@@ -1,8 +1,88 @@
-using Decont;using Xunit;
+using Decont;
+using Xunit;
+
 namespace Decont.Tests;
-public class DocumentSegmentationTests {
- static List<OcrPage> Batch(bool twoOnPageSeven){List<OcrPage> pages=[];for(int n=1;n<=10;n++){if(n==3)pages.Add(new(n,"VENDOR C\nINVOICE NO C100\n01.01.2026\nPage 1 of 3"));else if(n==4)pages.Add(new(n,"Page 2 of 3\nContinued itemization"));else if(n==5)pages.Add(new(n,"Page 3 of 3\nTVA 21% 100.00 21.00\nTOTAL 121.00 RON"));else if(n==7&&twoOnPageSeven){var lines=new[]{"BON FISCAL NR D7","TOTAL 10.00 RON","BON FISCAL NR E7","TOTAL 20.00 RON"};List<OcrWord> words=[];for(int line=0;line<lines.Length;line++){int col=0;foreach(var word in lines[line].Split(' '))words.Add(new(word,new(.05m+col++*.1m,.1m+line*.2m,.08m,.03m),.9m));}pages.Add(new(n,string.Join("\n",lines),Words:words,Method:"ImageOcr"));}else pages.Add(new(n,"BON FISCAL NR R"+n+"\n01.01.2026\nTOTAL 10.00 RON"));}return pages;}
- [Theory][InlineData(false,8)][InlineData(true,9)]public void TenPageFixturesAccountForEveryPageAndOneThreePageInvoice(bool sharedPage,int expected){var result=ReceiptParser.Parse(Batch(sharedPage),null);Assert.Equal(expected,result.Candidates.Count);Assert.Empty(result.UnassignedPages!);var invoice=Assert.Single(result.Candidates.Where(c=>c.Pages.Length>1));Assert.Equal(new[]{3,4,5},invoice.Pages);Assert.Equal("121.00",invoice.Fields["amount"].Value);Assert.Single(invoice.Taxes);Assert.Null(invoice.BoundaryConfidence);Assert.Equal(expected,ReceiptParser.Parse(Batch(sharedPage),null).Candidates.Count);if(sharedPage){var two=result.Candidates.Where(c=>c.Pages.SequenceEqual(new[]{7})).ToList();Assert.Equal(2,two.Count);Assert.False(OcrReviews.Overlap(two[0].Regions![0],two[1].Regions![0]));}}
- [Fact]public void ConflictingInvoiceNumbersAreNotSilentlyMerged(){var result=ReceiptParser.Parse([new(1,"INVOICE NO A1\nPage 1 of 2\nTOTAL 10.00 RON"),new(2,"INVOICE NO B2\nPage 2 of 2\nTOTAL 20.00 RON")],null);Assert.Equal(2,result.Candidates.Count);Assert.All(result.Candidates,c=>Assert.Contains(c.Warnings,w=>w.StartsWith("AMBIGUOUS_BOUNDARY")));}
- [Fact]public void RepeatedIdenticalTotalsDoNotDoublePaidVat(){var result=ReceiptParser.Parse([new(1,"INVOICE NO A1\nPage 1 of 2\nTVA 21% 100.00 21.00\nTOTAL 121.00 RON"),new(2,"INVOICE NO A1\nPage 2 of 2\nTVA 21% 100.00 21.00\nTOTAL 121.00 RON")],null);var group=Assert.Single(result.Candidates);Assert.Single(group.Taxes);Assert.Equal(21m,group.Taxes[0].Vat);Assert.Equal(2,group.TaxAlternatives!.Count);}
+
+public class DocumentSegmentationTests
+{
+    static List<OcrPage> Batch(bool twoOnPageSeven)
+    {
+        List<OcrPage> pages = [];
+        for (int n = 1; n <= 10; n++)
+        {
+            if (n == 3)
+                pages.Add(new(n, "VENDOR C\nINVOICE NO C100\n01.01.2026\nPage 1 of 3"));
+            else if (n == 4)
+                pages.Add(new(n, "Page 2 of 3\nContinued itemization"));
+            else if (n == 5)
+                pages.Add(new(n, "Page 3 of 3\nTVA 21% 100.00 21.00\nTOTAL 121.00 RON"));
+            else if (n == 7 && twoOnPageSeven)
+            {
+                var lines = new[] { "BON FISCAL NR D7", "TOTAL 10.00 RON", "BON FISCAL NR E7", "TOTAL 20.00 RON" };
+                List<OcrWord> words = [];
+                for (int line = 0; line < lines.Length; line++)
+                {
+                    int col = 0;
+                    foreach (var word in lines[line].Split(' '))
+                        words.Add(new(word, new(.05m + col++ * .1m, .1m + line * .2m, .08m, .03m), .9m));
+                }
+                pages.Add(new(n, string.Join("\n", lines), Words: words, Method: "ImageOcr"));
+            }
+            else
+                pages.Add(new(n, "BON FISCAL NR R" + n + "\n01.01.2026\nTOTAL 10.00 RON"));
+        }
+        return pages;
+    }
+
+    [Theory]
+    [InlineData(false, 8)]
+    [InlineData(true, 9)]
+    public void TenPageFixturesAccountForEveryPageAndOneThreePageInvoice(bool sharedPage, int expected)
+    {
+        var result = ReceiptParser.Parse(Batch(sharedPage), null);
+        Assert.Equal(expected, result.Candidates.Count);
+        Assert.Empty(result.UnassignedPages!);
+        var invoice = Assert.Single(result.Candidates.Where(c => c.Pages.Length > 1));
+        Assert.Equal(new[] { 3, 4, 5 }, invoice.Pages);
+        Assert.Equal("121.00", invoice.Fields["amount"].Value);
+        Assert.Single(invoice.Taxes);
+        Assert.Null(invoice.BoundaryConfidence);
+        Assert.Equal(expected, ReceiptParser.Parse(Batch(sharedPage), null).Candidates.Count);
+        if (sharedPage)
+        {
+            var two = result.Candidates.Where(c => c.Pages.SequenceEqual(new[] { 7 })).ToList();
+            Assert.Equal(2, two.Count);
+            Assert.False(OcrReviews.Overlap(two[0].Regions![0], two[1].Regions![0]));
+        }
+    }
+
+    [Fact]
+    public void ConflictingInvoiceNumbersAreNotSilentlyMerged()
+    {
+        var result = ReceiptParser.Parse(
+            [
+                new(1, "INVOICE NO A1\nPage 1 of 2\nTOTAL 10.00 RON"),
+                new(2, "INVOICE NO B2\nPage 2 of 2\nTOTAL 20.00 RON"),
+            ],
+            null
+        );
+        Assert.Equal(2, result.Candidates.Count);
+        Assert.All(result.Candidates, c => Assert.Contains(c.Warnings, w => w.StartsWith("AMBIGUOUS_BOUNDARY")));
+    }
+
+    [Fact]
+    public void RepeatedIdenticalTotalsDoNotDoublePaidVat()
+    {
+        var result = ReceiptParser.Parse(
+            [
+                new(1, "INVOICE NO A1\nPage 1 of 2\nTVA 21% 100.00 21.00\nTOTAL 121.00 RON"),
+                new(2, "INVOICE NO A1\nPage 2 of 2\nTVA 21% 100.00 21.00\nTOTAL 121.00 RON"),
+            ],
+            null
+        );
+        var group = Assert.Single(result.Candidates);
+        Assert.Single(group.Taxes);
+        Assert.Equal(21m, group.Taxes[0].Vat);
+        Assert.Equal(2, group.TaxAlternatives!.Count);
+    }
 }

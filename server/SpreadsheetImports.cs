@@ -1,22 +1,553 @@
-using ClosedXML.Excel;using System.Text;using System.IO.Compression;using Microsoft.EntityFrameworkCore;using Microsoft.AspNetCore.Identity;using System.Text.Json;
-namespace Decont;
-public static class SpreadsheetImports {
- public static List<string[]> Read(string name,byte[] bytes){Guard.Require(bytes.Length<=5*1024*1024,"size","Importul trebuie să fie sub 5 MB.","Import must be under 5 MB.");if(Path.GetExtension(name).Equals(".csv",StringComparison.OrdinalIgnoreCase)){var text=Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF');return Csv.Read(text,text.Split('\n')[0].Count(c=>c==';')>text.Split('\n')[0].Count(c=>c==',')?';':',');}Guard.Require(Path.GetExtension(name).Equals(".xlsx",StringComparison.OrdinalIgnoreCase)&&bytes.Length>2&&bytes[0]==80&&bytes[1]==75,"type","Folosește CSV sau XLSX valid.","Use a valid CSV or XLSX file.");using(var zip=new ZipArchive(new MemoryStream(bytes))){Guard.Require(zip.Entries.Sum(e=>e.Length)<=50*1024*1024&&zip.Entries.Count<=2000,"size","Fișier XLSX prea complex.","XLSX file is too complex.");}using var workbook=new XLWorkbook(new MemoryStream(bytes));Guard.Require(workbook.Worksheets.Count==1,"sheet","Importul trebuie să conțină o singură foaie.","Import must contain one worksheet.");var sheet=workbook.Worksheet(1);var last=sheet.LastRowUsed()?.RowNumber()??0;var cols=sheet.LastColumnUsed()?.ColumnNumber()??0;Guard.Require(last<=10001&&cols<=40,"rows","Maximum 10.000 rânduri și 40 coloane.","Maximum 10,000 rows and 40 columns.");List<string[]> rows=[];for(int row=1;row<=last;row++){var values=new List<string>();for(int col=1;col<=cols;col++){var cell=sheet.Cell(row,col);Guard.Require(!cell.HasFormula,"formula","Importul acceptă doar valori, fără formule.","Import accepts values only, without formulas.");values.Add(cell.DataType==XLDataType.DateTime?cell.GetDateTime().ToString("yyyy-MM-dd"):cell.DataType==XLDataType.Number?cell.GetDouble().ToString(System.Globalization.CultureInfo.InvariantCulture):cell.GetString());}if(values.Any(x=>x!=""))rows.Add(values.ToArray());}return rows;}
- public static string CsvText(List<string[]> rows)=>string.Join("\r\n",rows.Select(row=>string.Join(",",row.Select(x=>"\""+x.Replace("\"","\"\"")+"\""))));
- public static async Task<(List<string[]>,string)> Upload(HttpContext c){var form=await c.Request.ReadFormAsync();var file=form.Files.GetFile("file")??throw new DomainException("file","Selectează fișierul.","Select a file.");using var ms=new MemoryStream();Guard.Require(file.Length<=5*1024*1024,"size","Fișier prea mare.","File too large.");await file.CopyToAsync(ms);Guard.Require(await c.RequestServices.GetRequiredService<IDocumentScanner>().Clean(ms.ToArray(),c.RequestAborted),"scan","Fișier respins de scanare.","File rejected by security scan.");return(Read(file.FileName,ms.ToArray()),Serialization.Hash(Convert.ToBase64String(ms.ToArray())));}
- public static void Map(RouteGroupBuilder api){
- var config=api.MapGroup("/configuration/import").RequireAuthorization(p=>p.RequireRole("Finance","Admin"));
- config.MapPost("/preview",async(HttpContext c,Db db)=>{var(rows,hash)=await Upload(c);var kind=c.Request.Form["kind"].ToString();Guard.Require(rows.Count>1,"rows","Fișierul este gol.","File is empty.");List<MasterInput> items=[];List<object> errors=[];for(int row=1;row<rows.Count;row++){try{string Get(string k,string fallback=""){var index=Array.IndexOf(rows[0],k);return index>=0&&index<rows[row].Length?rows[row][index]:fallback;}var i=new MasterInput(kind,Get("code"),Get("nameRo"),Get("nameEn",Get("nameRo")),Get("json","{}"),DateOnly.Parse(Get("from")),Get("to")==""?null:DateOnly.Parse(Get("to")),Get("active","true").ToLowerInvariant()!="false","Import preview");await Validate(i,db,items);items.Add(i);}catch(Exception e)when(e is DomainException or FormatException or JsonException or InvalidOperationException){errors.Add(new{row=row+1,message=e.Message});}}return new{hash,rows=items,errors,count=items.Count};});
- config.MapPost("/confirm",async(MasterBatch i,HttpContext c,Db db,Reports svc)=>await Api.Atomic(db,c,i,async()=>{Guard.Reason(i.Reason);Guard.Require(i.Rows.Count is >0 and <=10000,"rows","Import gol sau prea mare.","Empty or oversized import.");List<MasterInput> validated=[];foreach(var row in i.Rows){await Validate(row,db,validated);validated.Add(row);}foreach(var row in validated)await Create(row with{Reason=i.Reason},db,svc,c);svc.Log(c.User,null,"Masters","MasterBatchImported",after:new{count=i.Rows.Count},reason:i.Reason);return new{count=i.Rows.Count};}));
- config.MapGet("/template",()=>Results.File(Encoding.UTF8.GetBytes("code,nameRo,nameEn,from,to,active,json\r\n"),"text/csv","master-template.csv"));
- api.MapPost("/finance/transactions/file",async(HttpContext c)=>{var(rows,hash)=await Upload(c);Guard.Require(rows.Count>1,"rows","Extrasul este gol.","Statement is empty.");return new{headers=rows[0],csv=CsvText(rows),count=rows.Count-1,hash};}).RequireAuthorization(p=>p.RequireRole("Finance"));
- }
- public static async Task Validate(MasterInput i,Db db,List<MasterInput>? batch=null){Guard.Require(Admin.Kinds.Contains(i.Kind)&&i.Code.Trim()!=""&&i.NameRo.Trim()!=""&&i.From<=(i.To??DateOnly.MaxValue),"master","Nomenclator invalid.","Invalid master data.");JsonElement data;try{data=JsonDocument.Parse(i.Json).RootElement.Clone();}catch(JsonException){throw new DomainException("json","Datele JSON nu sunt valide.","Invalid JSON data.");}Guard.Require(data.ValueKind==JsonValueKind.Object,"json","Datele trebuie să fie JSON obiect.","Data must be a JSON object.");foreach(var property in data.EnumerateObject()){if(new[]{"rate","ronRate","priority","vatZeroTolerance","maxFileMb","maxReportMb","afterHours","repeatHours","escalateHours"}.Contains(property.Name))Guard.Require(property.Value.ValueKind==JsonValueKind.Number&&property.Value.TryGetDecimal(out _),"number","Valoare numerică invalidă: "+property.Name,"Invalid numeric value: "+property.Name);if(new[]{"vehicle","repair","inApp","email","requireCardMatchBeforeApproval","requireReapprovalOnPersonalIncrease"}.Contains(property.Name))Guard.Require(property.Value.ValueKind is JsonValueKind.True or JsonValueKind.False,"boolean","Valoare da/nu invalidă: "+property.Name,"Invalid boolean value: "+property.Name);if(new[]{"cui","lastFour","ownerId","issuer","currency","field","state","escalationRole","erpCode","mainAccount","localAccount","subAccount","vendorAccount","parentCode","approvalReference","clearingAccount","clearingLocal","roundingAccount","roundingLocal","vatAccount","vatLocal","otherCarNonDedAccount","repairNonDedAccount","repairNonDedLocal","filenamePattern","exportDate","businessUnit","objective","site","productionLine","exportCurrency","documentNumber","dueDate"}.Contains(property.Name))Guard.Require(property.Value.ValueKind==JsonValueKind.String,"text","Valoare text invalidă: "+property.Name,"Invalid text value: "+property.Name);}if(i.Kind=="countries")Guard.Require(i.Code.Length==2&&i.Code.All(char.IsAsciiLetterUpper),"country","Cod țară invalid.","Invalid country code.");if(i.Kind=="fieldRules"&&data.TryGetProperty("conditions",out var conditions))Guard.Require(conditions.ValueKind==JsonValueKind.Object&&conditions.EnumerateObject().All(p=>new[]{"country","documentType","category","payment","currency"}.Contains(p.Name)&&p.Value.ValueKind==JsonValueKind.String),"conditions","Condiții de câmp invalide.","Invalid field conditions.");if(i.Kind=="vat")Guard.Require(data.TryGetProperty("rate",out var rate)&&rate.GetDecimal()>=0&&rate.GetDecimal()<=100&&(rate.GetDecimal() is not (5 or 19)||!i.Active),"vat","Cotă invalidă; 5% și 19% nu pot fi active.","Invalid rate; 5% and 19% cannot be active.");if(i.Kind=="fx"){Guard.Require(i.Code.Length==3&&i.Code.All(char.IsAsciiLetterUpper)&&data.TryGetProperty("ronRate",out var fx)&&fx.GetDecimal()>0&&fx.GetDecimal()<=1000000,"fx","Codul monedei sau cursul este invalid.","Invalid currency code or exchange rate.");var rate=data.GetProperty("ronRate").GetDecimal();var precision=(await FinancialCalculations.Policy(db,i.Code,i.From)).Policy.RateDecimals;Guard.Require(decimal.Round(rate,precision)==rate,"fx_precision","Cursul depășește precizia stabilită de Finance.","Rate exceeds Finance configured precision.");}if(i.Kind=="policies"){if(VehicleDeductibility.IsCode(i.Code))Guard.Require(data.TryGetProperty("percentage",out var percentage)&&percentage.TryGetDecimal(out var pct)&&pct>=0&&pct<=100&&decimal.Round(pct,2)==pct,"vehicle_percentage","Procentul auto trebuie să fie între 0 și 100, cu maximum două zecimale.","Vehicle percentage must be between 0 and 100, with at most two decimals.");if(i.Code=="company")Guard.Require(data.TryGetProperty("cui",out var cui)&&Rules.ValidCui(cui.GetString()),"cui","CUI companie invalid.","Invalid company VAT ID.");if(i.Code=="uploads"){foreach(var key in new[]{"maxFileMb","maxReportMb"})if(data.TryGetProperty(key,out var value))Guard.Require(value.TryGetDecimal(out var size)&&size>0&&size<=(key=="maxFileMb"?100:1000),"size","Limite de fișier invalide.","Invalid file limits.");}if(data.TryGetProperty("vatZeroTolerance",out var zero))Guard.Require(zero.TryGetDecimal(out var amount)&&amount>=0&&amount<=10,"tolerance","Toleranță TVA invalidă.","Invalid VAT tolerance.");}
- if(i.Kind=="notificationRules"){foreach(var key in new[]{"email","inApp"})if(data.TryGetProperty(key,out var value))Guard.Require(value.ValueKind is JsonValueKind.True or JsonValueKind.False,"notification","Selectează da sau nu pentru canalele de notificare.","Choose true or false for notification channels.");if(i.Code=="reminders")foreach(var key in new[]{"afterHours","repeatHours"})Guard.Require(data.TryGetProperty(key,out var value)&&value.TryGetDecimal(out var hours)&&hours>=1&&hours<=8760,"reminder","Intervalele reminderelor trebuie să fie între 1 și 8760 ore.","Reminder intervals must be between 1 and 8760 hours.");}
- if(i.Kind=="cards"){Guard.Require(data.TryGetProperty("lastFour",out var digits)&&digits.GetString()?.Length==4&&digits.GetString()!.All(char.IsAsciiDigit),"card","Completează numai ultimele patru cifre ale cardului.","Enter only the last four card digits.");Guard.Require(data.EnumerateObject().All(p=>new[]{"lastFour","ownerId","issuer","currency"}.Contains(p.Name)),"card","Date suplimentare ale cardului nu sunt permise.","Additional card data is not permitted.");}
- if(i.Kind=="fieldRules")Guard.Require(data.TryGetProperty("state",out var state)&&new[]{"REQUIRED","OPTIONAL","NOT_APPLICABLE"}.Contains(state.GetString())&&data.TryGetProperty("field",out var field)&&new[]{"supplier","cui","invoice","date","country","documentType","category","description","payment","cardId","costCenter","project","amount","currency","taxes"}.Contains(field.GetString()),"field","Regulă de câmp invalidă.","Invalid field rule.");
- var code=i.Kind=="suppliers"?Rules.Cui(i.Code):i.Code.Trim();if(i.Kind=="suppliers")Guard.Require(Rules.ValidCui(code),"cui","CUI invalid.","Invalid CUI.");var versions=await db.Masters.Where(m=>m.Kind==i.Kind&&m.Code==code).ToListAsync();Guard.Require(!versions.Any(m=>m.From==i.From)&&!(batch??[]).Any(m=>m.Kind==i.Kind&&(i.Kind=="suppliers"?Rules.Cui(m.Code):m.Code.Trim())==code&&m.From==i.From),"duplicate","Versiune duplicată.","Duplicate master version.");if(i.Active){bool Overlaps(DateOnly from,DateOnly? to)=>from<=(i.To??DateOnly.MaxValue)&&(to??DateOnly.MaxValue)>=i.From;Guard.Require(!versions.Any(m=>m.Active&&Overlaps(m.From,m.To))&&!(batch??[]).Any(m=>m.Active&&m.Kind==i.Kind&&(i.Kind=="suppliers"?Rules.Cui(m.Code):m.Code.Trim())==code&&Overlaps(m.From,m.To)),"overlap","Perioadele active se suprapun.","Active periods overlap.");}}
- public static async Task<Master> Create(MasterInput i,Db db,Reports svc,HttpContext c){Guard.Require((i.Kind!="fx"&&!(i.Kind=="policies"&&VehicleDeductibility.IsCode(i.Code)))||c.User.IsInRole("Finance"),"forbidden","Doar Finance poate modifica un curs valutar.","Only Finance may change exchange rates.",403);Guard.Reason(i.Reason);await Validate(i,db);var m=new Master{Kind=i.Kind,Code=i.Kind=="suppliers"?Rules.Cui(i.Code):i.Code.Trim(),NameRo=i.NameRo,NameEn=i.NameEn,Json=i.Json,From=i.From,To=i.To,Active=i.Active};db.Masters.Add(m);svc.Log(c.User,null,m.Id.ToString(),"MasterVersionCreated",after:m,reason:i.Reason);return m;}
-}
-public record MasterBatch(List<MasterInput> Rows,string Reason);
+using System.IO.Compression;
+using System.Text;
+using System.Text.Json;
+using ClosedXML.Excel;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 
+namespace Decont;
+
+public static class SpreadsheetImports
+{
+    public static List<string[]> Read(string name, byte[] bytes)
+    {
+        Guard.Require(
+            bytes.Length <= 5 * 1024 * 1024,
+            "size",
+            "Importul trebuie să fie sub 5 MB.",
+            "Import must be under 5 MB."
+        );
+        if (Path.GetExtension(name).Equals(".csv", StringComparison.OrdinalIgnoreCase))
+        {
+            var text = Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF');
+            return Csv.Read(
+                text,
+                text.Split('\n')[0].Count(c => c == ';') > text.Split('\n')[0].Count(c => c == ',') ? ';' : ','
+            );
+        }
+        Guard.Require(
+            Path.GetExtension(name).Equals(".xlsx", StringComparison.OrdinalIgnoreCase)
+                && bytes.Length > 2
+                && bytes[0] == 80
+                && bytes[1] == 75,
+            "type",
+            "Folosește CSV sau XLSX valid.",
+            "Use a valid CSV or XLSX file."
+        );
+        using (var zip = new ZipArchive(new MemoryStream(bytes)))
+        {
+            Guard.Require(
+                zip.Entries.Sum(e => e.Length) <= 50 * 1024 * 1024 && zip.Entries.Count <= 2000,
+                "size",
+                "Fișier XLSX prea complex.",
+                "XLSX file is too complex."
+            );
+        }
+        using var workbook = new XLWorkbook(new MemoryStream(bytes));
+        Guard.Require(
+            workbook.Worksheets.Count == 1,
+            "sheet",
+            "Importul trebuie să conțină o singură foaie.",
+            "Import must contain one worksheet."
+        );
+        var sheet = workbook.Worksheet(1);
+        var last = sheet.LastRowUsed()?.RowNumber() ?? 0;
+        var cols = sheet.LastColumnUsed()?.ColumnNumber() ?? 0;
+        Guard.Require(
+            last <= 10001 && cols <= 40,
+            "rows",
+            "Maximum 10.000 rânduri și 40 coloane.",
+            "Maximum 10,000 rows and 40 columns."
+        );
+        List<string[]> rows = [];
+        for (int row = 1; row <= last; row++)
+        {
+            var values = new List<string>();
+            for (int col = 1; col <= cols; col++)
+            {
+                var cell = sheet.Cell(row, col);
+                Guard.Require(
+                    !cell.HasFormula,
+                    "formula",
+                    "Importul acceptă doar valori, fără formule.",
+                    "Import accepts values only, without formulas."
+                );
+                values.Add(
+                    cell.DataType == XLDataType.DateTime ? cell.GetDateTime().ToString("yyyy-MM-dd")
+                    : cell.DataType == XLDataType.Number
+                        ? cell.GetDouble().ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    : cell.GetString()
+                );
+            }
+            if (values.Any(x => x != ""))
+                rows.Add(values.ToArray());
+        }
+        return rows;
+    }
+
+    public static string CsvText(List<string[]> rows) =>
+        string.Join(
+            "\r\n",
+            rows.Select(row => string.Join(",", row.Select(x => "\"" + x.Replace("\"", "\"\"") + "\"")))
+        );
+
+    public static async Task<(List<string[]>, string)> Upload(HttpContext c)
+    {
+        var form = await c.Request.ReadFormAsync();
+        var file =
+            form.Files.GetFile("file") ?? throw new DomainException("file", "Selectează fișierul.", "Select a file.");
+        using var ms = new MemoryStream();
+        Guard.Require(file.Length <= 5 * 1024 * 1024, "size", "Fișier prea mare.", "File too large.");
+        await file.CopyToAsync(ms);
+        Guard.Require(
+            await c.RequestServices.GetRequiredService<IDocumentScanner>().Clean(ms.ToArray(), c.RequestAborted),
+            "scan",
+            "Fișier respins de scanare.",
+            "File rejected by security scan."
+        );
+        return (Read(file.FileName, ms.ToArray()), Serialization.Hash(Convert.ToBase64String(ms.ToArray())));
+    }
+
+    public static void Map(RouteGroupBuilder api)
+    {
+        var config = api.MapGroup("/configuration/import").RequireAuthorization(p => p.RequireRole("Finance", "Admin"));
+        config.MapPost(
+            "/preview",
+            async (HttpContext c, Db db) =>
+            {
+                var (rows, hash) = await Upload(c);
+                var kind = c.Request.Form["kind"].ToString();
+                Guard.Require(rows.Count > 1, "rows", "Fișierul este gol.", "File is empty.");
+                List<MasterInput> items = [];
+                List<object> errors = [];
+                for (int row = 1; row < rows.Count; row++)
+                {
+                    try
+                    {
+                        string Get(string k, string fallback = "")
+                        {
+                            var index = Array.IndexOf(rows[0], k);
+                            return index >= 0 && index < rows[row].Length ? rows[row][index] : fallback;
+                        }
+                        var i = new MasterInput(
+                            kind,
+                            Get("code"),
+                            Get("nameRo"),
+                            Get("nameEn", Get("nameRo")),
+                            Get("json", "{}"),
+                            DateOnly.Parse(Get("from")),
+                            Get("to") == "" ? null : DateOnly.Parse(Get("to")),
+                            Get("active", "true").ToLowerInvariant() != "false",
+                            "Import preview"
+                        );
+                        await Validate(i, db, items);
+                        items.Add(i);
+                    }
+                    catch (Exception e)
+                        when (e is DomainException or FormatException or JsonException or InvalidOperationException)
+                    {
+                        errors.Add(new { row = row + 1, message = e.Message });
+                    }
+                }
+                return new
+                {
+                    hash,
+                    rows = items,
+                    errors,
+                    count = items.Count,
+                };
+            }
+        );
+        config.MapPost(
+            "/confirm",
+            async (MasterBatch i, HttpContext c, Db db, Reports svc) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        Guard.Reason(i.Reason);
+                        Guard.Require(
+                            i.Rows.Count is > 0 and <= 10000,
+                            "rows",
+                            "Import gol sau prea mare.",
+                            "Empty or oversized import."
+                        );
+                        List<MasterInput> validated = [];
+                        foreach (var row in i.Rows)
+                        {
+                            await Validate(row, db, validated);
+                            validated.Add(row);
+                        }
+                        foreach (var row in validated)
+                            await Create(row with { Reason = i.Reason }, db, svc, c);
+                        svc.Log(
+                            c.User,
+                            null,
+                            "Masters",
+                            "MasterBatchImported",
+                            after: new { count = i.Rows.Count },
+                            reason: i.Reason
+                        );
+                        return new { count = i.Rows.Count };
+                    }
+                )
+        );
+        config.MapGet(
+            "/template",
+            () =>
+                Results.File(
+                    Encoding.UTF8.GetBytes("code,nameRo,nameEn,from,to,active,json\r\n"),
+                    "text/csv",
+                    "master-template.csv"
+                )
+        );
+        api.MapPost(
+                "/finance/transactions/file",
+                async (HttpContext c) =>
+                {
+                    var (rows, hash) = await Upload(c);
+                    Guard.Require(rows.Count > 1, "rows", "Extrasul este gol.", "Statement is empty.");
+                    return new
+                    {
+                        headers = rows[0],
+                        csv = CsvText(rows),
+                        count = rows.Count - 1,
+                        hash,
+                    };
+                }
+            )
+            .RequireAuthorization(p => p.RequireRole("Finance"));
+    }
+
+    public static async Task Validate(MasterInput i, Db db, List<MasterInput>? batch = null)
+    {
+        Guard.Require(
+            Admin.Kinds.Contains(i.Kind)
+                && i.Code.Trim() != ""
+                && i.NameRo.Trim() != ""
+                && i.From <= (i.To ?? DateOnly.MaxValue),
+            "master",
+            "Nomenclator invalid.",
+            "Invalid master data."
+        );
+        JsonElement data;
+        try
+        {
+            data = JsonDocument.Parse(i.Json).RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            throw new DomainException("json", "Datele JSON nu sunt valide.", "Invalid JSON data.");
+        }
+        Guard.Require(
+            data.ValueKind == JsonValueKind.Object,
+            "json",
+            "Datele trebuie să fie JSON obiect.",
+            "Data must be a JSON object."
+        );
+        foreach (var property in data.EnumerateObject())
+        {
+            if (
+                new[]
+                {
+                    "rate",
+                    "ronRate",
+                    "priority",
+                    "vatZeroTolerance",
+                    "maxFileMb",
+                    "maxReportMb",
+                    "afterHours",
+                    "repeatHours",
+                    "escalateHours",
+                }.Contains(property.Name)
+            )
+                Guard.Require(
+                    property.Value.ValueKind == JsonValueKind.Number && property.Value.TryGetDecimal(out _),
+                    "number",
+                    "Valoare numerică invalidă: " + property.Name,
+                    "Invalid numeric value: " + property.Name
+                );
+            if (
+                new[]
+                {
+                    "vehicle",
+                    "repair",
+                    "inApp",
+                    "email",
+                    "requireCardMatchBeforeApproval",
+                    "requireReapprovalOnPersonalIncrease",
+                }.Contains(property.Name)
+            )
+                Guard.Require(
+                    property.Value.ValueKind is JsonValueKind.True or JsonValueKind.False,
+                    "boolean",
+                    "Valoare da/nu invalidă: " + property.Name,
+                    "Invalid boolean value: " + property.Name
+                );
+            if (
+                new[]
+                {
+                    "cui",
+                    "lastFour",
+                    "ownerId",
+                    "issuer",
+                    "currency",
+                    "field",
+                    "state",
+                    "escalationRole",
+                    "erpCode",
+                    "mainAccount",
+                    "localAccount",
+                    "subAccount",
+                    "vendorAccount",
+                    "parentCode",
+                    "approvalReference",
+                    "clearingAccount",
+                    "clearingLocal",
+                    "roundingAccount",
+                    "roundingLocal",
+                    "vatAccount",
+                    "vatLocal",
+                    "otherCarNonDedAccount",
+                    "repairNonDedAccount",
+                    "repairNonDedLocal",
+                    "filenamePattern",
+                    "exportDate",
+                    "businessUnit",
+                    "objective",
+                    "site",
+                    "productionLine",
+                    "exportCurrency",
+                    "documentNumber",
+                    "dueDate",
+                }.Contains(property.Name)
+            )
+                Guard.Require(
+                    property.Value.ValueKind == JsonValueKind.String,
+                    "text",
+                    "Valoare text invalidă: " + property.Name,
+                    "Invalid text value: " + property.Name
+                );
+        }
+        if (i.Kind == "countries")
+            Guard.Require(
+                i.Code.Length == 2 && i.Code.All(char.IsAsciiLetterUpper),
+                "country",
+                "Cod țară invalid.",
+                "Invalid country code."
+            );
+        if (i.Kind == "fieldRules" && data.TryGetProperty("conditions", out var conditions))
+            Guard.Require(
+                conditions.ValueKind == JsonValueKind.Object
+                    && conditions
+                        .EnumerateObject()
+                        .All(p =>
+                            new[] { "country", "documentType", "category", "payment", "currency" }.Contains(p.Name)
+                            && p.Value.ValueKind == JsonValueKind.String
+                        ),
+                "conditions",
+                "Condiții de câmp invalide.",
+                "Invalid field conditions."
+            );
+        if (i.Kind == "vat")
+            Guard.Require(
+                data.TryGetProperty("rate", out var rate)
+                    && rate.GetDecimal() >= 0
+                    && rate.GetDecimal() <= 100
+                    && (rate.GetDecimal() is not (5 or 19) || !i.Active),
+                "vat",
+                "Cotă invalidă; 5% și 19% nu pot fi active.",
+                "Invalid rate; 5% and 19% cannot be active."
+            );
+        if (i.Kind == "fx")
+        {
+            Guard.Require(
+                i.Code.Length == 3
+                    && i.Code.All(char.IsAsciiLetterUpper)
+                    && data.TryGetProperty("ronRate", out var fx)
+                    && fx.GetDecimal() > 0
+                    && fx.GetDecimal() <= 1000000,
+                "fx",
+                "Codul monedei sau cursul este invalid.",
+                "Invalid currency code or exchange rate."
+            );
+            var rate = data.GetProperty("ronRate").GetDecimal();
+            var precision = (await FinancialCalculations.Policy(db, i.Code, i.From)).Policy.RateDecimals;
+            Guard.Require(
+                decimal.Round(rate, precision) == rate,
+                "fx_precision",
+                "Cursul depășește precizia stabilită de Finance.",
+                "Rate exceeds Finance configured precision."
+            );
+        }
+        if (i.Kind == "policies")
+        {
+            if (VehicleDeductibility.IsCode(i.Code))
+                Guard.Require(
+                    data.TryGetProperty("percentage", out var percentage)
+                        && percentage.TryGetDecimal(out var pct)
+                        && pct >= 0
+                        && pct <= 100
+                        && decimal.Round(pct, 2) == pct,
+                    "vehicle_percentage",
+                    "Procentul auto trebuie să fie între 0 și 100, cu maximum două zecimale.",
+                    "Vehicle percentage must be between 0 and 100, with at most two decimals."
+                );
+            if (i.Code == "company")
+                Guard.Require(
+                    data.TryGetProperty("cui", out var cui) && Rules.ValidCui(cui.GetString()),
+                    "cui",
+                    "CUI companie invalid.",
+                    "Invalid company VAT ID."
+                );
+            if (i.Code == "uploads")
+            {
+                foreach (var key in new[] { "maxFileMb", "maxReportMb" })
+                    if (data.TryGetProperty(key, out var value))
+                        Guard.Require(
+                            value.TryGetDecimal(out var size) && size > 0 && size <= (key == "maxFileMb" ? 100 : 1000),
+                            "size",
+                            "Limite de fișier invalide.",
+                            "Invalid file limits."
+                        );
+            }
+            if (data.TryGetProperty("vatZeroTolerance", out var zero))
+                Guard.Require(
+                    zero.TryGetDecimal(out var amount) && amount >= 0 && amount <= 10,
+                    "tolerance",
+                    "Toleranță TVA invalidă.",
+                    "Invalid VAT tolerance."
+                );
+        }
+        if (i.Kind == "notificationRules")
+        {
+            foreach (var key in new[] { "email", "inApp" })
+                if (data.TryGetProperty(key, out var value))
+                    Guard.Require(
+                        value.ValueKind is JsonValueKind.True or JsonValueKind.False,
+                        "notification",
+                        "Selectează da sau nu pentru canalele de notificare.",
+                        "Choose true or false for notification channels."
+                    );
+            if (i.Code == "reminders")
+                foreach (var key in new[] { "afterHours", "repeatHours" })
+                    Guard.Require(
+                        data.TryGetProperty(key, out var value)
+                            && value.TryGetDecimal(out var hours)
+                            && hours >= 1
+                            && hours <= 8760,
+                        "reminder",
+                        "Intervalele reminderelor trebuie să fie între 1 și 8760 ore.",
+                        "Reminder intervals must be between 1 and 8760 hours."
+                    );
+        }
+        if (i.Kind == "cards")
+        {
+            Guard.Require(
+                data.TryGetProperty("lastFour", out var digits)
+                    && digits.GetString()?.Length == 4
+                    && digits.GetString()!.All(char.IsAsciiDigit),
+                "card",
+                "Completează numai ultimele patru cifre ale cardului.",
+                "Enter only the last four card digits."
+            );
+            Guard.Require(
+                data.EnumerateObject().All(p => new[] { "lastFour", "ownerId", "issuer", "currency" }.Contains(p.Name)),
+                "card",
+                "Date suplimentare ale cardului nu sunt permise.",
+                "Additional card data is not permitted."
+            );
+        }
+        if (i.Kind == "fieldRules")
+            Guard.Require(
+                data.TryGetProperty("state", out var state)
+                    && new[] { "REQUIRED", "OPTIONAL", "NOT_APPLICABLE" }.Contains(state.GetString())
+                    && data.TryGetProperty("field", out var field)
+                    && new[]
+                    {
+                        "supplier",
+                        "cui",
+                        "invoice",
+                        "date",
+                        "country",
+                        "documentType",
+                        "category",
+                        "description",
+                        "payment",
+                        "cardId",
+                        "costCenter",
+                        "project",
+                        "amount",
+                        "currency",
+                        "taxes",
+                    }.Contains(field.GetString()),
+                "field",
+                "Regulă de câmp invalidă.",
+                "Invalid field rule."
+            );
+        var code = i.Kind == "suppliers" ? Rules.Cui(i.Code) : i.Code.Trim();
+        if (i.Kind == "suppliers")
+            Guard.Require(Rules.ValidCui(code), "cui", "CUI invalid.", "Invalid CUI.");
+        var versions = await db.Masters.Where(m => m.Kind == i.Kind && m.Code == code).ToListAsync();
+        Guard.Require(
+            !versions.Any(m => m.From == i.From)
+                && !(batch ?? []).Any(m =>
+                    m.Kind == i.Kind
+                    && (i.Kind == "suppliers" ? Rules.Cui(m.Code) : m.Code.Trim()) == code
+                    && m.From == i.From
+                ),
+            "duplicate",
+            "Versiune duplicată.",
+            "Duplicate master version."
+        );
+        if (i.Active)
+        {
+            bool Overlaps(DateOnly from, DateOnly? to) =>
+                from <= (i.To ?? DateOnly.MaxValue) && (to ?? DateOnly.MaxValue) >= i.From;
+            Guard.Require(
+                !versions.Any(m => m.Active && Overlaps(m.From, m.To))
+                    && !(batch ?? []).Any(m =>
+                        m.Active
+                        && m.Kind == i.Kind
+                        && (i.Kind == "suppliers" ? Rules.Cui(m.Code) : m.Code.Trim()) == code
+                        && Overlaps(m.From, m.To)
+                    ),
+                "overlap",
+                "Perioadele active se suprapun.",
+                "Active periods overlap."
+            );
+        }
+    }
+
+    public static async Task<Master> Create(MasterInput i, Db db, Reports svc, HttpContext c)
+    {
+        Guard.Require(
+            (i.Kind != "fx" && !(i.Kind == "policies" && VehicleDeductibility.IsCode(i.Code)))
+                || c.User.IsInRole("Finance"),
+            "forbidden",
+            "Doar Finance poate modifica un curs valutar.",
+            "Only Finance may change exchange rates.",
+            403
+        );
+        Guard.Reason(i.Reason);
+        await Validate(i, db);
+        var m = new Master
+        {
+            Kind = i.Kind,
+            Code = i.Kind == "suppliers" ? Rules.Cui(i.Code) : i.Code.Trim(),
+            NameRo = i.NameRo,
+            NameEn = i.NameEn,
+            Json = i.Json,
+            From = i.From,
+            To = i.To,
+            Active = i.Active,
+        };
+        db.Masters.Add(m);
+        svc.Log(c.User, null, m.Id.ToString(), "MasterVersionCreated", after: m, reason: i.Reason);
+        return m;
+    }
+}
+
+public record MasterBatch(List<MasterInput> Rows, string Reason);

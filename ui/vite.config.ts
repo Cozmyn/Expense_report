@@ -1,1 +1,5 @@
-import {defineConfig} from 'vite';export default defineConfig({server:{proxy:{'/api':'http://localhost:5080','/health':'http://localhost:5080'}},build:{outDir:'../server/wwwroot',emptyOutDir:true}});
+import { defineConfig } from 'vite';
+export default defineConfig({
+  server: { proxy: { '/api': 'http://localhost:5080', '/health': 'http://localhost:5080' } },
+  build: { outDir: '../server/wwwroot', emptyOutDir: true },
+});

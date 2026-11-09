@@ -1,0 +1,58 @@
+name: Mechanical formatting - isolated review branch
+on:
+  push:
+    branches:
+      - refactor/mechanical-format-20261108
+    paths:
+      - .github/workflows/mechanical-format.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  format:
+    if: github.ref == 'refs/heads/refactor/mechanical-format-20261108'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Restore C# projects
+        run: |
+          dotnet restore server/Decont.Api.csproj
+          dotnet restore tests/Decont.Tests.csproj
+      - name: Whitespace-only C# formatting
+        run: |
+          dotnet format whitespace server/Decont.Api.csproj --no-restore
+          dotnet format whitespace tests/Decont.Tests.csproj --no-restore
+      - name: Prettier mechanical formatting
+        run: |
+          npx --yes prettier@3.6.2 --write 'ui/src/**/*.{ts,tsx,mjs,css}' 'ui/e2e/**/*.ts' 'ui/tests/**/*.mjs' 'ui/*.ts'
+      - name: Test the formatted source before any commit
+        run: |
+          npm ci --prefix ui
+          npm test --prefix ui
+          npm run build --prefix ui
+          dotnet test tests/Decont.Tests.csproj --configuration Release --no-restore
+      - name: Verify tracked-file-only changes and commit
+        shell: bash
+        run: |
+          git diff --check
+          if git diff --name-status | awk '$1 != "M" { bad = 1; print "Unexpected file status: " $0 } END { exit bad }'; then
+            echo "No tracked files were deleted, renamed, or added by formatters."
+          else
+            exit 1
+          fi
+          git add -u -- server tests ui
+          if git diff --cached --quiet; then
+            echo "Formatter made no source changes."
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'style: mechanical C# whitespace and frontend Prettier formatting'
+          git push origin HEAD:refs/heads/refactor/mechanical-format-20261108

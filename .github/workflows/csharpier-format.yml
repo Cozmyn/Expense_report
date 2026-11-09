@@ -1,0 +1,42 @@
+name: CSharpier mechanical formatting - isolated review branch
+on:
+  push:
+    branches:
+      - refactor/mechanical-format-20261108
+    paths:
+      - .github/workflows/csharpier-format.yml
+permissions:
+  contents: write
+jobs:
+  format-csharp:
+    if: github.ref == 'refs/heads/refactor/mechanical-format-20261108'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install CSharpier
+        run: dotnet tool install --global csharpier
+      - name: Format only C# source and tests
+        run: |
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          csharpier format server
+          csharpier format tests
+      - name: Verify resulting C# compiles and tests pass on SQLite
+        run: dotnet test tests/Decont.Tests.csproj --configuration Release
+      - name: Verify changes and commit
+        shell: bash
+        run: |
+          git diff --check
+          if ! git diff --name-status | awk '$1 != "M" { bad=1; print "Unexpected file status: "$0 } END {exit bad}'; then
+            exit 1
+          fi
+          git add -u -- server tests
+          if git diff --cached --quiet; then
+            echo "No C# changes needed"
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'style: mechanically format C# source and tests with CSharpier'
+          git push origin HEAD:refs/heads/refactor/mechanical-format-20261108

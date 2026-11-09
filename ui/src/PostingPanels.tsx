@@ -1,68 +1,697 @@
-import React,{useEffect,useState}from'react';
-import{api}from'./api';
-import{Field}from'./Fields';
-import{formatMoney,formatOriginal,parseFinancialJson}from'./decimal.mjs';
-import DocumentViewer from'./DocumentViewer';
-type Any=Record<string,any>;
-const day=()=>new Date().toISOString().slice(0,10);
-const money=(v:unknown)=>formatMoney(v,localStorage.getItem('decont.language')==='en'?'en-GB':'ro-RO');
-export function VehicleSettings({t,run,refresh}:Any){
- const[data,D]=useState<Any|null>(null),[percentage,P]=useState('50'),[from,F]=useState(day()),[reason,R]=useState(''),[codes,C]=useState<Any>({});
- const load=async()=>{const next=await api('/finance/vehicle-deductibility');D(next);if(!data){const current=next.versions.find((v:Any)=>v.active&&v.from<=day()&&(!v.to||v.to>=day()));if(current){const settings=parseFinancialJson(current.json);P(String(settings.percentage));C(Object.fromEntries(Object.entries(settings).filter(([key])=>key.endsWith('Code'))));}}};
- useEffect(()=>{run(load);},[]);
- return <details><summary>{t('Deductibilitate auto','Vehicle deductibility')}</summary>
-  <p>{t('Implicit 50% pentru cheltuielile auto, indiferent de metoda de plată. O versiune nouă păstrează istoricul și cere reverificarea Finance a calculelor afectate.','Default 50% for vehicle expenses, regardless of payment method. A new version preserves history and requires affected calculations to be reviewed by Finance.')}</p>
-  <form onSubmit={e=>{e.preventDefault();run(async()=>{await api('/finance/vehicle-deductibility','POST',{percentage,from,reason,taxCodes:codes});R('');await load();await refresh();});}}>
-   <div className="form-grid"><Field name={t('Procent deductibil auto','Vehicle deductible percentage')}><input type="number" min="0" max="100" step="0.01" required value={percentage} onChange={e=>P(e.target.value)}/></Field><Field name={t('Se aplică din','Applies from')}><input type="date" required value={from} onChange={e=>F(e.target.value)}/></Field></div>
-   {Number(percentage)!==50&&<><p className="issue warning">{t('Pentru un alt procent, introdu codurile contabile corespunzătoare cotelor folosite. Lipsa lor blochează exportul; codurile de 50% nu se reutilizează automat.','For a different percentage, enter the accounting codes for the rates used. Missing codes block export; 50% codes are not reused automatically.')}</p><div className="form-grid">{[11,21].flatMap(rate=>['deductible','nonDeductible'].map(kind=>{const key=kind+rate+'Code';return <Field key={key} name={kind==='deductible'?t('Cod deductibil — TVA '+rate+'%','Deductible code — VAT '+rate+'%'):t('Cod nedeductibil — TVA '+rate+'%','Non-deductible code — VAT '+rate+'%')}><input maxLength={80} value={codes[key]||''} onChange={e=>C({...codes,[key]:e.target.value})}/></Field>;}))}</div></>}
-   <Field name={t('Motiv schimbare procent','Percentage change reason')}><input required minLength={3} value={reason} onChange={e=>R(e.target.value)}/></Field><button className="primary" disabled={!data}>{t('Salvează procentul auto','Save vehicle percentage')}</button>
-  </form>
-  <h3>{t('Istoricul procentelor','Percentage history')}</h3>{!data?<p role="status">{t('Se încarcă…','Loading…')}</p>:!data.versions.length?<p>{t('Se aplică procentul implicit de 50%.','The default 50% applies.')}</p>:data.versions.map((v:Any)=>{const d=parseFinancialJson(v.json);return <div className="simple-row" key={v.id}><strong>{formatOriginal(d.percentage)}%</strong><span>{t('Din','From')} {new Date(v.from+'T12:00:00').toLocaleDateString('ro-RO')} · {t('Versiunea','Version')} {d.version||'—'}</span></div>;})}
- </details>;
+import React, { useEffect, useState } from 'react';
+import { api } from './api';
+import { Field } from './Fields';
+import { formatMoney, formatOriginal, parseFinancialJson } from './decimal.mjs';
+import DocumentViewer from './DocumentViewer';
+type Any = Record<string, any>;
+const day = () => new Date().toISOString().slice(0, 10);
+const money = (v: unknown) =>
+  formatMoney(v, localStorage.getItem('decont.language') === 'en' ? 'en-GB' : 'ro-RO');
+export function VehicleSettings({ t, run, refresh }: Any) {
+  const [data, D] = useState<Any | null>(null),
+    [percentage, P] = useState('50'),
+    [from, F] = useState(day()),
+    [reason, R] = useState(''),
+    [codes, C] = useState<Any>({});
+  const load = async () => {
+    const next = await api('/finance/vehicle-deductibility');
+    D(next);
+    if (!data) {
+      const current = next.versions.find(
+        (v: Any) => v.active && v.from <= day() && (!v.to || v.to >= day()),
+      );
+      if (current) {
+        const settings = parseFinancialJson(current.json);
+        P(String(settings.percentage));
+        C(Object.fromEntries(Object.entries(settings).filter(([key]) => key.endsWith('Code'))));
+      }
+    }
+  };
+  useEffect(() => {
+    run(load);
+  }, []);
+  return (
+    <details>
+      <summary>{t('Deductibilitate auto', 'Vehicle deductibility')}</summary>
+      <p>
+        {t(
+          'Implicit 50% pentru cheltuielile auto, indiferent de metoda de plată. O versiune nouă păstrează istoricul și cere reverificarea Finance a calculelor afectate.',
+          'Default 50% for vehicle expenses, regardless of payment method. A new version preserves history and requires affected calculations to be reviewed by Finance.',
+        )}
+      </p>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          run(async () => {
+            await api('/finance/vehicle-deductibility', 'POST', {
+              percentage,
+              from,
+              reason,
+              taxCodes: codes,
+            });
+            R('');
+            await load();
+            await refresh();
+          });
+        }}
+      >
+        <div className="form-grid">
+          <Field name={t('Procent deductibil auto', 'Vehicle deductible percentage')}>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              required
+              value={percentage}
+              onChange={(e) => P(e.target.value)}
+            />
+          </Field>
+          <Field name={t('Se aplică din', 'Applies from')}>
+            <input type="date" required value={from} onChange={(e) => F(e.target.value)} />
+          </Field>
+        </div>
+        {Number(percentage) !== 50 && (
+          <>
+            <p className="issue warning">
+              {t(
+                'Pentru un alt procent, introdu codurile contabile corespunzătoare cotelor folosite. Lipsa lor blochează exportul; codurile de 50% nu se reutilizează automat.',
+                'For a different percentage, enter the accounting codes for the rates used. Missing codes block export; 50% codes are not reused automatically.',
+              )}
+            </p>
+            <div className="form-grid">
+              {[11, 21].flatMap((rate) =>
+                ['deductible', 'nonDeductible'].map((kind) => {
+                  const key = kind + rate + 'Code';
+                  return (
+                    <Field
+                      key={key}
+                      name={
+                        kind === 'deductible'
+                          ? t(
+                              'Cod deductibil — TVA ' + rate + '%',
+                              'Deductible code — VAT ' + rate + '%',
+                            )
+                          : t(
+                              'Cod nedeductibil — TVA ' + rate + '%',
+                              'Non-deductible code — VAT ' + rate + '%',
+                            )
+                      }
+                    >
+                      <input
+                        maxLength={80}
+                        value={codes[key] || ''}
+                        onChange={(e) => C({ ...codes, [key]: e.target.value })}
+                      />
+                    </Field>
+                  );
+                }),
+              )}
+            </div>
+          </>
+        )}
+        <Field name={t('Motiv schimbare procent', 'Percentage change reason')}>
+          <input required minLength={3} value={reason} onChange={(e) => R(e.target.value)} />
+        </Field>
+        <button className="primary" disabled={!data}>
+          {t('Salvează procentul auto', 'Save vehicle percentage')}
+        </button>
+      </form>
+      <h3>{t('Istoricul procentelor', 'Percentage history')}</h3>
+      {!data ? (
+        <p role="status">{t('Se încarcă…', 'Loading…')}</p>
+      ) : !data.versions.length ? (
+        <p>{t('Se aplică procentul implicit de 50%.', 'The default 50% applies.')}</p>
+      ) : (
+        data.versions.map((v: Any) => {
+          const d = parseFinancialJson(v.json);
+          return (
+            <div className="simple-row" key={v.id}>
+              <strong>{formatOriginal(d.percentage)}%</strong>
+              <span>
+                {t('Din', 'From')} {new Date(v.from + 'T12:00:00').toLocaleDateString('ro-RO')} ·{' '}
+                {t('Versiunea', 'Version')} {d.version || '—'}
+              </span>
+            </div>
+          );
+        })
+      )}
+    </details>
+  );
 }
 
-const strategies:Record<string,[string,string]>={FOREIGN_CAR:['Auto — străinătate','Vehicle — foreign'],FOREIGN_STANDARD:['Străinătate','Foreign'],RO_NO_CUI:['România fără CUI companie','Romania without company VAT ID'],RO_CUI_CAR:['Auto — România cu CUI','Vehicle — Romania with VAT ID'],RO_CUI_STANDARD:['România cu CUI','Romania with VAT ID']};
-function TraceLines({lines,t,onSource}:Any){return <div className="posting-lines">{lines.map((l:Any)=>{const d=parseFinancialJson(l.sourceJson),map=parseFinancialJson(l.mappingJson);return <article className="expense" key={l.id}>
- <div className="expense-head"><div><strong>{t('Rând','Line')} {l.sequence} · {t('Bon','Receipt')} {l.position}</strong><p>{d.invoice} · {d.date} · {t(...(strategies[l.strategy]||[l.strategy,l.strategy]))}</p></div><span>{l.cells[1]} · {l.cells[2]}</span></div>
- <div className="expense-tags"><span>{t('Debit','Debit')}: {money(l.debit)} RON</span><span>{t('Credit','Credit')}: {money(l.credit)} RON</span>{l.rateBps!=null&&<span>{t('Cotă TVA','VAT rate')}: {Number(l.rateBps)/100}%</span>}{l.vehiclePercentage!=null&&<span>{t('Deductibil auto','Vehicle deductible')}: {formatOriginal(l.vehiclePercentage)}%</span>}</div>
- <p>{d.description}</p><details><summary>{t('Sursă și mapare','Source & mapping')}</summary><dl className="posting-facts"><dt>{t('Document original','Original document')}</dt><dd>{formatOriginal(d.amount)} {d.currency} · {d.invoice}</dd><dt>{t('Cont local / subcont','Local account / subaccount')}</dt><dd>{l.cells[7]} / {l.cells[10]||'—'}</dd><dt>{t('Centru de cost / proiect','Cost centre / project')}</dt><dd>{l.cells[4]} / {l.cells[9]||'—'}</dd><dt>{t('Coduri TVA','VAT codes')}</dt><dd>{l.cells[16]||'—'} / {l.cells[17]||'—'}</dd><dt>{t('Cont mapat','Mapped account')}</dt><dd>{map.mainAccount} · {map.localAccount}</dd><dt>{t('Calcul verificat','Verified calculation')}</dt><dd>{l.calculationId||'—'}</dd><dt>{t('Versiune mapare','Mapping version')}</dt><dd>{l.mappingId}</dd><dt>{t('Identificator rând','Line identifier')}</dt><dd>{l.id}</dd></dl>{onSource&&<button className="secondary" onClick={()=>onSource(l.expenseId)}>{t('Vezi documentul sursă','View source document')}</button>}</details>
- </article>;})}</div>;}
-
-export function PostingPreview({report,detail,t,run,finance,refresh,busy,change}:Any){
- const[data,D]=useState<Any|null>(null),[reason,R]=useState(''),[source,S]=useState<Any|null>(null);
- const load=()=>api('/reports/'+report.id+'/erp-preview').then(D);
- useEffect(()=>{D(null);run(load);},[report.id,report.version]);
- const original=(id:string)=>{const line=report.lines.find((l:Any)=>l.id===id);const evidence=line?.evidence?.find((e:Any)=>!e.archived&&e.scan==='Clean');const attachment=report.attachments?.find((e:Any)=>!e.archived&&e.scan==='Clean'&&JSON.parse(e.coveredLines||'[]').includes(id));const group=detail.sourceGroups?.find((g:Any)=>g.expenseId===id);const file=evidence||attachment;if(file)S({document:{...file,reportId:report.id,url:'/api/'+(evidence?'evidence/':'report-attachments/')+file.id,previewUrl:file.mime==='image/heic'?`/api/reports/${report.id}/documents/${file.id}/preview`:undefined},regions:group?JSON.parse(group.regions):[]});};
- const decide=(action:string)=>run(async()=>{if(!data?.fingerprint)return;await api('/finance/reports/'+report.id+'/posting-review','POST',{version:report.version,fingerprint:data.fingerprint,action,reason});R('');await refresh();});
- return <><div className="section-heading posting-preview-heading"><h2>{t('Previzualizare ERP','ERP preview')}</h2><button className="secondary" onClick={()=>run(load)}>{t('Actualizează previzualizarea','Refresh preview')}</button></div>
- <p>{t('Valorile sunt cele ale fișierului Import, în ordinea A:X. Aplicația nu adaugă un al doilea calcul TVA și nu modifică sumele pentru a forța egalitatea debit/credit.','Values match the Import file in A:X order. The application does not add another VAT calculation or alter amounts to force debit/credit equality.')}</p>
- {!data?<p role="status">{t('Se verifică documentele și calculele…','Checking documents and calculations…')}</p>:<>
- {data.frozen&&<p className="issue ready">{t('Export salvat: se afișează valorile istorice ale fișierului, nu mapările curente.','Saved export: these are the historical file values, not current mappings.')}</p>}
- {data.issues?.map((p:Any,i:number)=><p className={'issue '+(p.blocking?'blocking':'warning')} key={i}>{p.lineId&&`${t('Bon','Receipt')} ${report.lines.find((l:Any)=>l.id===p.lineId)?.position}: `}{t(p.ro,p.en)}</p>)}
- {!data.rows.length&&<p>{t('Rezolvă verificările și finalizează verificarea Finance pentru a vedea rândurile contabile.','Resolve the checks and complete Finance review to see posting lines.')}</p>}
- {data.reconciliation?.length>0&&<div className="table-wrap"><table><caption>{t('Verificare document → export (RON)','Document → export reconciliation (RON)')}</caption><thead><tr>{[t('Bon','Receipt'),t('Total document','Document gross'),t('Bază','Base'),t('TVA','VAT'),t('Rotunjire','Rounding'),t('Total exportat','Export gross'),t('Diferență','Difference')].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{data.reconciliation.map((r:Any)=><tr key={r.expenseId}><td>{r.position}</td><td>{money(r.sourceGrossRon)}</td><td>{money(r.baseRon)}</td><td>{money(r.vatRon)}</td><td>{money(r.roundingRon)}</td><td>{money(r.exportGrossRon)}</td><td>{money(r.differenceRon)}</td></tr>)}</tbody></table></div>}
- <TraceLines lines={data.lines||[]} t={t} onSource={original}/>
- {source&&<section className="panel"><button className="secondary" onClick={()=>S(null)}>{t('Închide documentul','Close document')}</button><DocumentViewer key={source.document.url} document={source.document} regions={source.regions} t={t}/></section>}
- {data.rows.length>0&&<details><summary>{t('Fișierul Import — toate cele 24 de coloane','Import file — all 24 columns')}</summary><div className="table-wrap"><table><thead><tr>{data.headers.map((h:string)=><th key={h}>{h}</th>)}</tr></thead><tbody>{data.rows.map((row:string[],i:number)=><tr key={i}>{row.map((v:string,k:number)=><td key={k}>{v}</td>)}</tr>)}</tbody></table></div></details>}
- {finance&&!data.frozen&&data.fingerprint&&['FINANCE_REVIEW','READY_FOR_ERP'].includes(report.state)&&<section><Field name={t('Motiv verificare contabilă','Posting review reason')}><input minLength={3} value={reason} onChange={e=>R(e.target.value)}/></Field><div className="actions"><button className="secondary" disabled={busy||reason.trim().length<3} onClick={()=>decide('ACCEPT')}>{t('Confirmă previzualizarea','Accept posting preview')}</button><button className="secondary danger" disabled={busy||reason.trim().length<3} onClick={()=>decide('REJECT')}>{t('Respinge previzualizarea','Reject posting preview')}</button>{report.state==='READY_FOR_ERP'&&<button className="primary" disabled={busy||data.issues.some((p:Any)=>p.blocking)} onClick={()=>change('/finance/reports/'+report.id+'/export',{version:report.version,reason})}>{t('Generează export','Generate export')}</button>}</div></section>}
- {data.reviews?.length>0&&<details><summary>{t('Istoric verificări contabile','Posting review history')}</summary>{data.reviews.map((r:Any)=><p key={r.id}>{new Date(r.at).toLocaleString()} · {r.actor} · {r.action==='ACCEPT'?t('Confirmat','Accepted'):t('Respins','Rejected')} · {r.reason}</p>)}</details>}
- </>}</>;
+const strategies: Record<string, [string, string]> = {
+  FOREIGN_CAR: ['Auto — străinătate', 'Vehicle — foreign'],
+  FOREIGN_STANDARD: ['Străinătate', 'Foreign'],
+  RO_NO_CUI: ['România fără CUI companie', 'Romania without company VAT ID'],
+  RO_CUI_CAR: ['Auto — România cu CUI', 'Vehicle — Romania with VAT ID'],
+  RO_CUI_STANDARD: ['România cu CUI', 'Romania with VAT ID'],
+};
+function TraceLines({ lines, t, onSource }: Any) {
+  return (
+    <div className="posting-lines">
+      {lines.map((l: Any) => {
+        const d = parseFinancialJson(l.sourceJson),
+          map = parseFinancialJson(l.mappingJson);
+        return (
+          <article className="expense" key={l.id}>
+            <div className="expense-head">
+              <div>
+                <strong>
+                  {t('Rând', 'Line')} {l.sequence} · {t('Bon', 'Receipt')} {l.position}
+                </strong>
+                <p>
+                  {d.invoice} · {d.date} ·{' '}
+                  {t(...(strategies[l.strategy] || [l.strategy, l.strategy]))}
+                </p>
+              </div>
+              <span>
+                {l.cells[1]} · {l.cells[2]}
+              </span>
+            </div>
+            <div className="expense-tags">
+              <span>
+                {t('Debit', 'Debit')}: {money(l.debit)} RON
+              </span>
+              <span>
+                {t('Credit', 'Credit')}: {money(l.credit)} RON
+              </span>
+              {l.rateBps != null && (
+                <span>
+                  {t('Cotă TVA', 'VAT rate')}: {Number(l.rateBps) / 100}%
+                </span>
+              )}
+              {l.vehiclePercentage != null && (
+                <span>
+                  {t('Deductibil auto', 'Vehicle deductible')}:{' '}
+                  {formatOriginal(l.vehiclePercentage)}%
+                </span>
+              )}
+            </div>
+            <p>{d.description}</p>
+            <details>
+              <summary>{t('Sursă și mapare', 'Source & mapping')}</summary>
+              <dl className="posting-facts">
+                <dt>{t('Document original', 'Original document')}</dt>
+                <dd>
+                  {formatOriginal(d.amount)} {d.currency} · {d.invoice}
+                </dd>
+                <dt>{t('Cont local / subcont', 'Local account / subaccount')}</dt>
+                <dd>
+                  {l.cells[7]} / {l.cells[10] || '—'}
+                </dd>
+                <dt>{t('Centru de cost / proiect', 'Cost centre / project')}</dt>
+                <dd>
+                  {l.cells[4]} / {l.cells[9] || '—'}
+                </dd>
+                <dt>{t('Coduri TVA', 'VAT codes')}</dt>
+                <dd>
+                  {l.cells[16] || '—'} / {l.cells[17] || '—'}
+                </dd>
+                <dt>{t('Cont mapat', 'Mapped account')}</dt>
+                <dd>
+                  {map.mainAccount} · {map.localAccount}
+                </dd>
+                <dt>{t('Calcul verificat', 'Verified calculation')}</dt>
+                <dd>{l.calculationId || '—'}</dd>
+                <dt>{t('Versiune mapare', 'Mapping version')}</dt>
+                <dd>{l.mappingId}</dd>
+                <dt>{t('Identificator rând', 'Line identifier')}</dt>
+                <dd>{l.id}</dd>
+              </dl>
+              {onSource && (
+                <button className="secondary" onClick={() => onSource(l.expenseId)}>
+                  {t('Vezi documentul sursă', 'View source document')}
+                </button>
+              )}
+            </details>
+          </article>
+        );
+      })}
+    </div>
+  );
 }
 
-export function PostingDashboard({t,run,open}:Any){
- const[data,D]=useState<Any|null>(null),[filter,F]=useState({from:new Date(Date.now()-90*86400000).toISOString().slice(0,10),to:day(),state:''}),[selected,S]=useState<Any|null>(null);
- const load=(page=1)=>api('/finance/posting-dashboard?'+new URLSearchParams({...filter,page:String(page)})).then(D);
- useEffect(()=>{run(()=>load());},[]);
- return <section className="panel"><h1>{t('Situație contabilă','Accounting overview')}</h1><p>{t('Totalurile pe departament, furnizor și categorie numără fiecare cheltuială o singură dată și exclud exporturile anulate sau reversate.','Department, vendor and category totals count each expense once and exclude voided or reversed batches.')}</p>
- <form onSubmit={e=>{e.preventDefault();run(()=>load());}}><div className="form-grid">{(['from','to']as const).map(k=><Field key={k} name={k==='from'?t('Exporturi din','Exports from'):t('Exporturi până la','Exports to')}><input type="date" required value={filter[k]} onChange={e=>F({...filter,[k]:e.target.value})}/></Field>)}<Field name={t('Stare export','Export status')}><select value={filter.state} onChange={e=>F({...filter,state:e.target.value})}><option value="">{t('Toate','All')}</option>{[['Exported',t('Nepostat','Not posted')],['Posted',t('Postat','Posted')],['Voided',t('Anulat','Voided')],['Reversed',t('Reversat','Reversed')]].map(([v,label])=><option value={v} key={v}>{label}</option>)}</select></Field></div><button className="secondary">{t('Aplică filtrele contabile','Apply accounting filters')}</button></form>
- {!data?<p role="status">{t('Se încarcă exporturile…','Loading exports…')}</p>:<><div className="stats"><div className="stat"><span>{t('Exporturi în perioadă','Exports in period')}</span><strong>{data.total}</strong></div><div className="stat"><span>{t('Fără confirmare postare','Awaiting posting confirmation')}</span><strong>{data.unmatched}</strong></div></div>
- {data.legacyBatches>0&&<p className="issue warning">{t('Există exporturi istorice fără trasabilitatea nouă pe rând. Fișierele originale rămân disponibile; nu sunt regenerate.','Some historical batches predate line traceability. Original files remain available and are not regenerated.')}</p>}
- <div className="table-wrap"><table><thead><tr>{[t('Decont','Report'),t('Data','Date'),t('Stare','Status'),t('Referință ERP','ERP reference'),t('Acțiuni','Actions')].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{data.batches.map((b:Any)=>{const snapshot=parseFinancialJson(b.snapshotJson);return <tr key={b.id}><td><button className="text-button" onClick={()=>open(b.reportId)}>{snapshot.number||b.reportId}</button><small>{t('Ciclul','Cycle')} {b.cycle}</small></td><td>{new Date(b.at).toLocaleDateString('ro-RO')}</td><td>{t(({Exported:'Nepostat',Posted:'Postat',Voided:'Anulat',Reversed:'Reversat'}as Any)[b.state]||b.state,b.state)}</td><td>{b.reference||'—'}</td><td><button className="text-button" onClick={()=>run(async()=>S(await api('/finance/batches/'+b.id+'/lines')))}>{t('Vezi rândurile salvate','View saved lines')}</button><a className="text-button" href={'/api/batches/'+b.id+'/xlsx'}>{t('Descarcă XLSX','Download XLSX')}</a></td></tr>;})}</tbody></table></div>
- {!data.total&&<p>{t('Nu există exporturi în perioada aleasă.','No exports in the selected period.')}</p>}
- {data.total>25&&<div className="actions"><button className="secondary" disabled={data.page===1} onClick={()=>run(()=>load(data.page-1))}>{t('Anterior','Previous')}</button><span>{data.page}</span><button className="secondary" disabled={data.page*25>=data.total} onClick={()=>run(()=>load(data.page+1))}>{t('Următor','Next')}</button></div>}
- <div className="form-grid">{[['byDepartment',t('Pe departament','By department')],['byVendor',t('Pe furnizor','By vendor')],['byCategory',t('Pe categorie','By category')]].map(([key,label])=><section key={key}><h2>{label}</h2>{data[key].map((g:Any)=><p key={g.key}>{g.key||t('Neînregistrat','Not recorded')}: <strong>{money(g.total)} RON</strong></p>)}</section>)}</div>
- <details><summary>{t('Deconturi în verificare','Reports awaiting review')} ({data.exceptions.length})</summary>{data.exceptions.map((r:Any)=><p key={r.id}><button className="text-button" onClick={()=>open(r.id)}>{r.number}</button> · {r.state==='READY_FOR_ERP'?t('Gata de export','Ready for export'):t('În verificare Finance','Under Finance review')}</p>)}</details>
- </>}
- {selected&&<section className="panel"><div className="section-heading"><h2>{t('Rânduri contabile salvate','Saved posting lines')}</h2><button className="secondary" onClick={()=>S(null)}>{t('Închide detaliile','Close details')}</button></div><p>{t('Amprentă fișier','File hash')}: <span className="posting-hash">{selected.batch.fileHash}</span></p><TraceLines t={t} lines={selected.lines.map((l:Any)=>l.trace)}/>{!selected.lines.length&&<p>{t('Export anterior introducerii trasabilității pe rând. Descarcă originalul din istoric.','Export predates per-line traceability. Download the original from history.')}</p>}</section>}
- </section>;
+export function PostingPreview({ report, detail, t, run, finance, refresh, busy, change }: Any) {
+  const [data, D] = useState<Any | null>(null),
+    [reason, R] = useState(''),
+    [source, S] = useState<Any | null>(null);
+  const load = () => api('/reports/' + report.id + '/erp-preview').then(D);
+  useEffect(() => {
+    D(null);
+    run(load);
+  }, [report.id, report.version]);
+  const original = (id: string) => {
+    const line = report.lines.find((l: Any) => l.id === id);
+    const evidence = line?.evidence?.find((e: Any) => !e.archived && e.scan === 'Clean');
+    const attachment = report.attachments?.find(
+      (e: Any) =>
+        !e.archived && e.scan === 'Clean' && JSON.parse(e.coveredLines || '[]').includes(id),
+    );
+    const group = detail.sourceGroups?.find((g: Any) => g.expenseId === id);
+    const file = evidence || attachment;
+    if (file)
+      S({
+        document: {
+          ...file,
+          reportId: report.id,
+          url: '/api/' + (evidence ? 'evidence/' : 'report-attachments/') + file.id,
+          previewUrl:
+            file.mime === 'image/heic'
+              ? `/api/reports/${report.id}/documents/${file.id}/preview`
+              : undefined,
+        },
+        regions: group ? JSON.parse(group.regions) : [],
+      });
+  };
+  const decide = (action: string) =>
+    run(async () => {
+      if (!data?.fingerprint) return;
+      await api('/finance/reports/' + report.id + '/posting-review', 'POST', {
+        version: report.version,
+        fingerprint: data.fingerprint,
+        action,
+        reason,
+      });
+      R('');
+      await refresh();
+    });
+  return (
+    <>
+      <div className="section-heading posting-preview-heading">
+        <h2>{t('Previzualizare ERP', 'ERP preview')}</h2>
+        <button className="secondary" onClick={() => run(load)}>
+          {t('Actualizează previzualizarea', 'Refresh preview')}
+        </button>
+      </div>
+      <p>
+        {t(
+          'Valorile sunt cele ale fișierului Import, în ordinea A:X. Aplicația nu adaugă un al doilea calcul TVA și nu modifică sumele pentru a forța egalitatea debit/credit.',
+          'Values match the Import file in A:X order. The application does not add another VAT calculation or alter amounts to force debit/credit equality.',
+        )}
+      </p>
+      {!data ? (
+        <p role="status">
+          {t('Se verifică documentele și calculele…', 'Checking documents and calculations…')}
+        </p>
+      ) : (
+        <>
+          {data.frozen && (
+            <p className="issue ready">
+              {t(
+                'Export salvat: se afișează valorile istorice ale fișierului, nu mapările curente.',
+                'Saved export: these are the historical file values, not current mappings.',
+              )}
+            </p>
+          )}
+          {data.issues?.map((p: Any, i: number) => (
+            <p className={'issue ' + (p.blocking ? 'blocking' : 'warning')} key={i}>
+              {p.lineId &&
+                `${t('Bon', 'Receipt')} ${report.lines.find((l: Any) => l.id === p.lineId)?.position}: `}
+              {t(p.ro, p.en)}
+            </p>
+          ))}
+          {!data.rows.length && (
+            <p>
+              {t(
+                'Rezolvă verificările și finalizează verificarea Finance pentru a vedea rândurile contabile.',
+                'Resolve the checks and complete Finance review to see posting lines.',
+              )}
+            </p>
+          )}
+          {data.reconciliation?.length > 0 && (
+            <div className="table-wrap">
+              <table>
+                <caption>
+                  {t(
+                    'Verificare document → export (RON)',
+                    'Document → export reconciliation (RON)',
+                  )}
+                </caption>
+                <thead>
+                  <tr>
+                    {[
+                      t('Bon', 'Receipt'),
+                      t('Total document', 'Document gross'),
+                      t('Bază', 'Base'),
+                      t('TVA', 'VAT'),
+                      t('Rotunjire', 'Rounding'),
+                      t('Total exportat', 'Export gross'),
+                      t('Diferență', 'Difference'),
+                    ].map((h) => (
+                      <th key={h}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.reconciliation.map((r: Any) => (
+                    <tr key={r.expenseId}>
+                      <td>{r.position}</td>
+                      <td>{money(r.sourceGrossRon)}</td>
+                      <td>{money(r.baseRon)}</td>
+                      <td>{money(r.vatRon)}</td>
+                      <td>{money(r.roundingRon)}</td>
+                      <td>{money(r.exportGrossRon)}</td>
+                      <td>{money(r.differenceRon)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <TraceLines lines={data.lines || []} t={t} onSource={original} />
+          {source && (
+            <section className="panel">
+              <button className="secondary" onClick={() => S(null)}>
+                {t('Închide documentul', 'Close document')}
+              </button>
+              <DocumentViewer
+                key={source.document.url}
+                document={source.document}
+                regions={source.regions}
+                t={t}
+              />
+            </section>
+          )}
+          {data.rows.length > 0 && (
+            <details>
+              <summary>
+                {t('Fișierul Import — toate cele 24 de coloane', 'Import file — all 24 columns')}
+              </summary>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      {data.headers.map((h: string) => (
+                        <th key={h}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.rows.map((row: string[], i: number) => (
+                      <tr key={i}>
+                        {row.map((v: string, k: number) => (
+                          <td key={k}>{v}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
+          {finance &&
+            !data.frozen &&
+            data.fingerprint &&
+            ['FINANCE_REVIEW', 'READY_FOR_ERP'].includes(report.state) && (
+              <section>
+                <Field name={t('Motiv verificare contabilă', 'Posting review reason')}>
+                  <input minLength={3} value={reason} onChange={(e) => R(e.target.value)} />
+                </Field>
+                <div className="actions">
+                  <button
+                    className="secondary"
+                    disabled={busy || reason.trim().length < 3}
+                    onClick={() => decide('ACCEPT')}
+                  >
+                    {t('Confirmă previzualizarea', 'Accept posting preview')}
+                  </button>
+                  <button
+                    className="secondary danger"
+                    disabled={busy || reason.trim().length < 3}
+                    onClick={() => decide('REJECT')}
+                  >
+                    {t('Respinge previzualizarea', 'Reject posting preview')}
+                  </button>
+                  {report.state === 'READY_FOR_ERP' && (
+                    <button
+                      className="primary"
+                      disabled={busy || data.issues.some((p: Any) => p.blocking)}
+                      onClick={() =>
+                        change('/finance/reports/' + report.id + '/export', {
+                          version: report.version,
+                          reason,
+                        })
+                      }
+                    >
+                      {t('Generează export', 'Generate export')}
+                    </button>
+                  )}
+                </div>
+              </section>
+            )}
+          {data.reviews?.length > 0 && (
+            <details>
+              <summary>{t('Istoric verificări contabile', 'Posting review history')}</summary>
+              {data.reviews.map((r: Any) => (
+                <p key={r.id}>
+                  {new Date(r.at).toLocaleString()} · {r.actor} ·{' '}
+                  {r.action === 'ACCEPT' ? t('Confirmat', 'Accepted') : t('Respins', 'Rejected')} ·{' '}
+                  {r.reason}
+                </p>
+              ))}
+            </details>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+export function PostingDashboard({ t, run, open }: Any) {
+  const [data, D] = useState<Any | null>(null),
+    [filter, F] = useState({
+      from: new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10),
+      to: day(),
+      state: '',
+    }),
+    [selected, S] = useState<Any | null>(null);
+  const load = (page = 1) =>
+    api(
+      '/finance/posting-dashboard?' + new URLSearchParams({ ...filter, page: String(page) }),
+    ).then(D);
+  useEffect(() => {
+    run(() => load());
+  }, []);
+  return (
+    <section className="panel">
+      <h1>{t('Situație contabilă', 'Accounting overview')}</h1>
+      <p>
+        {t(
+          'Totalurile pe departament, furnizor și categorie numără fiecare cheltuială o singură dată și exclud exporturile anulate sau reversate.',
+          'Department, vendor and category totals count each expense once and exclude voided or reversed batches.',
+        )}
+      </p>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          run(() => load());
+        }}
+      >
+        <div className="form-grid">
+          {(['from', 'to'] as const).map((k) => (
+            <Field
+              key={k}
+              name={
+                k === 'from'
+                  ? t('Exporturi din', 'Exports from')
+                  : t('Exporturi până la', 'Exports to')
+              }
+            >
+              <input
+                type="date"
+                required
+                value={filter[k]}
+                onChange={(e) => F({ ...filter, [k]: e.target.value })}
+              />
+            </Field>
+          ))}
+          <Field name={t('Stare export', 'Export status')}>
+            <select value={filter.state} onChange={(e) => F({ ...filter, state: e.target.value })}>
+              <option value="">{t('Toate', 'All')}</option>
+              {[
+                ['Exported', t('Nepostat', 'Not posted')],
+                ['Posted', t('Postat', 'Posted')],
+                ['Voided', t('Anulat', 'Voided')],
+                ['Reversed', t('Reversat', 'Reversed')],
+              ].map(([v, label]) => (
+                <option value={v} key={v}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        <button className="secondary">
+          {t('Aplică filtrele contabile', 'Apply accounting filters')}
+        </button>
+      </form>
+      {!data ? (
+        <p role="status">{t('Se încarcă exporturile…', 'Loading exports…')}</p>
+      ) : (
+        <>
+          <div className="stats">
+            <div className="stat">
+              <span>{t('Exporturi în perioadă', 'Exports in period')}</span>
+              <strong>{data.total}</strong>
+            </div>
+            <div className="stat">
+              <span>{t('Fără confirmare postare', 'Awaiting posting confirmation')}</span>
+              <strong>{data.unmatched}</strong>
+            </div>
+          </div>
+          {data.legacyBatches > 0 && (
+            <p className="issue warning">
+              {t(
+                'Există exporturi istorice fără trasabilitatea nouă pe rând. Fișierele originale rămân disponibile; nu sunt regenerate.',
+                'Some historical batches predate line traceability. Original files remain available and are not regenerated.',
+              )}
+            </p>
+          )}
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  {[
+                    t('Decont', 'Report'),
+                    t('Data', 'Date'),
+                    t('Stare', 'Status'),
+                    t('Referință ERP', 'ERP reference'),
+                    t('Acțiuni', 'Actions'),
+                  ].map((h) => (
+                    <th key={h}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.batches.map((b: Any) => {
+                  const snapshot = parseFinancialJson(b.snapshotJson);
+                  return (
+                    <tr key={b.id}>
+                      <td>
+                        <button className="text-button" onClick={() => open(b.reportId)}>
+                          {snapshot.number || b.reportId}
+                        </button>
+                        <small>
+                          {t('Ciclul', 'Cycle')} {b.cycle}
+                        </small>
+                      </td>
+                      <td>{new Date(b.at).toLocaleDateString('ro-RO')}</td>
+                      <td>
+                        {t(
+                          (
+                            {
+                              Exported: 'Nepostat',
+                              Posted: 'Postat',
+                              Voided: 'Anulat',
+                              Reversed: 'Reversat',
+                            } as Any
+                          )[b.state] || b.state,
+                          b.state,
+                        )}
+                      </td>
+                      <td>{b.reference || '—'}</td>
+                      <td>
+                        <button
+                          className="text-button"
+                          onClick={() =>
+                            run(async () => S(await api('/finance/batches/' + b.id + '/lines')))
+                          }
+                        >
+                          {t('Vezi rândurile salvate', 'View saved lines')}
+                        </button>
+                        <a className="text-button" href={'/api/batches/' + b.id + '/xlsx'}>
+                          {t('Descarcă XLSX', 'Download XLSX')}
+                        </a>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {!data.total && (
+            <p>
+              {t('Nu există exporturi în perioada aleasă.', 'No exports in the selected period.')}
+            </p>
+          )}
+          {data.total > 25 && (
+            <div className="actions">
+              <button
+                className="secondary"
+                disabled={data.page === 1}
+                onClick={() => run(() => load(data.page - 1))}
+              >
+                {t('Anterior', 'Previous')}
+              </button>
+              <span>{data.page}</span>
+              <button
+                className="secondary"
+                disabled={data.page * 25 >= data.total}
+                onClick={() => run(() => load(data.page + 1))}
+              >
+                {t('Următor', 'Next')}
+              </button>
+            </div>
+          )}
+          <div className="form-grid">
+            {[
+              ['byDepartment', t('Pe departament', 'By department')],
+              ['byVendor', t('Pe furnizor', 'By vendor')],
+              ['byCategory', t('Pe categorie', 'By category')],
+            ].map(([key, label]) => (
+              <section key={key}>
+                <h2>{label}</h2>
+                {data[key].map((g: Any) => (
+                  <p key={g.key}>
+                    {g.key || t('Neînregistrat', 'Not recorded')}:{' '}
+                    <strong>{money(g.total)} RON</strong>
+                  </p>
+                ))}
+              </section>
+            ))}
+          </div>
+          <details>
+            <summary>
+              {t('Deconturi în verificare', 'Reports awaiting review')} ({data.exceptions.length})
+            </summary>
+            {data.exceptions.map((r: Any) => (
+              <p key={r.id}>
+                <button className="text-button" onClick={() => open(r.id)}>
+                  {r.number}
+                </button>{' '}
+                ·{' '}
+                {r.state === 'READY_FOR_ERP'
+                  ? t('Gata de export', 'Ready for export')
+                  : t('În verificare Finance', 'Under Finance review')}
+              </p>
+            ))}
+          </details>
+        </>
+      )}
+      {selected && (
+        <section className="panel">
+          <div className="section-heading">
+            <h2>{t('Rânduri contabile salvate', 'Saved posting lines')}</h2>
+            <button className="secondary" onClick={() => S(null)}>
+              {t('Închide detaliile', 'Close details')}
+            </button>
+          </div>
+          <p>
+            {t('Amprentă fișier', 'File hash')}:{' '}
+            <span className="posting-hash">{selected.batch.fileHash}</span>
+          </p>
+          <TraceLines t={t} lines={selected.lines.map((l: Any) => l.trace)} />
+          {!selected.lines.length && (
+            <p>
+              {t(
+                'Export anterior introducerii trasabilității pe rând. Descarcă originalul din istoric.',
+                'Export predates per-line traceability. Download the original from history.',
+              )}
+            </p>
+          )}
+        </section>
+      )}
+    </section>
+  );
 }

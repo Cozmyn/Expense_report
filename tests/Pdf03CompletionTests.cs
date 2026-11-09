@@ -1,28 +1,847 @@
-using Decont;using Xunit;using Microsoft.EntityFrameworkCore;using Microsoft.Extensions.DependencyInjection;using Microsoft.AspNetCore.Identity;using System.Security.Claims;using System.Net;using System.Net.Http.Json;using System.Text.Json;
+using System.Net;
+using System.Net.Http.Json;
+using System.Security.Claims;
+using System.Text.Json;
+using Decont;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+
 namespace Decont.Tests;
-public class Pdf03CompletionTests {
- static ExpenseData Data()=>new("Supplier","18546294","P3-1","2026-01-01","RO","Receipt","GENERAL","Business expense","Personal",null,"CC",null,121,"RON",[],true,true,"RON");
- static TaxPolicyRule Rule(string treatment="STANDARD")=>new("DEFAULT","RO","*","PRESENT","*",new(2020,1,1),null,10,treatment=="STANDARD",true,treatment,"Owner accounting reference");
- static TaxPolicyDraft Draft(TaxPolicyRule? rule=null)=>new(){Json=Serialization.Write(rule??Rule()),Author="author",Reason="Create policy"};
- static ClaimsPrincipal User(string id,string role="Finance")=>new(new ClaimsIdentity([new(ClaimTypes.NameIdentifier,id),new(ClaimTypes.Role,role)],"test"));
- static async Task<HttpClient> Login(Factory f,string name){var c=f.CreateClient(new(){HandleCookies=true,AllowAutoRedirect=false});var token=await c.GetFromJsonAsync<JsonElement>("/api/auth/csrf");c.DefaultRequestHeaders.Add("X-CSRF-TOKEN",token.GetProperty("token").GetString());Assert.Equal(HttpStatusCode.OK,(await c.PostAsJsonAsync("/api/auth/login",new{username=name,password="Valid-test-Password1!"})).StatusCode);token=await c.GetFromJsonAsync<JsonElement>("/api/auth/csrf");c.DefaultRequestHeaders.Remove("X-CSRF-TOKEN");c.DefaultRequestHeaders.Add("X-CSRF-TOKEN",token.GetProperty("token").GetString());return c;}
- static async Task<JsonElement> Send(HttpClient c,string path,object body,HttpStatusCode expected=HttpStatusCode.OK){c.DefaultRequestHeaders.Remove("Idempotency-Key");c.DefaultRequestHeaders.Add("Idempotency-Key",Guid.NewGuid().ToString());var response=await c.PostAsJsonAsync(path,body);Assert.True(response.StatusCode==expected,await response.Content.ReadAsStringAsync());var text=await response.Content.ReadAsStringAsync();return JsonDocument.Parse(string.IsNullOrWhiteSpace(text)?"{}":text).RootElement.Clone();}
- static async Task<Guid> SeedReport(Factory f,string state=States.Draft,ExpenseData? data=null){using var scope=f.Services.CreateScope();var db=scope.ServiceProvider.GetRequiredService<Db>();var r=new Report{EmployeeId=(await db.Users.SingleAsync(u=>u.UserName=="alice")).Id,ManagerId=(await db.Users.SingleAsync(u=>u.UserName=="manager")).Id,State=state,Purpose="PDF03 integration",Lines=[new(){Position=1,EstimatedRon=121,Json=Serialization.Write(data??Data()),Evidence=[new(){Scan="Clean",Hash="source-original",Name="receipt.pdf"}]}]};db.Reports.Add(r);await db.SaveChangesAsync();return r.Id;}
- [Fact]public void PolicyResolverUsesEveryScopeDimensionAndRejectsTiesAndGaps(){var broad=Draft();var specific=Draft(Rule() with{DocumentKind="Receipt",Category="GENERAL"});var decisions=new[]{new TaxPolicyDecision{PolicyId=broad.Id,Action="APPROVE",Actor="reviewer"},new TaxPolicyDecision{PolicyId=specific.Id,Action="APPROVE",Actor="reviewer"}};Assert.Equal(specific.Id,TaxPolicies.Resolve(Data(),"DEFAULT",[broad,specific],decisions).Draft!.Id);Assert.Contains(TaxPolicies.Resolve(Data() with{Country="DE"},"DEFAULT",[broad],decisions).Issues,i=>i.Code=="tax_policy_gap");var duplicate=Draft();Assert.Contains(TaxPolicies.Resolve(Data(),"DEFAULT",[broad,duplicate],[decisions[0],new(){PolicyId=duplicate.Id,Action="APPROVE"}]).Issues,i=>i.Code=="tax_policy_ambiguous");Assert.Empty(TaxPolicies.Resolve(Data(),"OTHER-COMPANY",[broad],decisions).Issues);var retired=decisions.Concat([new TaxPolicyDecision{PolicyId=broad.Id,Action="RETIRE"}]);Assert.Contains(TaxPolicies.Resolve(Data(),"DEFAULT",[broad],retired).Issues,i=>i.Code=="tax_policy_gap");}
- [Fact]public async Task TaxPolicyDraftApprovalIsFinanceOnlyAndCannotBeSelfApproved(){await using var f=new Factory();await f.Seed();using(var scope=f.Services.CreateScope()){var users=scope.ServiceProvider.GetRequiredService<UserManager<Decont.User>>();await users.AddToRoleAsync((await users.FindByNameAsync("bob"))!,"Finance");}var employee=await Login(f,"alice");await Send(employee,"/api/finance/tax-policies",new TaxPolicyCommand(Rule(),"Draft policy"),HttpStatusCode.Forbidden);var author=await Login(f,"finance");var p=await Send(author,"/api/finance/tax-policies",new TaxPolicyCommand(Rule(),"Draft policy"));var id=p.GetProperty("id").GetGuid();await Send(author,$"/api/finance/tax-policies/{id}/approve",new ReasonInput("Self approval"),HttpStatusCode.Forbidden);var reviewer=await Login(f,"bob");await Send(reviewer,$"/api/finance/tax-policies/{id}/approve",new ReasonInput("Independent review completed"));var duplicate=await Send(author,"/api/finance/tax-policies",new TaxPolicyCommand(Rule(),"Overlapping policy"));await Send(reviewer,$"/api/finance/tax-policies/{duplicate.GetProperty("id").GetGuid()}/approve",new ReasonInput("Review overlap"),HttpStatusCode.Conflict);using var verify=f.Services.CreateScope();var db=verify.ServiceProvider.GetRequiredService<Db>();Assert.Single(await db.TaxPolicyDecisions.ToListAsync());(await db.TaxPolicies.FirstAsync()).Reason="tamper";await Assert.ThrowsAsync<InvalidOperationException>(()=>db.SaveChangesAsync());}
- [Fact]public async Task ExemptTreatmentNeedsApprovedPolicyAndNeverInventsZeroRateComponent(){await using var f=new Factory();await f.Seed();var id=await SeedReport(f,States.Finance,Data() with{VatTreatment="EXEMPT",VatExplanation="Exemption shown on invoice"});using var scope=f.Services.CreateScope();var db=scope.ServiceProvider.GetRequiredService<Db>();var line=await db.Lines.Include(l=>l.Evidence).SingleAsync();Assert.Contains((await FinancialCalculations.Preview(db,line)).Issues,i=>i.Code=="tax_treatment_policy");var p=Draft(Rule("EXEMPT"));db.TaxPolicies.Add(p);db.TaxPolicyDecisions.Add(new(){PolicyId=p.Id,Actor="reviewer",Action="APPROVE",Reason="Verified exemption policy"});await db.SaveChangesAsync();var preview=await FinancialCalculations.Preview(db,line);Assert.DoesNotContain(preview.Issues,i=>i.Blocking);Assert.Empty(preview.PostingData.Taxes);Assert.Equal("EXEMPT",preview.Applicability);var report=await db.Reports.Include(r=>r.Attachments).Include(r=>r.Lines).ThenInclude(l=>l.Evidence).SingleAsync(r=>r.Id==id);await FinancialCalculations.Accept(db,new(db),report,line,User("reviewer"),"Verified exempt original");await db.SaveChangesAsync();Assert.Empty(await db.VerifiedVatComponents.ToListAsync());Assert.Contains("Owner accounting reference",(await db.Calculations.SingleAsync()).Result);}
- [Fact]public async Task NormalizedVatAndMappingSnapshotSurviveMasterChanges(){await using var f=new Factory();await f.Seed();var rate=new Master{Kind="vat",Code="21",From=new(2020,1,1),Json="{\"rate\":21}"};Guid id;using(var setup=f.Services.CreateScope()){var db=setup.ServiceProvider.GetRequiredService<Db>();db.Masters.Add(rate);await db.SaveChangesAsync();}id=await SeedReport(f,States.Finance,Data() with{Taxes=[new(rate.Id,100,21)]});using var scope=f.Services.CreateScope();var store=scope.ServiceProvider.GetRequiredService<Db>();var report=await store.Reports.Include(r=>r.Attachments).Include(r=>r.Lines).ThenInclude(l=>l.Evidence).SingleAsync(r=>r.Id==id);await FinancialCalculations.Accept(store,new(store),report,report.Lines[0],User("finance"),"Source and bases checked");await store.SaveChangesAsync();var component=await store.VerifiedVatComponents.SingleAsync();Assert.Equal(2100,component.RateBps);Assert.Contains("source-original",component.Json);var snapshot=await store.Calculations.SingleAsync();var master=await store.Masters.SingleAsync();master.Json="{\"rate\":11}";await store.SaveChangesAsync();Assert.Equal(21,JsonDocument.Parse(JsonDocument.Parse(snapshot.Result).RootElement.GetProperty("mappings")[0].GetProperty("json").GetString()!).RootElement.GetProperty("rate").GetInt32());Assert.Contains(await FinancialCalculations.ExportProblems(store,report),i=>i.Code=="calculation_stale");component.Json="tamper";await Assert.ThrowsAsync<InvalidOperationException>(()=>store.SaveChangesAsync());}
- [Fact]public async Task ResetAndRestoreRetainOriginalsAndEnforceConfirmationAndOwnership(){await using var f=new Factory();await f.Seed();var id=await SeedReport(f);var alice=await Login(f,"alice");var bob=await Login(f,"bob");var detail=await alice.GetFromJsonAsync<JsonElement>($"/api/reports/{id}");var number=detail.GetProperty("report").GetProperty("number").GetString()!;await Send(bob,$"/api/reports/{id}/reset",new ResetCommand(1,number,"Reset contents"),HttpStatusCode.NotFound);await Send(alice,$"/api/reports/{id}/reset",new ResetCommand(1,"wrong","Reset contents"),HttpStatusCode.UnprocessableEntity);var reset=await Send(alice,$"/api/reports/{id}/reset",new ResetCommand(1,number,"Reset contents"));Assert.Empty(reset.GetProperty("report").GetProperty("lines").EnumerateArray());var restored=await Send(alice,$"/api/reports/{id}/resets/{reset.GetProperty("resetId").GetGuid()}/restore",new ResetCommand(2,number,"Restore original receipts"));Assert.Single(restored.GetProperty("lines").EnumerateArray());using var scope=f.Services.CreateScope();var db=scope.ServiceProvider.GetRequiredService<Db>();Assert.Equal("source-original",(await db.Evidence.SingleAsync()).Hash);Assert.Single(await db.ReportResets.ToListAsync());Assert.Single(await db.ReportRestores.ToListAsync());}
- [Fact]public async Task ExactMoneyWireContractPreservesPrecisionAndLegacyNumericClients(){await using var f=new Factory();await f.Seed();var exactAmount=123456789012.123456m;var id=await SeedReport(f,data:Data() with{Amount=exactAmount});var c=await Login(f,"alice");var legacy=await c.GetFromJsonAsync<JsonElement>($"/api/reports/{id}");Assert.Equal(exactAmount,legacy.GetProperty("report").GetProperty("lines")[0].GetProperty("data").GetProperty("amount").GetDecimal());c.DefaultRequestHeaders.Add("X-Money-Format","exact-v1");var exact=await c.GetFromJsonAsync<JsonElement>($"/api/reports/{id}");Assert.Equal("123456789012.123456",exact.GetProperty("report").GetProperty("lines")[0].GetProperty("data").GetProperty("amount").GetString());}
- [Fact]public void DiffsExposeBeforeAndAfterWithoutRoundingAwayChanges(){var diff=CalculationHistory.Differences("{\"amount\":\"9007199254740993.01\",\"policy\":\"A\"}","{\"amount\":\"9007199254740993.02\",\"policy\":\"B\"}");Assert.Equal(2,diff.Count);Assert.Contains(diff,d=>d.Field=="amount"&&d.Before!.Contains(".01")&&d.After!.Contains(".02"));}
- [Theory][InlineData(500,7,3,true)][InlineData(500,7,4,false)][InlineData(-500,-7,-3,true)][InlineData(500,-7,17,false)]public void StatementPrincipalFeesAndMarkupMustReconcile(decimal principal,decimal fee,decimal markup,bool valid){var transaction=new CardTransaction{Amount=principal>0?100:-100,SettledRon=principal>0?510:-510};var input=new BankTreatmentCommand(Guid.NewGuid(),1,"SEPARATE_CHARGES",principal,fee,markup,Guid.NewGuid(),"FEE","CC","Statement checked");if(valid)BankTreatments.Validate(transaction,input);else Assert.Throws<DomainException>(()=>BankTreatments.Validate(transaction,input));}
- [Theory][InlineData(false)][InlineData(true)]public async Task BankChargeSplitAllocatesOnlyPrincipalAndCanBeUndoneWithoutDeletingHistory(bool individualStatement){await using var f=new Factory();await f.Seed();Guid id,tx,doc,line,card=Guid.NewGuid();using(var scope=f.Services.CreateScope()){var db=scope.ServiceProvider.GetRequiredService<Db>();var r=new Report{EmployeeId=(await db.Users.SingleAsync(u=>u.UserName=="alice")).Id,State=States.Finance,Payment="CompanyCard",CardId=card,Purpose="Bank classification",Lines=[new(){Position=1,EstimatedRon=500,FxVersion="entry-estimate",Json=Serialization.Write(Data() with{Country="DE",HasCompanyCui=false,Amount=100,Currency="EUR",Payment="CompanyCard",CardId=card})}]};var document=new ReportAttachment{Scan="Clean",Hash="statement-hash",Name="statement.pdf",CoveredLines=Serialization.Write(new[]{r.Lines[0].Id})};if(individualStatement)r.Lines[0].Evidence.Add(new(){Id=document.Id,Scan="Clean",Hash=document.Hash,Name=document.Name,Mime="application/pdf"});else r.Attachments.Add(document);var transaction=new CardTransaction{CardId=card,Reference="STATEMENT-1",Date="2026-01-01",Amount=100,Currency="EUR",SettledRon=510};db.Reports.Add(r);db.Transactions.Add(transaction);await db.SaveChangesAsync();id=r.Id;tx=transaction.Id;doc=document.Id;line=r.Lines[0].Id;}var c=await Login(f,"finance");var result=await Send(c,$"/api/finance/transactions/{tx}/treatment",new BankTreatmentCommand(id,1,"SEPARATE_CHARGES",500,7,3,doc,"FEE","CC","Statement verified separately"));Assert.Equal(3,result.GetProperty("report").GetProperty("lines").GetArrayLength());var classification=result.GetProperty("treatment").GetProperty("id").GetGuid();await Send(c,"/api/finance/matches",new MatchInput(id,2,line,tx,100));using(var scope=f.Services.CreateScope()){var db=scope.ServiceProvider.GetRequiredService<Db>();Assert.Equal(500,(await db.Matches.SingleAsync()).Ron);}await Send(c,$"/api/finance/bank-treatments/{classification}/undo",new VersionRequest(3,"Correct classification"),HttpStatusCode.Conflict);Guid match;using(var scope=f.Services.CreateScope())match=(await scope.ServiceProvider.GetRequiredService<Db>().Matches.SingleAsync()).Id;await Send(c,$"/api/finance/matches/{match}/undo",new VersionRequest(3,"Undo allocation for correction"));var undone=await Send(c,$"/api/finance/bank-treatments/{classification}/undo",new VersionRequest(4,"Correct classification"));Assert.Single(undone.GetProperty("lines").EnumerateArray());using var verify=f.Services.CreateScope();var store=verify.ServiceProvider.GetRequiredService<Db>();Assert.Single(await store.BankTreatments.ToListAsync());Assert.Single(await store.BankTreatmentRevocations.ToListAsync());Assert.Equal(510,await BankTreatments.Principal(store,await store.Transactions.SingleAsync()));}
- [Fact]public void BrokenReferencesAndProductionSampleMappingsAreRejected(){var broken=new Master{Json="{\"mainAccount\":\"#REF!\"}"};var sample=new Master{Json="{\"mainAccount\":\"TEST-GL\"}"};Assert.Single(FinanceAcceptance.MasterProblems([broken],false));Assert.Single(FinanceAcceptance.MasterProblems([sample],true));Assert.Empty(FinanceAcceptance.MasterProblems([sample],false));}
- [Fact]public async Task FinanceAcceptanceCannotBeForgedByUncheckedOrStaleConfiguration(){await using var f=new Factory();await f.Seed();var c=await Login(f,"finance");var config=await c.GetFromJsonAsync<JsonElement>("/api/finance/acceptance");var hash=config.GetProperty("configurationHash").GetString()!;await Send(c,"/api/finance/acceptance",new FinanceAcceptanceCommand("DEFAULT",hash,false,true,true,true,"Unperformed totals check"),HttpStatusCode.UnprocessableEntity);using(var scope=f.Services.CreateScope()){var db=scope.ServiceProvider.GetRequiredService<Db>();db.Masters.Add(new(){Kind="expenseTypes",Code="NEW",From=new(2020,1,1)});await db.SaveChangesAsync();}await Send(c,"/api/finance/acceptance",new FinanceAcceptanceCommand("DEFAULT",hash,true,true,true,true,"Stale configuration"),HttpStatusCode.Conflict);using var verify=f.Services.CreateScope();Assert.Empty(await verify.ServiceProvider.GetRequiredService<Db>().FinanceAcceptanceRecords.ToListAsync());}
- [Fact]public async Task AcceptedCalculationCannotBeReusedForAnotherIdenticalReceipt(){await using var f=new Factory();await f.Seed();using var scope=f.Services.CreateScope();var db=scope.ServiceProvider.GetRequiredService<Db>();var data=Data() with{Country="DE",HasCompanyCui=false};var report=new Report{State=States.Finance,Purpose="Attribution",Lines=[new(){Position=1,EstimatedRon=121,Json=Serialization.Write(data)},new(){Position=2,EstimatedRon=121,Json=Serialization.Write(data)}]};report.Attachments.Add(new(){Name="combined.pdf",Hash="original-source",Scan="Clean",CoveredLines=Serialization.Write(report.Lines.Select(l=>l.Id).ToList())});db.Reports.Add(report);await db.SaveChangesAsync();var first=report.Lines[0];var other=report.Lines[1];await FinancialCalculations.Accept(db,new(db),report,first,User("finance"),"Verified first source");await db.SaveChangesAsync();other.CalculationId=first.CalculationId;other.CalculationHash=first.CalculationHash;other.CalculatedJson=first.CalculatedJson;other.FinancialRounding=first.FinancialRounding;var issues=await FinancialCalculations.ExportProblems(db,report);Assert.Contains(issues,i=>i.LineId==other.Id&&i.Code=="calculation_stale");Assert.DoesNotContain(issues,i=>i.LineId==first.Id);}
- [Fact]public void StatementImportRetainsOriginalCurrencyDecimalsAndRejectsRoundedRon(){var input=new BankInput(Guid.NewGuid(),"reference,date,merchant,amount,currency,settledRon\nPRECISE,2026-01-01,Shop,1.234,BHD,12.34",new());var row=Assert.Single(Finance.Parse(input));Assert.Equal(1.234m,row.Amount);Assert.Throws<DomainException>(()=>Finance.Parse(input with{Csv=input.Csv.Replace("12.34","12.345")}));}
- [Fact]public async Task ProductionReleaseRequiresRealFinanceAcceptanceAndDraftsDoNotInvalidateIt(){await using var f=new Factory();await f.Seed();using var scope=f.Services.CreateScope();var db=scope.ServiceProvider.GetRequiredService<Db>();Assert.Contains(await FinanceAcceptance.ReleaseProblems(db,true),i=>i.Code=="finance_acceptance_required");Assert.Empty(await FinanceAcceptance.ReleaseProblems(db,false));var hash=await FinanceAcceptance.Hash(db);db.FinanceAcceptanceRecords.Add(new(){Company="DEFAULT",ConfigurationHash=hash,Actor="responsible-finance",Reason="ERP and corpus reviewed"});await db.SaveChangesAsync();Assert.Empty(await FinanceAcceptance.ReleaseProblems(db,true));db.TaxPolicies.Add(Draft());await db.SaveChangesAsync();Assert.Equal(hash,await FinanceAcceptance.Hash(db));db.Masters.Add(new(){Kind="accounting",Code="CHANGED",From=new(2020,1,1),Json="{\"mainAccount\":\"6000\"}"});await db.SaveChangesAsync();Assert.Contains(await FinanceAcceptance.ReleaseProblems(db,true),i=>i.Code=="finance_acceptance_required");}
- [Fact]public void ExemptVehiclePreservesCategorySplitWithoutInventingVatCodes(){var data=Data() with{VatTreatment="EXEMPT",VatExplanation="Documented exemption"};var report=new Report{Lines=[new(){EstimatedRon=121,Json=Serialization.Write(data)}]};var masters=new List<Master>{new(){Kind="accounting",Code="GENERAL",From=new(2020,1,1),Json="{\"mainAccount\":\"GL\",\"localAccount\":\"LOCAL\",\"subAccount\":\"CAR-SUB\",\"vehicle\":true}"},new(){Kind="costCenters",Code="CC",From=new(2020,1,1),Json="{\"erpCode\":\"CC\"}"},new(){Kind="suppliers",Code="18546294",From=new(2020,1,1),Json="{\"vendorAccount\":\"VENDOR\"}"},new(){Kind="erpSettings",Code="default",From=new(2020,1,1),Json="{\"approvalReference\":\"TEST\",\"clearingAccount\":\"CLEAR\",\"clearingLocal\":\"LOCAL\"}"}};var rows=new Posting().Build(report,new(){Worker="employee"},masters).Rows;Assert.Equal(4,rows.Count);Assert.Equal("60.50",rows[0][13]);Assert.Equal("CAR-SUB",rows[0][10]);Assert.Equal("60.50",rows[1][13]);Assert.Equal("",rows[1][10]);Assert.All(rows,r=>{Assert.Equal("",r[16]);Assert.Equal("",r[17]);});}
- [Fact]public async Task LatestEstimateHonorsNewFinanceEntryAcrossBothSupportedConfigurationPaths(){await using var f=new Factory();await f.Seed();var client=await Login(f,"finance");var legacy=await Send(client,"/api/configuration/masters",new MasterInput("fx","EUR","EUR","EUR","{\"ronRate\":5}",new(2020,1,1),null,true,"Initial Finance estimate"));await Send(client,"/api/finance/currency-policies",new FinancePolicyInput("EUR",new(2020,1,1),new(EstimateRate:"5.1"),"New Finance estimate"));using(var scope=f.Services.CreateScope())Assert.Equal(5.1m,(await FinancialCalculations.Estimate(scope.ServiceProvider.GetRequiredService<Db>(),"EUR")).Rate);await Send(client,$"/api/configuration/masters/{legacy.GetProperty("id").GetGuid()}/retire",new RetireInput(new(2025,12,31),"Close preceding rate period"));await Send(client,"/api/configuration/masters",new MasterInput("fx","EUR","EUR","EUR","{\"ronRate\":5.2}",new(2026,1,1),null,true,"Latest Finance rate entry"));using var verify=f.Services.CreateScope();Assert.Equal(5.2m,(await FinancialCalculations.Estimate(verify.ServiceProvider.GetRequiredService<Db>(),"EUR")).Rate);}
- [Fact]public void FuturePolicyActivationDoesNotRetroactivelyBlockEarlierOwnerRules(){var future=Draft(Rule() with{From=new(2027,1,1)});var approval=new TaxPolicyDecision{PolicyId=future.Id,Action="APPROVE",Actor="independent-finance"};var prior=TaxPolicies.Resolve(Data(),"DEFAULT",[future],[approval]);Assert.Empty(prior.Issues);Assert.Equal(FinancialCalculations.OwnerPolicy,prior.Reference);Assert.Contains(TaxPolicies.Resolve(Data() with{Date="2027-01-01",Country="DE"},"DEFAULT",[future],[approval]).Issues,i=>i.Code=="tax_policy_gap");}
+
+public class Pdf03CompletionTests
+{
+    static ExpenseData Data() =>
+        new(
+            "Supplier",
+            "18546294",
+            "P3-1",
+            "2026-01-01",
+            "RO",
+            "Receipt",
+            "GENERAL",
+            "Business expense",
+            "Personal",
+            null,
+            "CC",
+            null,
+            121,
+            "RON",
+            [],
+            true,
+            true,
+            "RON"
+        );
+
+    static TaxPolicyRule Rule(string treatment = "STANDARD") =>
+        new(
+            "DEFAULT",
+            "RO",
+            "*",
+            "PRESENT",
+            "*",
+            new(2020, 1, 1),
+            null,
+            10,
+            treatment == "STANDARD",
+            true,
+            treatment,
+            "Owner accounting reference"
+        );
+
+    static TaxPolicyDraft Draft(TaxPolicyRule? rule = null) =>
+        new()
+        {
+            Json = Serialization.Write(rule ?? Rule()),
+            Author = "author",
+            Reason = "Create policy",
+        };
+
+    static ClaimsPrincipal User(string id, string role = "Finance") =>
+        new(new ClaimsIdentity([new(ClaimTypes.NameIdentifier, id), new(ClaimTypes.Role, role)], "test"));
+
+    static async Task<HttpClient> Login(Factory f, string name)
+    {
+        var c = f.CreateClient(new() { HandleCookies = true, AllowAutoRedirect = false });
+        var token = await c.GetFromJsonAsync<JsonElement>("/api/auth/csrf");
+        c.DefaultRequestHeaders.Add("X-CSRF-TOKEN", token.GetProperty("token").GetString());
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (
+                await c.PostAsJsonAsync("/api/auth/login", new { username = name, password = "Valid-test-Password1!" })
+            ).StatusCode
+        );
+        token = await c.GetFromJsonAsync<JsonElement>("/api/auth/csrf");
+        c.DefaultRequestHeaders.Remove("X-CSRF-TOKEN");
+        c.DefaultRequestHeaders.Add("X-CSRF-TOKEN", token.GetProperty("token").GetString());
+        return c;
+    }
+
+    static async Task<JsonElement> Send(
+        HttpClient c,
+        string path,
+        object body,
+        HttpStatusCode expected = HttpStatusCode.OK
+    )
+    {
+        c.DefaultRequestHeaders.Remove("Idempotency-Key");
+        c.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        var response = await c.PostAsJsonAsync(path, body);
+        Assert.True(response.StatusCode == expected, await response.Content.ReadAsStringAsync());
+        var text = await response.Content.ReadAsStringAsync();
+        return JsonDocument.Parse(string.IsNullOrWhiteSpace(text) ? "{}" : text).RootElement.Clone();
+    }
+
+    static async Task<Guid> SeedReport(Factory f, string state = States.Draft, ExpenseData? data = null)
+    {
+        using var scope = f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        var r = new Report
+        {
+            EmployeeId = (await db.Users.SingleAsync(u => u.UserName == "alice")).Id,
+            ManagerId = (await db.Users.SingleAsync(u => u.UserName == "manager")).Id,
+            State = state,
+            Purpose = "PDF03 integration",
+            Lines =
+            [
+                new()
+                {
+                    Position = 1,
+                    EstimatedRon = 121,
+                    Json = Serialization.Write(data ?? Data()),
+                    Evidence =
+                    [
+                        new()
+                        {
+                            Scan = "Clean",
+                            Hash = "source-original",
+                            Name = "receipt.pdf",
+                        },
+                    ],
+                },
+            ],
+        };
+        db.Reports.Add(r);
+        await db.SaveChangesAsync();
+        return r.Id;
+    }
+
+    [Fact]
+    public void PolicyResolverUsesEveryScopeDimensionAndRejectsTiesAndGaps()
+    {
+        var broad = Draft();
+        var specific = Draft(Rule() with { DocumentKind = "Receipt", Category = "GENERAL" });
+        var decisions = new[]
+        {
+            new TaxPolicyDecision
+            {
+                PolicyId = broad.Id,
+                Action = "APPROVE",
+                Actor = "reviewer",
+            },
+            new TaxPolicyDecision
+            {
+                PolicyId = specific.Id,
+                Action = "APPROVE",
+                Actor = "reviewer",
+            },
+        };
+        Assert.Equal(specific.Id, TaxPolicies.Resolve(Data(), "DEFAULT", [broad, specific], decisions).Draft!.Id);
+        Assert.Contains(
+            TaxPolicies.Resolve(Data() with { Country = "DE" }, "DEFAULT", [broad], decisions).Issues,
+            i => i.Code == "tax_policy_gap"
+        );
+        var duplicate = Draft();
+        Assert.Contains(
+            TaxPolicies
+                .Resolve(
+                    Data(),
+                    "DEFAULT",
+                    [broad, duplicate],
+                    [decisions[0], new() { PolicyId = duplicate.Id, Action = "APPROVE" }]
+                )
+                .Issues,
+            i => i.Code == "tax_policy_ambiguous"
+        );
+        Assert.Empty(TaxPolicies.Resolve(Data(), "OTHER-COMPANY", [broad], decisions).Issues);
+        var retired = decisions.Concat([new TaxPolicyDecision { PolicyId = broad.Id, Action = "RETIRE" }]);
+        Assert.Contains(
+            TaxPolicies.Resolve(Data(), "DEFAULT", [broad], retired).Issues,
+            i => i.Code == "tax_policy_gap"
+        );
+    }
+
+    [Fact]
+    public async Task TaxPolicyDraftApprovalIsFinanceOnlyAndCannotBeSelfApproved()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        using (var scope = f.Services.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<Decont.User>>();
+            await users.AddToRoleAsync((await users.FindByNameAsync("bob"))!, "Finance");
+        }
+        var employee = await Login(f, "alice");
+        await Send(
+            employee,
+            "/api/finance/tax-policies",
+            new TaxPolicyCommand(Rule(), "Draft policy"),
+            HttpStatusCode.Forbidden
+        );
+        var author = await Login(f, "finance");
+        var p = await Send(author, "/api/finance/tax-policies", new TaxPolicyCommand(Rule(), "Draft policy"));
+        var id = p.GetProperty("id").GetGuid();
+        await Send(
+            author,
+            $"/api/finance/tax-policies/{id}/approve",
+            new ReasonInput("Self approval"),
+            HttpStatusCode.Forbidden
+        );
+        var reviewer = await Login(f, "bob");
+        await Send(
+            reviewer,
+            $"/api/finance/tax-policies/{id}/approve",
+            new ReasonInput("Independent review completed")
+        );
+        var duplicate = await Send(
+            author,
+            "/api/finance/tax-policies",
+            new TaxPolicyCommand(Rule(), "Overlapping policy")
+        );
+        await Send(
+            reviewer,
+            $"/api/finance/tax-policies/{duplicate.GetProperty("id").GetGuid()}/approve",
+            new ReasonInput("Review overlap"),
+            HttpStatusCode.Conflict
+        );
+        using var verify = f.Services.CreateScope();
+        var db = verify.ServiceProvider.GetRequiredService<Db>();
+        Assert.Single(await db.TaxPolicyDecisions.ToListAsync());
+        (await db.TaxPolicies.FirstAsync()).Reason = "tamper";
+        await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task ExemptTreatmentNeedsApprovedPolicyAndNeverInventsZeroRateComponent()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        var id = await SeedReport(
+            f,
+            States.Finance,
+            Data() with
+            {
+                VatTreatment = "EXEMPT",
+                VatExplanation = "Exemption shown on invoice",
+            }
+        );
+        using var scope = f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        var line = await db.Lines.Include(l => l.Evidence).SingleAsync();
+        Assert.Contains((await FinancialCalculations.Preview(db, line)).Issues, i => i.Code == "tax_treatment_policy");
+        var p = Draft(Rule("EXEMPT"));
+        db.TaxPolicies.Add(p);
+        db.TaxPolicyDecisions.Add(
+            new()
+            {
+                PolicyId = p.Id,
+                Actor = "reviewer",
+                Action = "APPROVE",
+                Reason = "Verified exemption policy",
+            }
+        );
+        await db.SaveChangesAsync();
+        var preview = await FinancialCalculations.Preview(db, line);
+        Assert.DoesNotContain(preview.Issues, i => i.Blocking);
+        Assert.Empty(preview.PostingData.Taxes);
+        Assert.Equal("EXEMPT", preview.Applicability);
+        var report = await db
+            .Reports.Include(r => r.Attachments)
+            .Include(r => r.Lines)
+                .ThenInclude(l => l.Evidence)
+            .SingleAsync(r => r.Id == id);
+        await FinancialCalculations.Accept(db, new(db), report, line, User("reviewer"), "Verified exempt original");
+        await db.SaveChangesAsync();
+        Assert.Empty(await db.VerifiedVatComponents.ToListAsync());
+        Assert.Contains("Owner accounting reference", (await db.Calculations.SingleAsync()).Result);
+    }
+
+    [Fact]
+    public async Task NormalizedVatAndMappingSnapshotSurviveMasterChanges()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        var rate = new Master
+        {
+            Kind = "vat",
+            Code = "21",
+            From = new(2020, 1, 1),
+            Json = "{\"rate\":21}",
+        };
+        Guid id;
+        using (var setup = f.Services.CreateScope())
+        {
+            var db = setup.ServiceProvider.GetRequiredService<Db>();
+            db.Masters.Add(rate);
+            await db.SaveChangesAsync();
+        }
+        id = await SeedReport(f, States.Finance, Data() with { Taxes = [new(rate.Id, 100, 21)] });
+        using var scope = f.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<Db>();
+        var report = await store
+            .Reports.Include(r => r.Attachments)
+            .Include(r => r.Lines)
+                .ThenInclude(l => l.Evidence)
+            .SingleAsync(r => r.Id == id);
+        await FinancialCalculations.Accept(
+            store,
+            new(store),
+            report,
+            report.Lines[0],
+            User("finance"),
+            "Source and bases checked"
+        );
+        await store.SaveChangesAsync();
+        var component = await store.VerifiedVatComponents.SingleAsync();
+        Assert.Equal(2100, component.RateBps);
+        Assert.Contains("source-original", component.Json);
+        var snapshot = await store.Calculations.SingleAsync();
+        var master = await store.Masters.SingleAsync();
+        master.Json = "{\"rate\":11}";
+        await store.SaveChangesAsync();
+        Assert.Equal(
+            21,
+            JsonDocument
+                .Parse(
+                    JsonDocument
+                        .Parse(snapshot.Result)
+                        .RootElement.GetProperty("mappings")[0]
+                        .GetProperty("json")
+                        .GetString()!
+                )
+                .RootElement.GetProperty("rate")
+                .GetInt32()
+        );
+        Assert.Contains(await FinancialCalculations.ExportProblems(store, report), i => i.Code == "calculation_stale");
+        component.Json = "tamper";
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task ResetAndRestoreRetainOriginalsAndEnforceConfirmationAndOwnership()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        var id = await SeedReport(f);
+        var alice = await Login(f, "alice");
+        var bob = await Login(f, "bob");
+        var detail = await alice.GetFromJsonAsync<JsonElement>($"/api/reports/{id}");
+        var number = detail.GetProperty("report").GetProperty("number").GetString()!;
+        await Send(
+            bob,
+            $"/api/reports/{id}/reset",
+            new ResetCommand(1, number, "Reset contents"),
+            HttpStatusCode.NotFound
+        );
+        await Send(
+            alice,
+            $"/api/reports/{id}/reset",
+            new ResetCommand(1, "wrong", "Reset contents"),
+            HttpStatusCode.UnprocessableEntity
+        );
+        var reset = await Send(alice, $"/api/reports/{id}/reset", new ResetCommand(1, number, "Reset contents"));
+        Assert.Empty(reset.GetProperty("report").GetProperty("lines").EnumerateArray());
+        var restored = await Send(
+            alice,
+            $"/api/reports/{id}/resets/{reset.GetProperty("resetId").GetGuid()}/restore",
+            new ResetCommand(2, number, "Restore original receipts")
+        );
+        Assert.Single(restored.GetProperty("lines").EnumerateArray());
+        using var scope = f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        Assert.Equal("source-original", (await db.Evidence.SingleAsync()).Hash);
+        Assert.Single(await db.ReportResets.ToListAsync());
+        Assert.Single(await db.ReportRestores.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ExactMoneyWireContractPreservesPrecisionAndLegacyNumericClients()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        var exactAmount = 123456789012.123456m;
+        var id = await SeedReport(f, data: Data() with { Amount = exactAmount });
+        var c = await Login(f, "alice");
+        var legacy = await c.GetFromJsonAsync<JsonElement>($"/api/reports/{id}");
+        Assert.Equal(
+            exactAmount,
+            legacy.GetProperty("report").GetProperty("lines")[0].GetProperty("data").GetProperty("amount").GetDecimal()
+        );
+        c.DefaultRequestHeaders.Add("X-Money-Format", "exact-v1");
+        var exact = await c.GetFromJsonAsync<JsonElement>($"/api/reports/{id}");
+        Assert.Equal(
+            "123456789012.123456",
+            exact.GetProperty("report").GetProperty("lines")[0].GetProperty("data").GetProperty("amount").GetString()
+        );
+    }
+
+    [Fact]
+    public void DiffsExposeBeforeAndAfterWithoutRoundingAwayChanges()
+    {
+        var diff = CalculationHistory.Differences(
+            "{\"amount\":\"9007199254740993.01\",\"policy\":\"A\"}",
+            "{\"amount\":\"9007199254740993.02\",\"policy\":\"B\"}"
+        );
+        Assert.Equal(2, diff.Count);
+        Assert.Contains(diff, d => d.Field == "amount" && d.Before!.Contains(".01") && d.After!.Contains(".02"));
+    }
+
+    [Theory]
+    [InlineData(500, 7, 3, true)]
+    [InlineData(500, 7, 4, false)]
+    [InlineData(-500, -7, -3, true)]
+    [InlineData(500, -7, 17, false)]
+    public void StatementPrincipalFeesAndMarkupMustReconcile(decimal principal, decimal fee, decimal markup, bool valid)
+    {
+        var transaction = new CardTransaction
+        {
+            Amount = principal > 0 ? 100 : -100,
+            SettledRon = principal > 0 ? 510 : -510,
+        };
+        var input = new BankTreatmentCommand(
+            Guid.NewGuid(),
+            1,
+            "SEPARATE_CHARGES",
+            principal,
+            fee,
+            markup,
+            Guid.NewGuid(),
+            "FEE",
+            "CC",
+            "Statement checked"
+        );
+        if (valid)
+            BankTreatments.Validate(transaction, input);
+        else
+            Assert.Throws<DomainException>(() => BankTreatments.Validate(transaction, input));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BankChargeSplitAllocatesOnlyPrincipalAndCanBeUndoneWithoutDeletingHistory(
+        bool individualStatement
+    )
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        Guid id,
+            tx,
+            doc,
+            line,
+            card = Guid.NewGuid();
+        using (var scope = f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<Db>();
+            var r = new Report
+            {
+                EmployeeId = (await db.Users.SingleAsync(u => u.UserName == "alice")).Id,
+                State = States.Finance,
+                Payment = "CompanyCard",
+                CardId = card,
+                Purpose = "Bank classification",
+                Lines =
+                [
+                    new()
+                    {
+                        Position = 1,
+                        EstimatedRon = 500,
+                        FxVersion = "entry-estimate",
+                        Json = Serialization.Write(
+                            Data() with
+                            {
+                                Country = "DE",
+                                HasCompanyCui = false,
+                                Amount = 100,
+                                Currency = "EUR",
+                                Payment = "CompanyCard",
+                                CardId = card,
+                            }
+                        ),
+                    },
+                ],
+            };
+            var document = new ReportAttachment
+            {
+                Scan = "Clean",
+                Hash = "statement-hash",
+                Name = "statement.pdf",
+                CoveredLines = Serialization.Write(new[] { r.Lines[0].Id }),
+            };
+            if (individualStatement)
+                r.Lines[0]
+                    .Evidence.Add(
+                        new()
+                        {
+                            Id = document.Id,
+                            Scan = "Clean",
+                            Hash = document.Hash,
+                            Name = document.Name,
+                            Mime = "application/pdf",
+                        }
+                    );
+            else
+                r.Attachments.Add(document);
+            var transaction = new CardTransaction
+            {
+                CardId = card,
+                Reference = "STATEMENT-1",
+                Date = "2026-01-01",
+                Amount = 100,
+                Currency = "EUR",
+                SettledRon = 510,
+            };
+            db.Reports.Add(r);
+            db.Transactions.Add(transaction);
+            await db.SaveChangesAsync();
+            id = r.Id;
+            tx = transaction.Id;
+            doc = document.Id;
+            line = r.Lines[0].Id;
+        }
+        var c = await Login(f, "finance");
+        var result = await Send(
+            c,
+            $"/api/finance/transactions/{tx}/treatment",
+            new BankTreatmentCommand(
+                id,
+                1,
+                "SEPARATE_CHARGES",
+                500,
+                7,
+                3,
+                doc,
+                "FEE",
+                "CC",
+                "Statement verified separately"
+            )
+        );
+        Assert.Equal(3, result.GetProperty("report").GetProperty("lines").GetArrayLength());
+        var classification = result.GetProperty("treatment").GetProperty("id").GetGuid();
+        await Send(c, "/api/finance/matches", new MatchInput(id, 2, line, tx, 100));
+        using (var scope = f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<Db>();
+            Assert.Equal(500, (await db.Matches.SingleAsync()).Ron);
+        }
+        await Send(
+            c,
+            $"/api/finance/bank-treatments/{classification}/undo",
+            new VersionRequest(3, "Correct classification"),
+            HttpStatusCode.Conflict
+        );
+        Guid match;
+        using (var scope = f.Services.CreateScope())
+            match = (await scope.ServiceProvider.GetRequiredService<Db>().Matches.SingleAsync()).Id;
+        await Send(c, $"/api/finance/matches/{match}/undo", new VersionRequest(3, "Undo allocation for correction"));
+        var undone = await Send(
+            c,
+            $"/api/finance/bank-treatments/{classification}/undo",
+            new VersionRequest(4, "Correct classification")
+        );
+        Assert.Single(undone.GetProperty("lines").EnumerateArray());
+        using var verify = f.Services.CreateScope();
+        var store = verify.ServiceProvider.GetRequiredService<Db>();
+        Assert.Single(await store.BankTreatments.ToListAsync());
+        Assert.Single(await store.BankTreatmentRevocations.ToListAsync());
+        Assert.Equal(510, await BankTreatments.Principal(store, await store.Transactions.SingleAsync()));
+    }
+
+    [Fact]
+    public void BrokenReferencesAndProductionSampleMappingsAreRejected()
+    {
+        var broken = new Master { Json = "{\"mainAccount\":\"#REF!\"}" };
+        var sample = new Master { Json = "{\"mainAccount\":\"TEST-GL\"}" };
+        Assert.Single(FinanceAcceptance.MasterProblems([broken], false));
+        Assert.Single(FinanceAcceptance.MasterProblems([sample], true));
+        Assert.Empty(FinanceAcceptance.MasterProblems([sample], false));
+    }
+
+    [Fact]
+    public async Task FinanceAcceptanceCannotBeForgedByUncheckedOrStaleConfiguration()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        var c = await Login(f, "finance");
+        var config = await c.GetFromJsonAsync<JsonElement>("/api/finance/acceptance");
+        var hash = config.GetProperty("configurationHash").GetString()!;
+        await Send(
+            c,
+            "/api/finance/acceptance",
+            new FinanceAcceptanceCommand("DEFAULT", hash, false, true, true, true, "Unperformed totals check"),
+            HttpStatusCode.UnprocessableEntity
+        );
+        using (var scope = f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<Db>();
+            db.Masters.Add(
+                new()
+                {
+                    Kind = "expenseTypes",
+                    Code = "NEW",
+                    From = new(2020, 1, 1),
+                }
+            );
+            await db.SaveChangesAsync();
+        }
+        await Send(
+            c,
+            "/api/finance/acceptance",
+            new FinanceAcceptanceCommand("DEFAULT", hash, true, true, true, true, "Stale configuration"),
+            HttpStatusCode.Conflict
+        );
+        using var verify = f.Services.CreateScope();
+        Assert.Empty(await verify.ServiceProvider.GetRequiredService<Db>().FinanceAcceptanceRecords.ToListAsync());
+    }
+
+    [Fact]
+    public async Task AcceptedCalculationCannotBeReusedForAnotherIdenticalReceipt()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        using var scope = f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        var data = Data() with { Country = "DE", HasCompanyCui = false };
+        var report = new Report
+        {
+            State = States.Finance,
+            Purpose = "Attribution",
+            Lines =
+            [
+                new()
+                {
+                    Position = 1,
+                    EstimatedRon = 121,
+                    Json = Serialization.Write(data),
+                },
+                new()
+                {
+                    Position = 2,
+                    EstimatedRon = 121,
+                    Json = Serialization.Write(data),
+                },
+            ],
+        };
+        report.Attachments.Add(
+            new()
+            {
+                Name = "combined.pdf",
+                Hash = "original-source",
+                Scan = "Clean",
+                CoveredLines = Serialization.Write(report.Lines.Select(l => l.Id).ToList()),
+            }
+        );
+        db.Reports.Add(report);
+        await db.SaveChangesAsync();
+        var first = report.Lines[0];
+        var other = report.Lines[1];
+        await FinancialCalculations.Accept(db, new(db), report, first, User("finance"), "Verified first source");
+        await db.SaveChangesAsync();
+        other.CalculationId = first.CalculationId;
+        other.CalculationHash = first.CalculationHash;
+        other.CalculatedJson = first.CalculatedJson;
+        other.FinancialRounding = first.FinancialRounding;
+        var issues = await FinancialCalculations.ExportProblems(db, report);
+        Assert.Contains(issues, i => i.LineId == other.Id && i.Code == "calculation_stale");
+        Assert.DoesNotContain(issues, i => i.LineId == first.Id);
+    }
+
+    [Fact]
+    public void StatementImportRetainsOriginalCurrencyDecimalsAndRejectsRoundedRon()
+    {
+        var input = new BankInput(
+            Guid.NewGuid(),
+            "reference,date,merchant,amount,currency,settledRon\nPRECISE,2026-01-01,Shop,1.234,BHD,12.34",
+            new()
+        );
+        var row = Assert.Single(Finance.Parse(input));
+        Assert.Equal(1.234m, row.Amount);
+        Assert.Throws<DomainException>(() => Finance.Parse(input with { Csv = input.Csv.Replace("12.34", "12.345") }));
+    }
+
+    [Fact]
+    public async Task ProductionReleaseRequiresRealFinanceAcceptanceAndDraftsDoNotInvalidateIt()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        using var scope = f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        Assert.Contains(
+            await FinanceAcceptance.ReleaseProblems(db, true),
+            i => i.Code == "finance_acceptance_required"
+        );
+        Assert.Empty(await FinanceAcceptance.ReleaseProblems(db, false));
+        var hash = await FinanceAcceptance.Hash(db);
+        db.FinanceAcceptanceRecords.Add(
+            new()
+            {
+                Company = "DEFAULT",
+                ConfigurationHash = hash,
+                Actor = "responsible-finance",
+                Reason = "ERP and corpus reviewed",
+            }
+        );
+        await db.SaveChangesAsync();
+        Assert.Empty(await FinanceAcceptance.ReleaseProblems(db, true));
+        db.TaxPolicies.Add(Draft());
+        await db.SaveChangesAsync();
+        Assert.Equal(hash, await FinanceAcceptance.Hash(db));
+        db.Masters.Add(
+            new()
+            {
+                Kind = "accounting",
+                Code = "CHANGED",
+                From = new(2020, 1, 1),
+                Json = "{\"mainAccount\":\"6000\"}",
+            }
+        );
+        await db.SaveChangesAsync();
+        Assert.Contains(
+            await FinanceAcceptance.ReleaseProblems(db, true),
+            i => i.Code == "finance_acceptance_required"
+        );
+    }
+
+    [Fact]
+    public void ExemptVehiclePreservesCategorySplitWithoutInventingVatCodes()
+    {
+        var data = Data() with { VatTreatment = "EXEMPT", VatExplanation = "Documented exemption" };
+        var report = new Report { Lines = [new() { EstimatedRon = 121, Json = Serialization.Write(data) }] };
+        var masters = new List<Master>
+        {
+            new()
+            {
+                Kind = "accounting",
+                Code = "GENERAL",
+                From = new(2020, 1, 1),
+                Json =
+                    "{\"mainAccount\":\"GL\",\"localAccount\":\"LOCAL\",\"subAccount\":\"CAR-SUB\",\"vehicle\":true}",
+            },
+            new()
+            {
+                Kind = "costCenters",
+                Code = "CC",
+                From = new(2020, 1, 1),
+                Json = "{\"erpCode\":\"CC\"}",
+            },
+            new()
+            {
+                Kind = "suppliers",
+                Code = "18546294",
+                From = new(2020, 1, 1),
+                Json = "{\"vendorAccount\":\"VENDOR\"}",
+            },
+            new()
+            {
+                Kind = "erpSettings",
+                Code = "default",
+                From = new(2020, 1, 1),
+                Json = "{\"approvalReference\":\"TEST\",\"clearingAccount\":\"CLEAR\",\"clearingLocal\":\"LOCAL\"}",
+            },
+        };
+        var rows = new Posting().Build(report, new() { Worker = "employee" }, masters).Rows;
+        Assert.Equal(4, rows.Count);
+        Assert.Equal("60.50", rows[0][13]);
+        Assert.Equal("CAR-SUB", rows[0][10]);
+        Assert.Equal("60.50", rows[1][13]);
+        Assert.Equal("", rows[1][10]);
+        Assert.All(
+            rows,
+            r =>
+            {
+                Assert.Equal("", r[16]);
+                Assert.Equal("", r[17]);
+            }
+        );
+    }
+
+    [Fact]
+    public async Task LatestEstimateHonorsNewFinanceEntryAcrossBothSupportedConfigurationPaths()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        var client = await Login(f, "finance");
+        var legacy = await Send(
+            client,
+            "/api/configuration/masters",
+            new MasterInput(
+                "fx",
+                "EUR",
+                "EUR",
+                "EUR",
+                "{\"ronRate\":5}",
+                new(2020, 1, 1),
+                null,
+                true,
+                "Initial Finance estimate"
+            )
+        );
+        await Send(
+            client,
+            "/api/finance/currency-policies",
+            new FinancePolicyInput("EUR", new(2020, 1, 1), new(EstimateRate: "5.1"), "New Finance estimate")
+        );
+        using (var scope = f.Services.CreateScope())
+            Assert.Equal(
+                5.1m,
+                (await FinancialCalculations.Estimate(scope.ServiceProvider.GetRequiredService<Db>(), "EUR")).Rate
+            );
+        await Send(
+            client,
+            $"/api/configuration/masters/{legacy.GetProperty("id").GetGuid()}/retire",
+            new RetireInput(new(2025, 12, 31), "Close preceding rate period")
+        );
+        await Send(
+            client,
+            "/api/configuration/masters",
+            new MasterInput(
+                "fx",
+                "EUR",
+                "EUR",
+                "EUR",
+                "{\"ronRate\":5.2}",
+                new(2026, 1, 1),
+                null,
+                true,
+                "Latest Finance rate entry"
+            )
+        );
+        using var verify = f.Services.CreateScope();
+        Assert.Equal(
+            5.2m,
+            (await FinancialCalculations.Estimate(verify.ServiceProvider.GetRequiredService<Db>(), "EUR")).Rate
+        );
+    }
+
+    [Fact]
+    public void FuturePolicyActivationDoesNotRetroactivelyBlockEarlierOwnerRules()
+    {
+        var future = Draft(Rule() with { From = new(2027, 1, 1) });
+        var approval = new TaxPolicyDecision
+        {
+            PolicyId = future.Id,
+            Action = "APPROVE",
+            Actor = "independent-finance",
+        };
+        var prior = TaxPolicies.Resolve(Data(), "DEFAULT", [future], [approval]);
+        Assert.Empty(prior.Issues);
+        Assert.Equal(FinancialCalculations.OwnerPolicy, prior.Reference);
+        Assert.Contains(
+            TaxPolicies
+                .Resolve(Data() with { Date = "2027-01-01", Country = "DE" }, "DEFAULT", [future], [approval])
+                .Issues,
+            i => i.Code == "tax_policy_gap"
+        );
+    }
 }
