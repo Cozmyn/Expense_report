@@ -1243,10 +1243,10 @@ function ReportDetail({
                             : t('În verificare', 'Scan pending')}
                       </span>
                       {e.ocr && (
-                        <details>
-                          <summary>OCR · {t('Verificare manuală', 'Manual verification')}</summary>
+                        <section>
+                          <h4>OCR · {t('Verificare manuală', 'Manual verification')}</h4>
                           <pre className="ocr-text">{JSON.parse(e.ocr).text}</pre>
-                        </details>
+                        </section>
                       )}
                       {editable && (
                         <button
