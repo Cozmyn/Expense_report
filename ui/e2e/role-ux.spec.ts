@@ -32,7 +32,7 @@ async function mutate(client: APIRequestContext, path: string, data: unknown) {
     },
   });
   expect(response.ok(), await response.text()).toBeTruthy();
-  return response.json();
+  return response.status() === 204 ? null : response.json();
 }
 
 async function navigate(page: Page, label: string) {
