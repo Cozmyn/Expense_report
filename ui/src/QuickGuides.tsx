@@ -2,8 +2,8 @@ type Translator = (ro: string, en: string) => string;
 
 export function ReportHelp({ t }: { t: Translator }) {
   return (
-    <details className="quick-help">
-      <summary>{t('Ghid scurt: cum trimit un decont?', 'Quick guide: submitting a report')}</summary>
+    <section className="quick-help">
+      <h4>{t('Ghid scurt: cum trimit un decont?', 'Quick guide: submitting a report')}</h4>
       <ol>
         <li>{t('Creează decontul și alege metoda de plată.', 'Create a report and choose how you paid.')}</li>
         <li>
@@ -25,14 +25,14 @@ export function ReportHelp({ t }: { t: Translator }) {
           'Each receipt needs scanned evidence. If the company VAT ID appears, check taxable bases and VAT by rate.',
         )}
       </p>
-    </details>
+    </section>
   );
 }
 
 export function OcrHelp({ t }: { t: Translator }) {
   return (
-    <details className="quick-help">
-      <summary>{t('Cum citește aplicația un bon?', 'How does receipt scanning work?')}</summary>
+    <section className="quick-help">
+      <h4>{t('Cum citește aplicația un bon?', 'How does receipt scanning work?')}</h4>
       <ol>
         <li>
           {t(
@@ -59,6 +59,6 @@ export function OcrHelp({ t }: { t: Translator }) {
           'OCR may misread or miss fields. It cannot reliably fill in missing details and never submits your report.',
         )}
       </p>
-    </details>
+    </section>
   );
 }
