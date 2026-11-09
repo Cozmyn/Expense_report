@@ -136,7 +136,7 @@ test('PDF02 recorded source-to-expense walkthrough', async ({ browser }, info) =
   await mutate(
     employee,
     '/reports/' + report.id,
-    { version: report.version, purpose: report.purpose, payment: 'Personal', cardId: null },
+    { version: report.version, purpose: report.purpose, payment: 'Personal', cardId: null, costCenter: cc },
     'PATCH',
   );
   const context = await browser.newContext({
@@ -188,17 +188,21 @@ test('PDF02 recorded source-to-expense walkthrough', async ({ browser }, info) =
     invoice('TEN'),
     ['COVER SHEET', 'Non-expense supporting paper'],
   ];
+  await page.getByRole('radio', { name: /Mai multe bonuri/ }).check();
   await page
-    .getByLabel('Selectează documente PDF / imagini', { exact: true })
+    .getByLabel('Adaugă PDF sau fotografie', { exact: true })
     .setInputFiles({
       name: 'synthetic-batch-' + tag + '.pdf',
       mimeType: 'application/pdf',
       buffer: pdf(batch),
     });
   const board = page.getByRole('region', { name: 'Verificarea documentelor', exact: true });
-  await expect(board.getByRole('button', { name: 'Revizuiește și creează bonul' })).toHaveCount(9, {
-    timeout: 180000,
-  });
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible({ timeout: 180000 });
+  await dialog.getByRole('button', { name: 'Anulează', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  const picker = board.getByRole('group', { name: 'Selectează bonul pentru verificare' });
+  await expect(picker.getByRole('button')).toHaveCount(9, { timeout: 180000 });
   const detail = async () =>
     (await (await employee.get('/api/reports/' + report.id)).json()).report;
   const source = (await detail()).attachments[0];
@@ -216,14 +220,14 @@ test('PDF02 recorded source-to-expense walkthrough', async ({ browser }, info) =
   const select = async (predicate: (g: any) => boolean) => {
     const state = await review();
     await expect(board.locator('fieldset.ocr-review-controls')).toBeEnabled();
-    await expect(board.getByRole('button', { name: 'Revizuiește și creează bonul' })).toHaveCount(
-      state.candidates.length,
-    );
+    await expect(picker.getByRole('button')).toHaveCount(state.candidates.length);
     for (let n = 0; n < state.candidates.length; n++)
-      if (predicate(state.candidates[n]))
+      if (predicate(state.candidates[n])) {
+        await picker.getByRole('button').nth(n).click();
         await board
           .getByRole('checkbox', { name: 'Selectează documentul ' + (n + 1), exact: true })
           .check();
+      }
   };
   await reason.fill('Demonstrate invoice split and merge');
   await select((g) => g.pages.join(',') === '3,4,5');
@@ -250,8 +254,9 @@ test('PDF02 recorded source-to-expense walkthrough', async ({ browser }, info) =
     .click();
   await expect(board.getByRole('img').first()).toBeVisible();
   await screenshot('03-field-source-highlight');
-  const dialog = page.getByRole('dialog');
-  await board.getByRole('button', { name: 'Revizuiește și creează bonul' }).first().click();
+  const sourceGroups = await review();
+  await picker.getByRole('button').nth(sourceGroups.candidates.findIndex((g: any) => g.pages.includes(1))).click();
+  await board.getByRole('button', { name: 'Revizuiește și creează bonul' }).click();
   await dialog
     .getByLabel('Bonul are înscris CUI-ul companiei?', { exact: true })
     .selectOption('yes');
@@ -270,7 +275,6 @@ test('PDF02 recorded source-to-expense walkthrough', async ({ browser }, info) =
     await confirmation.check();
   }
   await dialog.getByLabel('Tip cheltuială', { exact: true }).selectOption(category);
-  await dialog.getByLabel('Centru de cost', { exact: true }).selectOption(cc);
   await dialog
     .getByLabel('Descriere / justificare', { exact: true })
     .fill('Synthetic human correction demonstration');
@@ -292,11 +296,11 @@ test('PDF02 recorded source-to-expense walkthrough', async ({ browser }, info) =
   for (let step = 1; step < 9; step++) {
     const state = await review();
     const index = state.candidates.findIndex((g: any) => g.state !== 'Verified');
-    await board.getByRole('button', { name: 'Revizuiește și creează bonul' }).nth(index).click();
+    await picker.getByRole('button').nth(index).click();
+    await board.getByRole('button', { name: 'Revizuiește și creează bonul' }).click();
     await dialog.getByLabel('Furnizorul este din România?', { exact: true }).selectOption('no');
     await dialog.getByLabel('Tip cheltuială', { exact: true }).selectOption(category);
-    await dialog.getByLabel('Centru de cost', { exact: true }).selectOption(cc);
-    await dialog
+      await dialog
       .getByLabel('Descriere / justificare', { exact: true })
       .fill('Verified synthetic source group ' + step);
     await dialog.getByRole('checkbox', { name: /Am verificat gruparea paginilor/ }).check();
