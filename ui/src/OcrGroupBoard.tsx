@@ -206,7 +206,7 @@ export default function OcrGroupBoard({
             </button>
           </div>
         )}
-        <details className="ocr-advanced-tools" ref={advancedRef}>
+        <details className="ocr-advanced-tools" ref={advancedRef} open={groups.length > 1 || review.unassignedPages.length > 0}>
           <summary>
             {t('Opțiuni avansate pentru pagini și grupare', 'Advanced page and grouping tools')}
           </summary>
