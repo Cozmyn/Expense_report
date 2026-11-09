@@ -8,8 +8,8 @@ export function ReportHelp({ t }: { t: Translator }) {
         <li>{t('Creează decontul și alege metoda de plată.', 'Create a report and choose how you paid.')}</li>
         <li>
           {t(
-            'Adaugă bonurile: prin fotografie, PDF sau manual.',
-            'Add receipts using photos, PDFs or manual entry.',
+            'Adaugă bonurile: prin fotografii, PDF-uri (inclusiv fișiere comune) sau manual.',
+            'Add receipts using photos, PDFs (including combined files) or manual entry.',
           )}
         </li>
         <li>
@@ -19,6 +19,12 @@ export function ReportHelp({ t }: { t: Translator }) {
           )}
         </li>
       </ol>
+      <p className="small muted">
+        {t(
+          'Fiecare bon trebuie să aibă document scanat. Dacă apare CUI-ul companiei, verifică baza și TVA-ul pe cote.',
+          'Each receipt needs scanned evidence. If the company VAT ID appears, check taxable bases and VAT by rate.',
+        )}
+      </p>
     </details>
   );
 }
