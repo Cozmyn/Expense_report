@@ -419,12 +419,18 @@ export function UsersPage({ t, run }: Any) {
       password: '',
       reason: '',
     }),
-    [id, I] = useState('');
+    [id, I] = useState(''),
+    [search, Search] = useState('');
   const load = () => api('/admin/users').then(U);
   useEffect(() => {
     run(load);
   }, []);
   const set = (k: string, v: any) => F({ ...form, [k]: v });
+  const visibleUsers = users.filter((user) =>
+    [user.name, user.userName, user.email, user.worker].some((value) =>
+      String(value || '').toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
+    ),
+  );
   return (
     <>
       <div className="page-heading">
@@ -592,8 +598,21 @@ export function UsersPage({ t, run }: Any) {
             )}
           </div>
         </form>
+        <div className="list-toolbar admin-users-toolbar">
+          <Field name={t('Caută utilizatori', 'Search users')}>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => Search(e.target.value)}
+              placeholder={t('Nume, cont, email sau cod Worker', 'Name, account, email or Worker code')}
+            />
+          </Field>
+          <p className="muted" role="status">
+            {visibleUsers.length} / {users.length} {t('utilizatori', 'users')}
+          </p>
+        </div>
         <div className="queue">
-          {users.map((u) => (
+          {visibleUsers.map((u) => (
             <button
               className="simple-row row-button"
               key={u.id}
@@ -614,6 +633,9 @@ export function UsersPage({ t, run }: Any) {
               <ArrowUpRight size={16} />
             </button>
           ))}
+          {visibleUsers.length === 0 && (
+            <p className="muted">{t('Niciun utilizator găsit.', 'No matching users.')}</p>
+          )}
         </div>
       </section>
     </>
