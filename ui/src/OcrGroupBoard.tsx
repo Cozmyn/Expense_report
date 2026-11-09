@@ -27,6 +27,9 @@ export default function OcrGroupBoard({
     [splitPages, SP] = useState(''),
     [regionGroup, RG] = useState<Any | null>(null),
     [regions, Regions] = useState<Region[]>([]),
+    [fieldGroup, FieldGroup] = useState<Any | null>(null),
+    [fieldKey, FieldKey] = useState('amount'),
+    [fieldRegion, FieldRegion] = useState<Region | null>(null),
     [history, H] = useState<Any[] | null>(null),
     [feedback, Feedback] = useState<Any[] | null>(null),
     [events, Events] = useState<Any[] | null>(null),
@@ -152,10 +155,28 @@ export default function OcrGroupBoard({
       <h3>{t('Documente de verificat', 'Documents to review')}</h3>
       <p className="small muted">
         {t(
-          'Verifică documentul original și confirmă datele fiecărui bon. Pentru corecții de grupare, deschide opțiunile avansate.',
-          'Check each original document and confirm the receipt details. Open advanced tools to change page grouping.',
+          'Verifică fiecare bon înainte de a crea cheltuiala. Poți delimita separat mai multe bonuri din același PDF.',
+          'Review each receipt before creating an expense. You can select several receipts from one PDF.',
         )}
       </p>
+      <details className="quick-help">
+        <summary>{t('Mai multe bonuri într-un PDF?', 'Multiple receipts in one PDF?')}</summary>
+        <ol>
+          <li>{t('Deschide delimitarea și trasează o regiune pentru fiecare bon.', 'Open the selection tool and draw one region per receipt.')}</li>
+          <li>{t('Creează câte un grup separat și verifică datele extrase.', 'Create one document group per receipt and review the extracted fields.')}</li>
+          <li>{t('Confirmă fiecare grup pentru a crea cheltuieli separate.', 'Confirm each group to create separate expenses.')}</li>
+        </ol>
+      </details>
+      <button
+        type="button"
+        className="secondary"
+        onClick={() => {
+          RG({ id: 'new-region', pages: [1] });
+          Regions([]);
+        }}
+      >
+        {t('Delimitează un bon din PDF', 'Select another receipt from PDF')}
+      </button>
       {(changing || stale) && (
         <p role="status">
           {t(
@@ -476,6 +497,15 @@ export default function OcrGroupBoard({
                   </a>
                   {g.state !== 'Verified' && (
                     <>
+                      <button
+                        className="secondary"
+                        onClick={() => {
+                          FieldGroup(g);
+                          FieldRegion(null);
+                        }}
+                      >
+                        {t('Selectează un câmp din bon', 'Select a field from the receipt')}
+                      </button>
                       <button className="secondary" onClick={() => openRegions(g)}>
                         {t('Ajustează paginile / regiunea', 'Adjust pages / region')}
                       </button>
@@ -539,6 +569,76 @@ export default function OcrGroupBoard({
             ))}
           </div>
         </div>
+        {fieldGroup && (
+          <section className="panel ocr-field-selector" aria-label={t('Selectarea câmpului', 'Field selection')}>
+            <div className="section-heading">
+              <h4>{t('Selectează textul direct de pe bon', 'Select text directly on the receipt')}</h4>
+              <button type="button" className="text-button" onClick={() => FieldGroup(null)}>
+                {t('Închide', 'Close')}
+              </button>
+            </div>
+            <p>
+              {t(
+                'Alege câmpul, apasă „Delimitează regiunea” și trasează un dreptunghi peste text. Valoarea devine o propunere pe care o verifici înainte de salvare.',
+                'Choose a field, select “Select source region” and draw a box around the text. The result is a suggestion to verify before saving.',
+              )}
+            </p>
+            <Field name={t('Ce informație selectezi?', 'Which field are you selecting?')}>
+              <select value={fieldKey} onChange={(e) => { FieldKey(e.target.value); FieldRegion(null); }}>
+                {['supplier', 'cui', 'invoice', 'date', 'currency', 'amount', 'description'].map((key) => (
+                  <option key={key} value={key}>{ocrFieldLabel(key, t)}</option>
+                ))}
+              </select>
+            </Field>
+            <DocumentViewer
+              key={fieldGroup.id}
+              document={{
+                name: file.name,
+                url: '/api/report-attachments/' + file.id,
+                mime: file.mime,
+                id: file.id,
+                reportId: report.id,
+                pageCount: review.pageCount,
+                initialPage: fieldGroup.pages[0],
+                previewUrl: file.mime === 'image/heic' ? base + '/preview' : null,
+              }}
+              t={t}
+              focus={fieldRegion}
+              onRegionSelect={(selected) => FieldRegion(selected)}
+            />
+            {fieldRegion && (
+              <p role="status" className="small">
+                {t('Regiune selectată pe pagina', 'Selected region on page')} {fieldRegion.page}.
+                {' '}{t('Aplică selecția, apoi verifică textul propus.', 'Apply the selection, then review the suggested text.')}
+              </p>
+            )}
+            <div className="actions">
+              <button
+                type="button"
+                className="primary"
+                disabled={changing || stale || !fieldRegion}
+                onClick={() =>
+                  perform(async () => {
+                    await api(base + '/groups/' + fieldGroup.id + '/select-field', 'POST', {
+                      version: report.version,
+                      field: fieldKey,
+                      region: fieldRegion,
+                      reason: reason.trim().length >= 3 ? reason : 'User selected source text',
+                    });
+                    FieldGroup(null);
+                    FieldRegion(null);
+                    await refresh();
+                  })
+                }
+              >
+                {t('Folosește textul selectat', 'Use selected text')}
+              </button>
+              <button className="secondary" type="button" onClick={() => FieldRegion(null)}>
+                {t('Selectează din nou', 'Select again')}
+              </button>
+            </div>
+          </section>
+        )}
         {regionGroup && (
           <section className="panel">
             <h4>{t('Delimitarea sursei', 'Source boundaries')}</h4>
@@ -623,19 +723,21 @@ export default function OcrGroupBoard({
               >
                 {t('Adaugă pagină / regiune', 'Add page / region')}
               </button>
-              <button
-                className="secondary"
-                disabled={reason.trim().length < 3}
-                onClick={() => command('regions', { groups: [regionGroup.id], regions })}
-              >
-                {t('Salvează delimitarea', 'Save boundaries')}
-              </button>
+              {regionGroup.id !== 'new-region' && (
+                <button
+                  className="secondary"
+                  disabled={reason.trim().length < 3}
+                  onClick={() => command('regions', { groups: [regionGroup.id], regions })}
+                >
+                  {t('Salvează delimitarea', 'Save boundaries')}
+                </button>
+              )}
               <button
                 className="secondary"
                 disabled={reason.trim().length < 3 || regions.length !== 1}
                 onClick={() => command('add', { groups: [], regions })}
               >
-                {t('Creează al doilea document din regiune', 'Create second document from region')}
+                {t('Creează un bon separat din regiune', 'Create separate receipt group from region')}
               </button>
               <button className="text-button" onClick={() => RG(null)}>
                 {t('Închide', 'Close')}
