@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { X, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { api } from './api';
 import { Field } from './Fields';
+import { ocrFieldLabel } from './OcrLabels';
 type Any = Record<string, any>;
 export function newReceipt() {
   return {
@@ -134,6 +135,7 @@ export default function ReceiptModal({
     [draftStatus, DS] = useState('');
   const lastSaved = useRef('');
   const saving = useRef(false);
+  const formRef = useRef<HTMLFormElement>(null);
   const draftQueue = useRef<Promise<any>>(Promise.resolve());
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -403,6 +405,22 @@ export default function ReceiptModal({
     vat && (looking || !lookup?.valid || (!lookup.found && !d.supplierConfirmed));
   const updateTax = (pct: number, key: string, value: any) =>
     Taxes((old: Any) => ({ ...old, [pct]: { ...old[pct], [key]: value } }));
+  // Suggestions are navigation aids only. The original document remains the source of truth.
+  const ocrShortcuts = (['date', 'invoice', 'supplier', 'cui', 'description', 'currency', 'amount'] as const)
+    .filter((key) => vat || !['invoice', 'supplier', 'cui'].includes(key))
+    .map((key) => ({ key, value: expense.ocrCandidate?.fields?.[key]?.value }))
+    .filter((field) => field.value != null && String(field.value).trim().length > 0);
+  const ocrTaxShortcuts =
+    vat && (!d.vatTreatment || d.vatTreatment === 'STANDARD')
+      ? (expense.ocrCandidate?.taxes || []).filter((tax: Any) =>
+          taxRows.some((row) => row.pct === Number(tax.rate)),
+        )
+      : [];
+  const focusOcrField = (key: string) => {
+    const field = formRef.current?.querySelector<HTMLElement>(`[data-ocr-field="${key}"]`);
+    field?.scrollIntoView({ block: 'center' });
+    field?.focus();
+  };
   const fileSection = (
     <section className="receipt-section">
       <h3>{t('Fișiere pentru acest bon', 'Files for this receipt')}</h3>
@@ -531,6 +549,7 @@ export default function ReceiptModal({
             </aside>
           )}
           <form
+            ref={formRef}
             onFocusCapture={(e) => {
               const key = (e.target as HTMLElement).dataset.ocrField;
               if (!key || !expense.ocrCandidate) return;
@@ -592,12 +611,47 @@ export default function ReceiptModal({
             }}
           >
             {expense.ocrCandidate && (
-              <div className="issue warning">
-                {t(
-                  'Valorile OCR trebuie verificate pe original. Completează manual datele lipsă.',
-                  'Verify OCR values against the original. Complete missing fields manually.',
+              <section className="receipt-ocr-review" aria-label={t('Propuneri OCR', 'OCR suggestions')}>
+                <h3>{t('Verifică datele propuse de OCR', 'Review the OCR suggestions')}</h3>
+                <p>
+                  {t(
+                    'Selectează o valoare ca să ajungi la câmpul ei și să verifici locul din original. Corectează ce este greșit sau lipsește.',
+                    'Select a value to open its field and check the source on the original. Correct anything missing or wrong.',
+                  )}
+                </p>
+                {(ocrShortcuts.length > 0 || ocrTaxShortcuts.length > 0) && (
+                  <div className="ocr-shortcuts">
+                    {ocrShortcuts.map(({ key, value }) => (
+                      <button
+                        key={key}
+                        type="button"
+                        className="ocr-shortcut"
+                        onClick={() => focusOcrField(key)}
+                      >
+                        <span>{ocrFieldLabel(key, t)}</span>
+                        <strong>{String(value)}</strong>
+                      </button>
+                    ))}
+                    {ocrTaxShortcuts.map((tax: Any, i: number) => (
+                      <button
+                        key={tax.rate + '-' + i}
+                        type="button"
+                        className="ocr-shortcut"
+                        onClick={() => focusOcrField('tax:' + tax.rate)}
+                      >
+                        <span>{t('TVA', 'VAT')} {tax.rate}%</span>
+                        <strong>{tax.base} + {tax.vat}</strong>
+                      </button>
+                    ))}
+                  </div>
                 )}
-              </div>
+                <p className="receipt-hint">
+                  {t(
+                    'Aceste valori sunt doar sugestii, nu confirmări. Documentul original este afișat lângă formular.',
+                    'These values are suggestions, not confirmations. The original document is shown beside the form.',
+                  )}
+                </p>
+              </section>
             )}
             {draftError && (
               <p className="error" role="alert">
@@ -620,7 +674,7 @@ export default function ReceiptModal({
             {fileSection}
             <section className="receipt-section">
               <h3>
-                {t('1. Tipul cheltuielii și data bonului', '1. Expense category and receipt date')}
+                {t('Tipul cheltuielii și data', 'Expense category and date')}
               </h3>
               {expense.ocrCandidate?.categorySuggestions?.length > 0 && (
                 <div className="receipt-hint">
@@ -802,8 +856,8 @@ export default function ReceiptModal({
               <section className="receipt-section">
                 <h3>
                   {t(
-                    '2. Furnizor și identificarea bonului',
-                    '2. Supplier and receipt identification',
+                    'Furnizor și identificarea documentului',
+                    'Supplier and document details',
                   )}
                 </h3>
                 <div className="form-grid">
@@ -856,7 +910,11 @@ export default function ReceiptModal({
                   </div>
                 )}
                 {d.cui && (
-                  <div className="actions">
+                  <details className="receipt-optional">
+                    <summary>
+                      {t('Verificare suplimentară a furnizorului', 'Additional supplier checks')}
+                    </summary>
+                    <div className="actions">
                     <button
                       type="button"
                       className="secondary"
@@ -914,7 +972,8 @@ export default function ReceiptModal({
                           </button>
                         </>
                       )}
-                  </div>
+                    </div>
+                  </details>
                 )}
                 {lookup?.found &&
                   expense.ocrCandidate?.fields?.supplier?.value &&
@@ -959,7 +1018,7 @@ export default function ReceiptModal({
               </section>
             )}
             <section className="receipt-section">
-              <h3>{t('3. Descriere și valoare', '3. Description and amount')}</h3>
+              <h3>{t('Descriere și sumă', 'Description and amount')}</h3>
               <Field name={t('Descriere / justificare', 'Description / business justification')}>
                 <textarea
                   data-ocr-field="description"
