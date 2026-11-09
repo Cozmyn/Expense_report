@@ -88,10 +88,11 @@ class Handler(BaseHTTPRequestHandler):
 
             source = self.rfile.read(int(length))
             with Image.open(BytesIO(source)) as raw:
-                image = ImageOps.exif_transpose(raw).convert("RGB")
-                if image.width * image.height > 45_000_000:
+                # Check dimensions *before* decoding pixels to avoid decompression bombs.
+                if raw.width * raw.height > 45_000_000:
                     self.respond(413, {"error": "Image too large"})
                     return
+                image = ImageOps.exif_transpose(raw).convert("RGB")
                 size = image.size
                 pixels = np.array(image)
             with _LOCK:
