@@ -17,18 +17,25 @@ public static class OcrFieldSelection
         "supplier", "cui", "invoice", "date", "currency", "amount", "description"
     ];
 
+    public static bool Supported(string field) =>
+        Fields.Contains(field) || Regex.IsMatch(field, @"\Atax(?:Base|Vat):\d{1,2}(?:\.\d+)?\z");
+
     public static string? Extract(string field, string evidence)
     {
         var text = evidence.Trim();
-        if (text.Length is 0 or > 1000 || !Fields.Contains(field))
+        if (text.Length is 0 or > 1000 || !Supported(field))
             return null;
-        if (field == "amount")
+        if (field == "amount" || field.StartsWith("taxBase:") || field.StartsWith("taxVat:"))
         {
             var numbers = Regex.Matches(
                 text, @"(?<!\d)[-+]?\d+(?:[ .,]\d{3})*[.,]\d{2}(?!\d)"
             );
             var last = numbers.Cast<System.Text.RegularExpressions.Match>().LastOrDefault();
-            var value = last == null ? null : ReceiptParser.Number(last.Value);
+            var value = last == null
+                ? Regex.IsMatch(text, @"\A[-+]?\d+\z")
+                    ? ReceiptParser.Number(text)
+                    : null
+                : ReceiptParser.Number(last.Value);
             return value?.ToString("0.00", CultureInfo.InvariantCulture);
         }
         if (field == "date")
@@ -72,7 +79,7 @@ public static class OcrFieldSelection
                         var report = await svc.Version(id, input.Version, context.User);
                         svc.Edit(report, context.User, input.Reason);
                         Guard.Require(
-                            Fields.Contains(input.Field),
+                            Supported(input.Field),
                             "ocr_field",
                             "Selectează un câmp permis.",
                             "Select a supported field."
