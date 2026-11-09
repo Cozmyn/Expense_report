@@ -138,8 +138,16 @@ export default function ReceiptModal({
   const modified = useRef(false);
   const requestCloseRef = useRef<() => void>(() => {});
   const formRef = useRef<HTMLFormElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const draftQueue = useRef<Promise<any>>(Promise.resolve());
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    titleRef.current?.focus();
+    return () => previouslyFocused?.focus();
+  }, []);
   useEffect(() => {
     let active = true;
     if (!draftStorageKey || expense.id) {
@@ -529,7 +537,7 @@ export default function ReceiptModal({
       >
         <div className="section-heading">
           <div>
-            <h2 id="expense-title">
+            <h2 id="expense-title" ref={titleRef} tabIndex={-1}>
               {expense.id
                 ? t('Editează bonul / documentul', 'Edit receipt / document')
                 : t('Adaugă un bon / document', 'Add receipt / document')}
