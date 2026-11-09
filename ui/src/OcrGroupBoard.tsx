@@ -119,19 +119,27 @@ export default function OcrGroupBoard({
     const parts = value.split(' / ');
     return parts.length > 1 ? t(parts[0], parts.slice(1).join(' / ')) : value;
   };
-  const grouping = (value: string) =>
-    t(
-      (
-        {
-          'Unverified text boundary': 'Delimitare propusă din text; verifică originalul',
-          'Consecutive printed page numbering; human verification required':
-            'Pagini consecutive ale facturii; confirmă gruparea',
-          'Human regrouping; review source history':
-            'Grupare modificată manual; verifică istoricul sursei',
-        } as Any
-      )[value] || 'Grupare propusă; verifică originalul',
-      value,
-    );
+  const grouping = (value: string) => {
+    const labels: Record<string, [string, string]> = {
+      'Unverified text boundary': [
+        'Grupare sugerată din text; verifică originalul',
+        'Suggested grouping from text; check the original',
+      ],
+      'Consecutive printed page numbering; human verification required': [
+        'Paginile par să aparțină aceleiași facturi; verifică',
+        'Pages may belong to one invoice; please check',
+      ],
+      'Human regrouping; review source history': [
+        'Grupare modificată manual; verifică istoricul',
+        'Grouping changed manually; check the history',
+      ],
+    };
+    const label = labels[value] || [
+      'Grupare sugerată; verifică originalul',
+      'Suggested grouping; check the original',
+    ];
+    return t(label[0], label[1]);
+  };
   const openRegions = (g: Any) => {
     RG(g);
     Regions(g.regions.map((r: Region) => ({ ...r })));
@@ -740,23 +748,7 @@ export default function OcrGroupBoard({
                                   f.field.split('.')[1] +
                                   '%',
                               )
-                            : t(
-                                (
-                                  {
-                                    amount: 'Total',
-                                    invoice: 'Număr',
-                                    date: 'Data',
-                                    currency: 'Monedă',
-                                    supplier: 'Furnizor',
-                                    cui: 'CUI',
-                                    country: 'Țară',
-                                    documentType: 'Tip document',
-                                    hasCompanyCui: 'CUI companie',
-                                    description: 'Descriere',
-                                  } as Any
-                                )[f.field] || f.field,
-                                f.field,
-                              )}
+                            : ocrFieldLabel(f.field, t)}
                         </td>
                         <td>{f.raw ?? '—'}</td>
                         <td>{f.previous ?? '—'}</td>
