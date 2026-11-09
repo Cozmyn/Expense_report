@@ -106,7 +106,7 @@ test('Empty-body 401 during receipt upload still reports the expired session', a
   const { upload, SESSION_EXPIRED_EVENT } = await fresh();
   await assert.rejects(
     () => upload('/reports/test/documents', new FormData(), () => {}),
-    /Invalid response/,
+    /Session expired\. Sign in again\./,
   );
   assert.deepEqual(events, [SESSION_EXPIRED_EVENT]);
 });
