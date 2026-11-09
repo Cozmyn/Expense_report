@@ -2332,3 +2332,43 @@ textarea {
     padding: 9px;
   }
 }
+
+/* Phase 3: actionable Manager/Finance worklists, with all existing actions retained. */
+.manager-next-actions { margin: 14px 0 20px; }
+.manager-next-actions .section-heading { align-items: center; }
+.manager-next-actions .section-heading > div { min-width: 0; }
+.manager-next-actions .section-heading > strong {
+  min-width: 44px; height: 44px; display: grid; place-items: center;
+  background: #e8f4ec; color: #075e50; border-radius: 50%; font-size: 20px;
+}
+.manager-next-actions .section-heading p { margin: 5px 0 0; }
+.manager-action-open {
+  display: flex; gap: 6px; align-items: center;
+  color: #075e50; font-weight: 600; white-space: nowrap;
+}
+.finance-queue-summary {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px; margin: 16px 0;
+}
+.finance-queue-summary > div,
+.finance-queue-summary > button {
+  display: flex; flex-direction: column; align-items: flex-start;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); padding: 13px 16px; min-width: 0;
+}
+.finance-queue-summary > div strong,
+.finance-queue-summary > button strong { font-size: 24px; color: var(--text); }
+.finance-queue-summary span { font-size: 13px; color: var(--muted); text-align: left; }
+.finance-advanced-filters {
+  margin: 12px 0; padding: 0 14px; border: 1px solid var(--border); border-radius: 10px;
+}
+.finance-advanced-filters > summary {
+  cursor: pointer; min-height: 44px; padding: 12px 0; color: #075e50; font-weight: 650;
+}
+.finance-advanced-filters[open] { padding-bottom: 16px; }
+@media (max-width: 760px) {
+  .finance-queue-summary { grid-template-columns: 1fr 1fr; }
+  .finance-queue-summary > button { grid-column: 1 / -1; }
+  .manager-next-actions .simple-row { gap: 12px; }
+  .manager-action-open { white-space: normal; }
+}
