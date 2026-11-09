@@ -15,6 +15,7 @@ type Props = {
   document: Doc;
   t: (ro: string, en: string) => string;
   regions?: Region[];
+  highlights?: Region[];
   focus?: Region | null;
   focusPage?: number;
   focusToken?: number;
@@ -25,6 +26,7 @@ export default function DocumentViewer({
   document: doc,
   t,
   regions = [],
+  highlights = [],
   focus,
   focusPage,
   focusToken,
@@ -351,6 +353,9 @@ export default function DocumentViewer({
                   {regions
                     .filter((r) => r.page === page)
                     .map((r, n) => outline(r, 'region' + n, '#075e50'))}
+                  {highlights
+                    .filter((r) => r.page === page)
+                    .map((r, n) => outline(r, 'recognised' + n, '#16a34a'))}
                   {focus?.page === page && outline(focus, 'focus', '#1d4ed8')}
                   {draft?.page === page && outline(draft, 'draft', '#b45309')}
                 </div>
