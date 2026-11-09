@@ -27,7 +27,7 @@ public static class OcrFieldSelection
             var numbers = Regex.Matches(
                 text, @"(?<!\d)[-+]?\d+(?:[ .,]\d{3})*[.,]\d{2}(?!\d)"
             );
-            var last = numbers.Cast<Match>().LastOrDefault();
+            var last = numbers.Cast<System.Text.RegularExpressions.Match>().LastOrDefault();
             var value = last == null ? null : ReceiptParser.Number(last.Value);
             return value?.ToString("0.00", CultureInfo.InvariantCulture);
         }
