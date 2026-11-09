@@ -27,7 +27,11 @@ Dacă verificarea TVA nu poate contacta serverul, folosește **Reîncearcă**. N
 
 Încarcă PDF-ul sau imaginile, ori fotografiază bonul. Originalele sunt păstrate și scanate înainte de OCR. Dacă încărcarea a fost întreruptă după transfer, folosește **Finalizează încărcarea**. Urmărește progresul pe pagini.
 
-În **Grupuri și acoperirea paginilor**, compară fiecare document cu originalul. Poți separa/uni pagini, delimita două bonuri pe aceeași pagină și marca pagini justificative cu motiv. Paginile neatribuite și documentele neverificate blochează trimiterea. Înlăturarea propunerii păstrează originalul și istoricul.
+În **Documente de verificat**, compară fiecare document cu originalul. Pentru mai multe bonuri într-un PDF, deschide **Mai multe bonuri într-un PDF?**, apoi **Delimitează un bon din PDF** și trasează o regiune pentru fiecare bon. Creează câte un grup separat și confirmă-l ca o cheltuială distinctă. Separarea/reunirea paginilor și documentele justificative rămân disponibile. Paginile neatribuite și documentele neverificate blochează trimiterea.
+
+Dacă un câmp nu a fost recunoscut, alege **Selectează un câmp din bon**. Indică tipul informației (dată, număr, furnizor, CUI, monedă, total sau descriere), activează **Delimitează regiunea** și selectează textul cu mouse-ul (pe mobil, cu degetul). Apasă **Folosește textul selectat**, apoi **Revizuiește și creează bonul** și verifică valoarea. Nu orice selecție poate fi interpretată automat; poți completa manual.
+
+După cel puțin două bonuri confirmate de la același furnizor, cu același aspect și selecții explicite, aplicația *poate* propune poziția unui câmp lipsă pe un bon viitor. Nu învață cote TVA sau sume fixe și nu confirmă automat câmpurile.
 
 Alege **Arată sursa câmpului** pentru evidențiere; folosește navigarea, zoom și rotația. Scorul afișat pentru imagini reprezintă recunoașterea textului, nu validarea fiscală. Textul nativ PDF nu are scor OCR. Lipsurile și ambiguitățile necesită verificare manuală.
 
@@ -74,7 +78,11 @@ Use **Retry** if live VAT validation fails. A missing response is not successful
 
 Upload PDFs/images or photograph a receipt. Originals are retained and security-scanned before OCR. If transfer was interrupted after the file was retained, choose **Complete upload**. Track per-page progress.
 
-Review groups beside the original. Split/merge pages, crop independent receipts and mark supporting pages with a reason. Unassigned pages and unverified groups block submission. Removing a proposal keeps the original and history. Field-source highlights, zoom, rotation and page navigation help comparison; image recognition confidence is not fiscal validation and native PDF text has no OCR score.
+In **Documents to review**, open **Multiple receipts in one PDF?** if you need help. Choose **Select another receipt from PDF**, draw one region per receipt and review each group separately before creating its expense. Split/merge and supporting-page tools are still available. Unassigned pages and unverified groups block submission. Removing a proposal preserves the original and history. Highlights, zoom, rotation and page navigation help comparison; image-recognition confidence is not a tax or amount guarantee.
+
+If OCR misses a field, select **Select a field from the receipt**. Pick the field type, activate **Select source region**, draw around the text, then choose **Use selected text**. Review the resulting suggestion before saving. Manual entry is always available.
+
+After at least two verified receipts with explicit source selections from the same supplier and a consistent layout, the system *may* suggest the location of missing fields next time. It never memorizes an amount or VAT rate as a fixed value, and it never confirms a field on your behalf.
 
 Choose **Review and create receipt**. Explicitly select a category; suggestions are optional. Check itemization and controlled allocation defaults. **Save review draft** retains an audited, unverified draft. Confirm all values on the original before saving the verified receipt. Rates 5% and 19% are disabled and are never automatically remapped.
 
