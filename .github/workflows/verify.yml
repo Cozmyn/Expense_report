@@ -46,7 +46,7 @@ jobs:
   browser-workflows:
     needs: build-and-test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     services:
       scanner:
         image: clamav/clamav:stable
@@ -62,7 +62,8 @@ jobs:
       Data__Directory: ${{ github.workspace }}/.e2e-data
       Storage__Directory: ${{ github.workspace }}/.e2e-data/objects
       Scanner__Host: localhost
-      Ocr__Enabled: 'false'
+      Ocr__Enabled: 'true'
+      Ocr__ServiceUrl: http://127.0.0.1:8750
       Bootstrap__Username: ci-admin
       Bootstrap__Email: ci-admin@example.invalid
       Bootstrap__Password: Ci-only-bootstrap-Password1!
@@ -99,6 +100,28 @@ jobs:
         env:
           PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT: '60000'
         run: npx playwright install chromium
+      - name: Build the real PaddleOCR CPU service
+        timeout-minutes: 16
+        run: docker build -f ocr/Dockerfile -t expense-paddle:browser .
+      - name: Start the OCR service used by real browser scans
+        timeout-minutes: 12
+        run: |
+          docker volume create expense-paddle-browser-models
+          docker run -d --name expense-paddle-browser --memory 5g \
+            -p 127.0.0.1:8750:8750 \
+            -v expense-paddle-browser-models:/models \
+            --read-only --tmpfs /tmp:size=268435456,mode=1777 \
+            --security-opt no-new-privileges:true \
+            expense-paddle:browser
+          for attempt in $(seq 1 100); do
+            if curl -fsS --max-time 4 http://127.0.0.1:8750/health > /tmp/expense-ocr-health.json; then
+              python3 -c "import json; h=json.load(open('/tmp/expense-ocr-health.json')); assert h['status']=='Ready' and h['engine']=='PP-OCRv6'"
+              exit 0
+            fi
+            sleep 5
+          done
+          docker logs --tail 100 expense-paddle-browser
+          exit 1
       - name: Start application
         run: |
           dotnet release/Decont.Api.dll --contentRoot "$PWD/release" --bootstrap
@@ -113,6 +136,7 @@ jobs:
       - name: Failure context
         if: failure()
         run: |
+          docker logs --tail 80 expense-paddle-browser || true
           python -c "from pathlib import Path; p=Path('application.log'); s=p.read_text() if p.exists() else 'Application did not start; inspect dependency setup steps.'; print('\n'.join(s.splitlines()[max(0,s[:s.find('failed')].count(chr(10))-3):][:90]) if 'failed' in s else s[-20000:])"
           python -c "from pathlib import Path; [print(p.read_text()) for p in Path('ui/test-results').rglob('error-context.md')]"
       - uses: actions/upload-artifact@v4
