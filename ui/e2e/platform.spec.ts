@@ -732,7 +732,12 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   expect((await employee.get('/api/me')).status()).toBe(401);
   await shot(page, '12-profile');
   await page.evaluate(() => window.dispatchEvent(new Event('decont:session-expired')));
-  await expect(page.locator('.session-expired-banner')).toContainText('Sesiunea a expirat');
+  const expiredBanner = page.locator('.session-expired-banner');
+  await expect(expiredBanner).toContainText('Sesiunea a expirat');
+  await page.getByLabel('Limba interfeței', { exact: true }).selectOption('en');
+  await expect(expiredBanner).toContainText('Your session has expired');
+  await page.getByLabel('Interface language', { exact: true }).selectOption('ro');
+  await expect(expiredBanner).toContainText('Sesiunea a expirat');
   page.once('dialog', (prompt) => prompt.accept());
   await page.getByRole('button', { name: 'Autentifică-te din nou' }).click();
   await expect(page.getByRole('heading', { name: 'Autentificare', exact: true })).toBeVisible();
