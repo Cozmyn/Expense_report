@@ -2,14 +2,20 @@ import { parseFinancialJson } from './decimal.mjs';
 let token = '';
 /** Tell the authenticated workspace to offer a safe return to sign-in on a 401. */
 export const SESSION_EXPIRED_EVENT = 'decont:session-expired';
-function handleExpiredSession(path: string, status: number) {
-  if (
+function handleExpiredSession(path: string, status: number): boolean {
+  const expired =
     status === 401 &&
-    !['/me', '/auth/login', '/auth/logout', '/auth/csrf'].includes(path)
-  ) {
+    !['/me', '/auth/login', '/auth/logout', '/auth/csrf'].includes(path);
+  if (expired) {
     token = '';
     window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
   }
+  return expired;
+}
+function expiredSessionMessage(): string {
+  return localStorage.getItem('decont.language') === 'en'
+    ? 'Session expired. Sign in again.'
+    : 'Sesiunea a expirat. Autentifică-te din nou.';
 }
 export async function api<T = any>(path: string, method = 'GET', body?: unknown): Promise<T> {
   if (method !== 'GET' && !token) {
@@ -30,7 +36,7 @@ export async function api<T = any>(path: string, method = 'GET', body?: unknown)
     body: body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body),
   });
   if (!response.ok) {
-    handleExpiredSession(path, response.status);
+    if (handleExpiredSession(path, response.status)) throw new Error(expiredSessionMessage());
     const p = await response
       .json()
       .catch(() => ({ ro: 'Server indisponibil.', en: 'Server unavailable.' }));
@@ -71,7 +77,10 @@ export async function upload(
     xhr.onerror = () => reject(new Error('Încărcarea a eșuat. / Upload failed.'));
     xhr.onload = () => {
       // Some session-expiry responses are empty; notify before parsing their body.
-      handleExpiredSession(path, xhr.status);
+      if (handleExpiredSession(path, xhr.status)) {
+        reject(new Error(expiredSessionMessage()));
+        return;
+      }
       let result;
       try {
         result = parseFinancialJson(xhr.responseText);
