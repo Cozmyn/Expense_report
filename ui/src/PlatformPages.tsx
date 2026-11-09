@@ -288,12 +288,17 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
       exception: '',
       sort: 'age',
     }),
-    [loaded, L] = useState(false);
+    [loaded, L] = useState(false),
+    [showFilters, ShowFilters] = useState(false);
   useEffect(() => {
     run(async () => {
       R(await api('/finance/queue'));
       const saved = await api('/preferences/finance-filters');
-      if (saved.sort) F(saved);
+      if (saved.sort) {
+        F(saved);
+        if (Object.entries(saved).some(([key, value]) => key !== 'sort' && !!value))
+          ShowFilters(true);
+      }
       L(true);
     });
   }, []);
@@ -328,25 +333,50 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
           ? (a.employee || '').localeCompare(b.employee || '')
           : b.ageDays - a.ageDays,
     );
+  const ready = rows.filter((row) => row.report.state === 'READY_FOR_ERP').length;
+  const exceptions = rows.filter((row) => row.exceptionCodes.length > 0).length;
+  const activeFilters = Object.entries(filter).filter(
+    ([key, value]) => key !== 'sort' && !!value,
+  ).length;
+  const resetFilters = () =>
+    F({
+      q: '', state: '', employee: '', manager: '', card: '', cardId: '',
+      ready: '', supplier: '', age: '', exception: '', sort: 'age',
+    });
+  const filterNames: Record<string, [string, string]> = {
+    q: ['Decont / scop', 'Report / purpose'],
+    employee: ['Angajat', 'Employee'],
+    manager: ['Manager', 'Manager'],
+    supplier: ['Furnizor / CUI', 'Supplier / VAT ID'],
+    age: ['Vechime minimă (zile)', 'Minimum age (days)'],
+  };
   return (
     <section className="panel">
       <h2>{t('Coada Finance și excepții', 'Finance queue and exceptions')}</h2>
+      <p className="muted">
+        {t(
+          'Verifică excepțiile și documentele înainte de orice acțiune contabilă.',
+          'Check exceptions and supporting documents before any accounting action.',
+        )}
+      </p>
+      <div className="finance-queue-summary" aria-label={t('Situația deconturilor', 'Report summary')}>
+        <div><strong>{rows.length}</strong><span>{t('În coadă', 'In queue')}</span></div>
+        <div><strong>{exceptions}</strong><span>{t('Cu excepții', 'With exceptions')}</span></div>
+        <button type="button" className="secondary" onClick={() => F({ ...filter, ready: filter.ready ? '' : 'yes' })}>
+          <strong>{ready}</strong>
+          <span>{t('Gata pentru ERP', 'Ready for ERP')}{filter.ready ? ' ✓' : ''}</span>
+        </button>
+      </div>
+      <details className="finance-advanced-filters" open={showFilters} onToggle={(event) => ShowFilters(event.currentTarget.open)}>
+        <summary>
+          {t('Caută și filtrează deconturile', 'Search and filter reports')}
+          {activeFilters > 0 ? ' · ' + activeFilters : ''}
+        </summary>
       <div className="form-grid">
         {['q', 'employee', 'manager', 'supplier', 'age'].map((k) => (
           <Field
             key={k}
-            name={t(
-              (
-                {
-                  q: 'Decont / scop',
-                  employee: 'Angajat',
-                  manager: 'Manager',
-                  supplier: 'Furnizor / CUI',
-                  age: 'Vechime minimă (zile)',
-                } as Any
-              )[k],
-              k,
-            )}
+            name={t(filterNames[k][0], filterNames[k][1])}
           >
             <input
               type={k === 'age' ? 'number' : 'text'}
@@ -417,13 +447,19 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
           {t('Doar card companie', 'Company card only')}
         </label>
       </div>
-      <button
-        className="secondary"
-        disabled={!loaded}
-        onClick={() => run(() => api('/preferences/finance-filters', 'PUT', filter))}
-      >
-        {t('Salvează filtrele mele', 'Save my filters')}
-      </button>
+      <div className="actions">
+        <button
+          className="secondary"
+          disabled={!loaded}
+          onClick={() => run(() => api('/preferences/finance-filters', 'PUT', filter))}
+        >
+          {t('Salvează filtrele mele', 'Save my filters')}
+        </button>
+        <button type="button" className="secondary" onClick={resetFilters}>
+          {t('Șterge filtrele active', 'Clear active filters')}
+        </button>
+      </div>
+      </details>
       <p>
         {shown.length} {t('deconturi', 'reports')}
       </p>
@@ -439,12 +475,16 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
               {x.report.number} · {x.report.purpose}
             </strong>
             <small>
-              {x.employee} · {x.manager} · {x.ageDays} {t('zile', 'days')}
+              {x.employee} · {x.manager} · {x.ageDays} {t(x.ageDays === 1 ? 'zi' : 'zile', x.ageDays === 1 ? 'day' : 'days')}
             </small>
           </span>
           <span>
-            {x.report.state}
-            <small>{x.exceptionCodes.join(' · ')}</small>
+            <strong>{x.report.state}</strong>
+            <small>
+              {x.exceptionCodes.length
+                ? x.exceptionCodes.join(' · ')
+                : t('Fără excepții detectate', 'No flagged exceptions')}
+            </small>
           </span>
         </button>
       ))}

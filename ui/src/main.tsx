@@ -57,6 +57,7 @@ import { Stat, ReportList } from './ReportList';
 import { ReportHelp, OcrHelp } from './QuickGuides';
 import { JobsPage, ReportJobs } from './BackgroundJobs';
 import { FinanceQueue, BatchPanel } from './FinanceQueues';
+import { ManagerNextActions } from './ManagerFinanceActions';
 import { MasterPage, UsersPage, CardsPage, DelegationPage, DataPage } from './AdminPages';
 type Any = Record<string, any>;
 type Master = Any;
@@ -615,6 +616,9 @@ function App() {
                   />
                 )}
               </div>
+              {role('Manager') && (
+                <ManagerNextActions reports={reports} open={open} t={t} />
+              )}
               {role('Finance') && (
                 <FinanceDashboard t={t} run={run} openQueue={() => P('finance')} />
               )}
@@ -656,10 +660,14 @@ function App() {
                         : t('Deconturi', 'Expense reports')}
                   </h1>
                   <p>
-                    {t(
-                      'Deschide un decont pentru detalii, documente și istoricul deciziilor.',
-                      'Open a report for details, documents and decision history.',
-                    )}
+                    {page === 'approvals'
+                      ? t('Verifică bonurile și justificările înainte să aprobi sau să respingi.',
+                          'Review receipts and explanations before approving or rejecting.')
+                      : page === 'finance'
+                        ? t('Identifică excepțiile, verifică documentele și continuă spre ERP.',
+                            'Find exceptions, review evidence and prepare reports for ERP.')
+                        : t('Deschide un decont pentru documente și istoricul deciziilor.',
+                            'Open a report to review documents and decision history.')}
                   </p>
                 </div>
                 {role('Employee') && (
