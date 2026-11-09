@@ -2,6 +2,7 @@ import DocumentViewer from './DocumentViewer';
 import React, { useEffect, useState } from 'react';
 import { api } from './api';
 import { Field } from './Fields';
+import { ocrFieldLabel } from './OcrLabels';
 type Any = Record<string, any>;
 type Region = { page: number; x: number; y: number; width: number; height: number };
 export default function OcrGroupBoard({
@@ -13,6 +14,7 @@ export default function OcrGroupBoard({
   propose,
   linkExisting,
 }: Any) {
+  const advancedRef = React.useRef<HTMLDetailsElement>(null);
   const [focus, Focus] = useState<Region | null>(null),
     [focusPage, FP] = useState(1),
     [focusToken, FT] = useState(0);
@@ -117,19 +119,27 @@ export default function OcrGroupBoard({
     const parts = value.split(' / ');
     return parts.length > 1 ? t(parts[0], parts.slice(1).join(' / ')) : value;
   };
-  const grouping = (value: string) =>
-    t(
-      (
-        {
-          'Unverified text boundary': 'Delimitare propusă din text; verifică originalul',
-          'Consecutive printed page numbering; human verification required':
-            'Pagini consecutive ale facturii; confirmă gruparea',
-          'Human regrouping; review source history':
-            'Grupare modificată manual; verifică istoricul sursei',
-        } as Any
-      )[value] || 'Grupare propusă; verifică originalul',
-      value,
-    );
+  const grouping = (value: string) => {
+    const labels: Record<string, [string, string]> = {
+      'Unverified text boundary': [
+        'Grupare sugerată din text; verifică originalul',
+        'Suggested grouping from text; check the original',
+      ],
+      'Consecutive printed page numbering; human verification required': [
+        'Paginile par să aparțină aceleiași facturi; verifică',
+        'Pages may belong to one invoice; please check',
+      ],
+      'Human regrouping; review source history': [
+        'Grupare modificată manual; verifică istoricul',
+        'Grouping changed manually; check the history',
+      ],
+    };
+    const label = labels[value] || [
+      'Grupare sugerată; verifică originalul',
+      'Suggested grouping; check the original',
+    ];
+    return t(label[0], label[1]);
+  };
   const openRegions = (g: Any) => {
     RG(g);
     Regions(g.regions.map((r: Region) => ({ ...r })));
@@ -139,7 +149,13 @@ export default function OcrGroupBoard({
       className="ocr-group-board"
       aria-label={t('Verificarea documentelor', 'Document review')}
     >
-      <h3>{t('Grupuri și acoperirea paginilor', 'Groups and page coverage')}</h3>
+      <h3>{t('Documente de verificat', 'Documents to review')}</h3>
+      <p className="small muted">
+        {t(
+          'Verifică documentul original și confirmă datele fiecărui bon. Pentru corecții de grupare, deschide opțiunile avansate.',
+          'Check each original document and confirm the receipt details. Open advanced tools to change page grouping.',
+        )}
+      </p>
       {(changing || stale) && (
         <p role="status">
           {t(
@@ -175,6 +191,33 @@ export default function OcrGroupBoard({
           {t('documente verificate', 'documents verified')} · {review.unassignedPages.length}{' '}
           {t('pagini neatribuite', 'unassigned pages')}
         </p>
+        {review.unassignedPages.length > 0 && (
+          <div className="issue warning ocr-page-warning" role="status">
+            <strong>
+              {t('Pagini de verificat', 'Pages needing review')}: {review.unassignedPages.join(', ')}
+            </strong>
+            <p>
+              {t(
+                'Atribuie aceste pagini unui bon sau marchează-le ca documente justificative.',
+                'Assign these pages to a receipt or mark them as supporting documents.',
+              )}
+            </p>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                if (advancedRef.current) advancedRef.current.open = true;
+                advancedRef.current?.querySelector<HTMLInputElement>('input')?.focus();
+              }}
+            >
+              {t('Verifică paginile', 'Review pages')}
+            </button>
+          </div>
+        )}
+        <details className="ocr-advanced-tools" ref={advancedRef} open={groups.length > 1 || review.unassignedPages.length > 0}>
+          <summary>
+            {t('Opțiuni avansate pentru pagini și grupare', 'Advanced page and grouping tools')}
+          </summary>
         <Field
           name={t('Motivul modificării grupării', 'Reason for grouping change')}
           note={t(
@@ -284,6 +327,7 @@ export default function OcrGroupBoard({
             {t('Separă paginile', 'Split pages')}
           </button>
         </div>
+        </details>
         <div className="ocr-review-layout">
           <aside className="ocr-review-original">
             <DocumentViewer
@@ -363,23 +407,7 @@ export default function OcrGroupBoard({
                       key={key}
                     >
                       <dt>
-                        {t(
-                          (
-                            {
-                              supplier: 'Furnizor',
-                              cui: 'CUI',
-                              invoice: 'Număr',
-                              date: 'Data',
-                              currency: 'Monedă',
-                              amount: 'Total',
-                              country: 'Țară',
-                              hasCompanyCui: 'CUI companie',
-                              description: 'Descriere',
-                              documentType: 'Tip document',
-                            } as Any
-                          )[key] || key,
-                          key,
-                        )}
+                        {ocrFieldLabel(key, t)}
                       </dt>
                       <dd>
                         {f.value ?? t('Necunoscut', 'Unknown')}{' '}
@@ -387,19 +415,24 @@ export default function OcrGroupBoard({
                           {t('Verifică pe original', 'Check original')} · {t('pagina', 'page')}{' '}
                           {f.page}
                         </small>
-                        <blockquote>{f.evidence}</blockquote>
-                        <span className="small">
-                          {typeof f.confidence === 'number'
-                            ? t('Încredere recunoaștere text: ', 'Text recognition confidence: ') +
-                              Math.round(f.confidence * 100) +
-                              '%'
-                            : f.source === 'TextLayer'
-                              ? t('Text PDF; fără scor OCR', 'PDF text layer; no OCR score')
-                              : t(
-                                  'Scor OCR indisponibil; verificare obligatorie',
-                                  'OCR score unavailable; review required',
-                                )}
-                        </span>
+                        <details className="ocr-field-more">
+                          <summary>
+                            {t('Cum a fost citit', 'Recognition details')}
+                          </summary>
+                          <blockquote>{f.evidence}</blockquote>
+                          <span className="small">
+                            {typeof f.confidence === 'number'
+                              ? t('Calitatea recunoașterii textului: ', 'Text recognition quality: ') +
+                                Math.round(f.confidence * 100) +
+                                '%'
+                              : f.source === 'TextLayer'
+                                ? t('Text din PDF; fără scor OCR', 'Text from PDF; no OCR score')
+                                : t(
+                                    'Scor indisponibil; verifică originalul',
+                                    'Score unavailable; check the original',
+                                  )}
+                          </span>
+                        </details>
                         <button
                           className="text-button"
                           onClick={() => {
@@ -715,23 +748,7 @@ export default function OcrGroupBoard({
                                   f.field.split('.')[1] +
                                   '%',
                               )
-                            : t(
-                                (
-                                  {
-                                    amount: 'Total',
-                                    invoice: 'Număr',
-                                    date: 'Data',
-                                    currency: 'Monedă',
-                                    supplier: 'Furnizor',
-                                    cui: 'CUI',
-                                    country: 'Țară',
-                                    documentType: 'Tip document',
-                                    hasCompanyCui: 'CUI companie',
-                                    description: 'Descriere',
-                                  } as Any
-                                )[f.field] || f.field,
-                                f.field,
-                              )}
+                            : ocrFieldLabel(f.field, t)}
                         </td>
                         <td>{f.raw ?? '—'}</td>
                         <td>{f.previous ?? '—'}</td>
