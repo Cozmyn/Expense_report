@@ -366,7 +366,7 @@ public static class ReceiptParser
                 var totalLine = lines.LastOrDefault(l =>
                     Regex.IsMatch(
                         l,
-                        @"(?i)\b(?:TOTAL\s*(?:DE\s*PLAT[ĂA]|GENERAL|AMOUNT|DUE|DE\s*ACHITAT)?|AMOUNT\s+DUE|GRAND\s+TOTAL)\b"
+                        @"(?i)\b(?:TOTAL\s*(?:DE\s*PLAT[ĂA]|GENERAL|AMOUNT|DUE|DE\s*ACHITAT|ACHITAT)?|SUMA(?:\s+TOTAL[ĂA])?\s+(?:DE\s+)?(?:PLAT[ĂA]|ACHITAT[ĂA])|VALOARE(?:A)?\s+TOTAL[ĂA]|AMOUNT\s+DUE|GRAND\s+TOTAL)\b"
                     ) && !Regex.IsMatch(l, @"(?i)SUBTOTAL|SUB-TOTAL|TOTAL\s*(?:TVA|TAX|VAT|BAZ[ĂA])")
                 );
                 if (totalLine != null)
