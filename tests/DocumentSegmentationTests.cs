@@ -135,4 +135,19 @@ public class DocumentSegmentationTests
         Assert.False(unknown.Fields.ContainsKey("country"));
     }
 
+
+    [Theory]
+    [InlineData("SUMA DE PLATA: 123,45 RON")]
+    [InlineData("SUMA ACHITATA 123,45 RON")]
+    [InlineData("VALOARE TOTALA 123,45 RON")]
+    public void RomanianPaidTotalLabelsAreRecognisedWithoutGuessing(string total)
+    {
+        var parsed = ReceiptParser.Parse(
+            [new(1, "BON FISCAL\nBUCURESTI\n10.11.2026\n" + total)],
+            null
+        );
+        var receipt = Assert.Single(parsed.Candidates);
+        Assert.Equal("123.45", receipt.Fields["amount"].Value);
+    }
+
 }
