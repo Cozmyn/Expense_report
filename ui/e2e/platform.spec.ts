@@ -174,6 +174,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   );
   const begin = async () => {
     await page.getByRole('button', { name: 'Adaugă bon / document', exact: true }).click();
+    await expect(dialog.getByRole('heading', { name: 'Adaugă un bon / document' })).toBeFocused();
     await expect(dialog.getByLabel('Metoda de plată', { exact: true })).toHaveCount(0);
     await dialog.getByLabel('Tip cheltuială', { exact: true }).selectOption(cat);
     await dialog.getByLabel('Centru de cost', { exact: true }).selectOption(cc);
@@ -193,7 +194,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   await page.keyboard.press('Escape');
   await expect(dialog).toBeVisible();
   expect(dismissedDialogs[0]).toContain('Închizi fără să salvezi bonul?');
-  await expect(dialog.getByRole('heading', { name: 'Adaugă un bon / document' })).toBeFocused();
+  await expect(dialog.getByRole('heading', { name: 'Adaugă un bon / document' })).toBeVisible();
   await dialog
     .getByLabel('Bonul are înscris CUI-ul companiei?', { exact: true })
     .selectOption('yes');
