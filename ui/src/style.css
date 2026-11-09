@@ -2200,3 +2200,135 @@ textarea {
     font-variant-numeric: tabular-nums;
   }
 }
+
+/* Phase 2: direct review of OCR values without hiding required form fields. */
+.receipt-editor-layout form {
+  min-width: 0;
+}
+.receipt-ocr-review {
+  border: 1px solid #b9d9c8;
+  border-radius: 12px;
+  background: #f3f9f5;
+  padding: 16px;
+  margin-bottom: 18px;
+}
+.receipt-ocr-review h3 {
+  font-size: 16px;
+  color: var(--green);
+  margin: 0 0 7px;
+}
+.receipt-ocr-review > p {
+  margin: 0 0 12px;
+  color: var(--text);
+  line-height: 1.5;
+}
+.receipt-ocr-review > p:last-child {
+  margin-bottom: 0;
+}
+.ocr-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 165px), 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+.ocr-shortcut {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  text-align: left;
+  border: 1px solid #b7d4c4;
+  background: white;
+  border-radius: 8px;
+  color: var(--text);
+  min-width: 0;
+  min-height: 52px;
+  padding: 9px 11px;
+  cursor: pointer;
+}
+.ocr-shortcut:hover {
+  border-color: var(--green);
+  background: #edf7f0;
+}
+.ocr-shortcut span {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.ocr-shortcut strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 650;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.receipt-optional {
+  margin: 10px 0 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 12px;
+}
+.receipt-optional > summary,
+.ocr-advanced-tools > summary,
+.ocr-field-more > summary {
+  cursor: pointer;
+  color: var(--green);
+  font-weight: 600;
+}
+.receipt-optional > summary,
+.ocr-advanced-tools > summary {
+  padding: 12px 0;
+  min-height: 44px;
+}
+.receipt-optional[open] {
+  padding-bottom: 10px;
+}
+.ocr-advanced-tools {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #f8faf9;
+  padding: 0 14px;
+  margin: 16px 0;
+}
+.ocr-advanced-tools[open] {
+  padding-bottom: 15px;
+}
+.ocr-advanced-tools > .field,
+.ocr-advanced-tools > .actions {
+  margin-top: 12px;
+}
+.ocr-page-warning {
+  margin: 12px 0;
+}
+.ocr-page-warning button {
+  margin-top: 8px;
+}
+.ocr-field-more {
+  margin: 5px 0;
+  font-size: 12px;
+}
+.ocr-field-more summary {
+  min-height: 35px;
+  padding: 6px 0;
+}
+.ocr-field-more blockquote {
+  overflow-wrap: anywhere;
+}
+.ocr-review-groups .ocr-fields dt {
+  color: var(--text);
+  font-weight: 650;
+}
+.ocr-review-groups .ocr-fields dd {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .receipt-ocr-review {
+    padding: 12px;
+  }
+  .ocr-shortcuts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ocr-shortcut {
+    padding: 9px;
+  }
+}
