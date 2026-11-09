@@ -396,7 +396,9 @@ export default function ReceiptModal({
     vat &&
     (blankTax ||
       used.length === 0 ||
-      used.some((row) => !row.rateId || (row.pct === 0 && compare(row.vat || '0', '0') !== 0)));
+      used.some((row) =>
+        !row.rateId || rates(row.pct).length > 1 ||
+        (row.pct === 0 && compare(row.vat || '0', '0') !== 0)));
   const validationKey = JSON.stringify({
     ...d,
     taxCurrency: d.currency,
@@ -1165,22 +1167,10 @@ export default function ReceiptModal({
                       'For each rate on the receipt, copy the base excluding VAT and the VAT paid. Leave unused rates at 0. The total is reconstructed from all bases plus VAT.',
                     )}
                   </p>
-                  <Field name={t('Moneda defalcării TVA', 'VAT breakdown currency')}>
-                    <select
-                      value={d.taxCurrency || d.currency}
-                      onChange={(e) => set('taxCurrency', e.target.value)}
-                    >
-                      <option value={d.currency}>{d.currency}</option>
-                      {d.currency !== 'RON' && (
-                        <option value="RON">
-                          {t(
-                            'RON (valori contabile existente)',
-                            'RON (existing accounting values)',
-                          )}
-                        </option>
-                      )}
-                    </select>
-                  </Field>
+                  <p className="small muted">
+                    {t('Baza și TVA sunt în moneda documentului: ', 'Tax base and paid VAT use the document currency: ')}
+                    <strong>{d.currency}</strong>.
+                  </p>
                   <div className="vat-grid vat-head">
                     <span>{t('Cotă', 'Rate')}</span>
                     <span>{t('Bază fără TVA', 'Base excluding VAT')}</span>
@@ -1212,43 +1202,14 @@ export default function ReceiptModal({
                           onChange={(e) => updateTax(row.pct, 'vat', e.target.value)}
                         />
                       </Field>
-                      <section>
-                        <h4>{t('Dovadă TVA', 'VAT evidence')}</h4>
-                        <Field name={t('Stare TVA ' + row.pct + '%', 'VAT state ' + row.pct + '%')}>
-                          <select
-                            value={row.state ?? ''}
-                            onChange={(e) =>
-                              updateTax(
-                                row.pct,
-                                'state',
-                                e.target.value === '' ? null : Number(e.target.value),
-                              )
-                            }
-                          >
-                            <option value="">
-                              {t('Valoare verificată pe document', 'Value checked on source')}
-                            </option>
-                            <option value="0">{t('Necunoscut', 'Unknown')}</option>
-                            <option value="1">{t('Neprezentat', 'Not present')}</option>
-                            <option value="2">{t('Zero explicit', 'Explicit zero')}</option>
-                            <option value="3">{t('Sumă tipărită', 'Printed amount')}</option>
-                          </select>
-                        </Field>
-                        <Field name={t('Pagina dovezii', 'Evidence page')}>
-                          <input
-                            type="number"
-                            min="1"
-                            value={row.evidencePage || ''}
-                            onChange={(e) =>
-                              updateTax(
-                                row.pct,
-                                'evidencePage',
-                                e.target.value ? Number(e.target.value) : null,
-                              )
-                            }
-                          />
-                        </Field>
-                      </section>
+                      {expense.ocrCandidate?.taxes?.some(
+                        (tax: Any) => Number(tax.rate) === row.pct
+                      ) && (
+                        <small className="receipt-hint">
+                          {t('Propus din original; verifică baza și TVA-ul efectiv.',
+                             'Suggested from the original; verify the taxable base and actual paid VAT.')}
+                        </small>
+                      )}
                       <span>
                         {formatMoney(
                           add(row.base || '0', row.vat || '0'),
@@ -1258,22 +1219,10 @@ export default function ReceiptModal({
                         {d.taxCurrency}
                       </span>
                       {rates(row.pct).length > 1 && (
-                        <div className="vat-mapping">
-                          <Field
-                            name={t('Mapare TVA ' + row.pct + '%', 'VAT mapping ' + row.pct + '%')}
-                          >
-                            <select
-                              value={row.rateId}
-                              onChange={(e) => updateTax(row.pct, 'rateId', e.target.value)}
-                            >
-                              {rates(row.pct).map((m: Any) => (
-                                <option key={m.id} value={m.id}>
-                                  {label(m)}
-                                </option>
-                              ))}
-                            </select>
-                          </Field>
-                        </div>
+                        <p className="vat-mapping issue blocking" role="alert">
+                          {t('Există mai multe mapări TVA active pentru această cotă. Contactează Finance.',
+                             'Multiple VAT mappings are active for this rate. Contact Finance.')}
+                        </p>
                       )}
                       {!row.rateId &&
                         (compare(row.base || '0', '0') !== 0 ||
