@@ -70,6 +70,8 @@ export async function upload(
     };
     xhr.onerror = () => reject(new Error('Încărcarea a eșuat. / Upload failed.'));
     xhr.onload = () => {
+      // Some session-expiry responses are empty; notify before parsing their body.
+      handleExpiredSession(path, xhr.status);
       let result;
       try {
         result = parseFinancialJson(xhr.responseText);
@@ -81,7 +83,6 @@ export async function upload(
         progress(100);
         resolve(result);
       } else {
-        handleExpiredSession(path, xhr.status);
         reject(
           new Error(
             result[localStorage.getItem('decont.language') || 'ro'] ||
