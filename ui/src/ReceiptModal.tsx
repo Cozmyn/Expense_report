@@ -159,13 +159,20 @@ export default function ReceiptModal({
         if (
           active &&
           saved.data &&
-          (!expense.sourceGroupId ||
-            !expense.ocrCandidate?.correctedExpense ||
-            saved.sourceVersion === expense.ocrVersion) &&
+          (!expense.sourceGroupId || saved.sourceVersion === expense.ocrVersion) &&
           (!expense.ocrCandidate || expense.sourceGroupId) &&
           (!expense.sourceAttachmentId || expense.sourceGroupId)
         ) {
-          D(saved.data);
+          D((current: Any) => {
+            const merged = { ...current, ...saved.data };
+            // A stale or incomplete private draft must not erase a new
+            // structured OCR suggestion from the same source version.
+            for (const [key, source] of Object.entries(expense.ocrCandidate?.fields || {}) as [string, Any][]) {
+              if ((merged[key] === '' || merged[key] == null) && source.value != null)
+                merged[key] = source.value;
+            }
+            return merged;
+          });
           Taxes(saved.taxes || taxes);
           DS(t('Ciornă restaurată', 'Draft restored'));
         }
@@ -801,10 +808,11 @@ export default function ReceiptModal({
                       ...old,
                       country:
                         e.target.value === 'yes' ? 'RO' : e.target.value === 'no' ? 'ZZ' : '',
-                      hasCompanyCui: e.target.value === 'yes' ? null : false,
-                      cui: null,
-                      supplier: '',
-                      supplierConfirmed: false,
+                      hasCompanyCui: e.target.value === 'yes'
+                        ? (old.country === 'RO' ? old.hasCompanyCui : null) : false,
+                      cui: e.target.value === 'yes' ? old.cui : null,
+                      supplier: e.target.value === 'yes' ? old.supplier : '',
+                      supplierConfirmed: e.target.value === 'yes' ? old.supplierConfirmed : false,
                       taxCurrency: old.currency,
                     }))
                   }
@@ -858,9 +866,9 @@ export default function ReceiptModal({
                       D((old) => ({
                         ...old,
                         hasCompanyCui: e.target.value === '' ? null : e.target.value === 'yes',
-                        cui: null,
-                        supplier: '',
-                        supplierConfirmed: false,
+                        cui: old.cui,
+                        supplier: old.supplier,
+                        supplierConfirmed: old.supplierConfirmed,
                         taxCurrency: old.currency,
                       }))
                     }
