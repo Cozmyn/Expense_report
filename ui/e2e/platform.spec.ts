@@ -101,12 +101,17 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
       repairNonDedAccount: 'TEST-REPAIR',
       repairNonDedLocal: 'TEST-REPAIR-LOCAL',
     });
+  // Expense entry uses Finance-owned effective tax mapping; avoid creating
+  // duplicate mappings that would make the rate ambiguous for employees.
+  const existingVat = await (await admin.get('/api/configuration/masters')).json();
   for (const rate of [0, 11, 21])
-    await master('vat', rate + '-' + suffix, {
-      rate,
-      salesTaxGroup: 'VDOM',
-      itemTaxGroup: 'G' + rate,
-    });
+    if (!existingVat.some((m: any) =>
+      m.kind === 'vat' && m.active && JSON.parse(m.json).rate === rate))
+      await master('vat', rate + '-' + suffix, {
+        rate,
+        salesTaxGroup: 'VDOM',
+        itemTaxGroup: 'G' + rate,
+      });
   const allMasters = await (await admin.get('/api/configuration/masters')).json();
   if (!allMasters.some((m: any) => m.kind === 'fx' && m.code === 'EUR'))
     await (async () => {
