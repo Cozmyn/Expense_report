@@ -362,7 +362,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     .getByLabel('Motiv verificare', { exact: true })
     .fill('Finance verified original and final FX');
   await fxRow.getByRole('button', { name: 'Confirmă estimarea RON', exact: true }).click();
-  await expect(fxRow.locator('summary').filter({ hasText: 'Istoric calcul și FX' })).toContainText(
+  await expect(fxRow.locator('h4').filter({ hasText: 'Istoric calcul și FX' })).toContainText(
     '(1)',
   );
   await fxRow.getByLabel('Curs propus', { exact: true }).fill('5.1');
@@ -373,7 +373,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   await fxRow.getByRole('button', { name: 'Aplică valoarea Finance', exact: true }).first().click();
   await expect(fxRow.getByText('51,00 RON', { exact: true })).toBeVisible();
   await fxRow.getByRole('button', { name: 'Confirmă baza și totalul', exact: true }).click();
-  await expect(fxRow.locator('summary').filter({ hasText: 'Istoric calcul și FX' })).toContainText(
+  await expect(fxRow.locator('h4').filter({ hasText: 'Istoric calcul și FX' })).toContainText(
     '(3)',
   );
   await expect
@@ -469,10 +469,10 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     .toBeLessThanOrEqual(pp.viewportSize()!.width);
   await postingNav('Configurare Finance');
   const vehicle = pp
-    .locator('details')
-    .filter({ has: pp.locator('summary').filter({ hasText: 'Deductibilitate auto' }) })
+    .locator('section')
+    .filter({ has: pp.locator('h4').filter({ hasText: 'Deductibilitate auto' }) })
     .first();
-  await vehicle.locator('summary').first().click();
+  await expect(vehicle.locator('h4').first()).toBeVisible();
   await expect(vehicle.getByLabel('Procent deductibil auto', { exact: true })).toHaveValue('50');
   await vehicle.getByLabel('Procent deductibil auto', { exact: true }).fill('75');
   await vehicle.getByLabel('Se aplică din', { exact: true }).fill('2027-02-01');
@@ -519,6 +519,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   });
   await page.reload();
   await page.getByRole('button', { name: 'OCR multipage ' + suffix }).click();
+  await page.getByLabel('Centru de cost al decontului').selectOption(cc);
   await page.getByRole('button', { name: 'Salvează datele generale' }).click();
   const pdfFixture = (() => {
     const objects = [
@@ -566,19 +567,18 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
       '\n%%EOF';
     return Buffer.from(pdf);
   })();
+  await page.getByRole('radio', { name: /Mai multe bonuri/ }).check();
   await page
-    .getByLabel('Selectează documente PDF / imagini', { exact: true })
+    .getByLabel('Adaugă PDF sau fotografie', { exact: true })
     .setInputFiles({
       name: 'two-invoices-' + suffix + '.pdf',
       mimeType: 'application/pdf',
       buffer: pdfFixture,
     });
-  await expect(page.getByRole('button', { name: 'Revizuiește și creează bonul' })).toHaveCount(2, {
-    timeout: 90000,
-  });
+  await expect(dialog).toBeVisible({ timeout: 90000 });
   await page.screenshot({ path: 'test-results/' + suffix + '-ocr-review.png', fullPage: true });
   for (let n = 0; n < 2; n++) {
-    await page.getByRole('button', { name: 'Revizuiește și creează bonul' }).nth(n).click();
+    await expect(dialog).toBeVisible({ timeout: 90000 });
     await expect(
       dialog.getByLabel('Total bon în moneda documentului', { exact: true }),
     ).toHaveValue(String((n + 1) * 10) + '.00');
@@ -604,6 +604,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   });
   await page.reload();
   await page.getByRole('button', { name: 'OCR scanned ' + suffix }).click();
+  await page.getByLabel('Centru de cost al decontului').selectOption(cc);
   await page.getByRole('button', { name: 'Salvează datele generale' }).click();
   const scanData = await page.evaluate((tag) => {
     const canvas = document.createElement('canvas');
@@ -623,15 +624,13 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     return canvas.toDataURL('image/png').split(',')[1];
   }, suffix);
   await page
-    .getByLabel('Selectează documente PDF / imagini', { exact: true })
+    .getByLabel('Adaugă PDF sau fotografie', { exact: true })
     .setInputFiles({
       name: 'scan-' + suffix + '.png',
       mimeType: 'image/png',
       buffer: Buffer.from(scanData, 'base64'),
     });
-  await expect(page.getByRole('button', { name: 'Revizuiește și creează bonul' })).toHaveCount(1, {
-    timeout: 90000,
-  });
+  await expect(dialog).toBeVisible({ timeout: 90000 });
   const scanSaved = (await (await employee.get('/api/reports/' + scannedReport.id)).json()).report;
   const scanResult = JSON.parse(scanSaved.attachments[0].ocr);
   const scannedTotal = scanResult.candidates[0].fields.amount;
@@ -651,7 +650,8 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     });
     await page.reload();
     await page.getByRole('button', { name: extraReport.purpose }).click();
-    await page.getByRole('button', { name: 'Salvează datele generale' }).click();
+    await page.getByLabel('Centru de cost al decontului').selectOption(cc);
+  await page.getByRole('button', { name: 'Salvează datele generale' }).click();
     const data = await page.evaluate(
       ({ mode, tag }) => {
         const source = document.createElement('canvas');
@@ -684,16 +684,13 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
       { mode, tag: suffix },
     );
     await page
-      .getByLabel('Selectează documente PDF / imagini', { exact: true })
+      .getByLabel('Adaugă PDF sau fotografie', { exact: true })
       .setInputFiles({
         name: mode + '-' + suffix + '.png',
         mimeType: 'image/png',
         buffer: Buffer.from(data, 'base64'),
       });
-    await expect(page.getByRole('button', { name: 'Revizuiește și creează bonul' })).toHaveCount(
-      1,
-      { timeout: 90000 },
-    );
+    await expect(dialog).toBeVisible({ timeout: 90000 });
     const result = (await (await employee.get('/api/reports/' + extraReport.id)).json()).report;
     const extracted = JSON.parse(result.attachments[0].ocr);
     expect(extracted.candidates[0].fields.amount.value).toBe('123.45');
