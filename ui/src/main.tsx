@@ -54,6 +54,7 @@ import { api } from './api';
 import './style.css';
 import { money, stateText } from './ReportDisplay';
 import { Stat, ReportList } from './ReportList';
+import { ReportHelp, OcrHelp } from './QuickGuides';
 import { JobsPage, ReportJobs } from './BackgroundJobs';
 import { FinanceQueue, BatchPanel } from './FinanceQueues';
 import { MasterPage, UsersPage, CardsPage, DelegationPage, DataPage } from './AdminPages';
@@ -332,13 +333,26 @@ function App() {
       : []),
   ];
   const state = (s: string) => stateText[s]?.[lang === 'ro' ? 0 : 1] || s;
-  const list = (rows: Any[]) => <ReportList rows={rows} t={t} state={state} open={open} />;
+  const list = (rows: Any[]) => (
+    <ReportList rows={rows} t={t} state={state} open={open} lang={lang} />
+  );
+  const unfinishedReport = role('Employee')
+    ? reports.find(
+        (r) =>
+          r.employeeId === me.id &&
+          ['DRAFT', 'REJECTED', 'EMPLOYEE_CORRECTION'].includes(r.state),
+      )
+    : null;
   return (
     <div className="shell">
       <aside className={mobile ? 'sidebar open' : 'sidebar'}>
         <div className="brand">
           <span className="brand-symbol">d.</span> decont
-          <button className="mobile-only icon" onClick={() => Mobile(false)}>
+          <button
+            className="mobile-only icon"
+            aria-label={t('Închide meniul', 'Close menu')}
+            onClick={() => Mobile(false)}
+          >
             <X />
           </button>
         </div>
@@ -348,6 +362,7 @@ function App() {
             <button
               key={id}
               className={page === id || (page === 'detail' && id === 'reports') ? 'active' : ''}
+              aria-current={page === id || (page === 'detail' && id === 'reports') ? 'page' : undefined}
               onClick={() => {
                 P(id);
                 Mobile(false);
@@ -523,6 +538,23 @@ function App() {
                   </button>
                 )}
               </div>
+              {unfinishedReport && (
+                <section className="panel dashboard-next-step">
+                  <div>
+                    <h2>{t('Ai un decont de completat', 'You have a report to finish')}</h2>
+                    <p className="muted">
+                      {t(
+                        'Continuă de unde ai rămas. Datele existente sunt păstrate.',
+                        'Pick up where you left off. Your existing details are kept.',
+                      )}
+                    </p>
+                  </div>
+                  <button className="secondary" onClick={() => open(unfinishedReport.id)}>
+                    {t('Continuă decontul', 'Continue report')}
+                    <ArrowUpRight size={17} />
+                  </button>
+                </section>
+              )}
               <div className="stats">
                 <Stat
                   title={t('Total deconturi', 'Total reports')}
@@ -598,19 +630,15 @@ function App() {
                   {list(reports.slice(0, 5))}
                 </section>
                 <section className="panel report-instructions">
-                  <h2>{t('Documente necesare', 'Required documents')}</h2>
+                  <h2>{t('Ai nevoie de ajutor?', 'Need a hand?')}</h2>
                   <p>
                     {t(
-                      'Introdu fiecare bon separat, cu tipul cheltuielii și data documentului. Pentru bonurile cu CUI-ul companiei, completează baza și TVA pe cote.',
-                      'Enter each receipt separately, with expense category and date. For receipts with the company VAT ID, enter taxable bases and VAT by rate.',
+                      'Poți folosi fotografii, PDF-uri sau completarea manuală. Verifică originalele înainte de trimitere.',
+                      'Use photos, PDFs or manual entry. Check the originals before submitting.',
                     )}
                   </p>
-                  <p>
-                    {t(
-                      'Atașează fișierul fiecărui bon sau încarcă fișierul comun după ce ai introdus toate bonurile. Trimiterea necesită documente scanate pentru toate bonurile.',
-                      'Attach a file for each receipt, or upload the combined file after entering all receipts. All receipts need scanned evidence before submission.',
-                    )}
-                  </p>
+                  <ReportHelp t={t} />
+                  <OcrHelp t={t} />
                 </section>
               </div>
             </>
@@ -793,6 +821,32 @@ function ReportDetail({
     r.employeeId !== me.id;
   const version = { version: r.version, reason };
   const action = (a: string) => change('/reports/' + r.id + '/actions/' + a, version);
+  const blockingCount = (detail.issues || []).filter((issue: Any) => issue.blocking).length;
+  const nextStep = own
+    ? !r.payment
+      ? t('Alege mai întâi metoda de plată.', 'Choose how you paid first.')
+      : !r.lines.length
+        ? t(
+            'Adaugă primul bon: fotografie, PDF sau manual.',
+            'Add your first receipt: photo, PDF or manual entry.',
+          )
+        : blockingCount
+          ? t(
+              `Corectează ${blockingCount} ${blockingCount === 1 ? 'problemă' : 'probleme'} înainte de trimitere.`,
+              `Fix ${blockingCount} ${blockingCount === 1 ? 'issue' : 'issues'} before submitting.`,
+            )
+          : t(
+              'Verifică bonurile și trimite decontul la aprobare.',
+              'Review your receipts and submit for approval.',
+            )
+    : decision
+      ? t('Verifică bonurile și apoi aprobă sau respinge.', 'Review the receipts, then approve or reject.')
+      : finance && ['FINANCE_REVIEW', 'READY_FOR_ERP'].includes(r.state)
+        ? t(
+            'Verifică documentele, sumele și excepțiile înainte de finalizare.',
+            'Review documents, amounts and exceptions before finishing.',
+          )
+        : null;
   return (
     <>
       <button className="text-button back" onClick={back}>
@@ -829,6 +883,12 @@ function ReportDetail({
           )}
         </div>
       </div>
+      {nextStep && (
+        <section className="report-next-step" aria-label={t('Următorul pas', 'Next step')}>
+          <strong>{t('Următorul pas', 'Next step')}</strong>
+          <p>{nextStep}</p>
+        </section>
+      )}
       <div className="report-summary">
         <div>
           <small>{t('Total decont', 'Report total')}</small>
