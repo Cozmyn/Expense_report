@@ -87,3 +87,26 @@ test('Initial unauthenticated check and incorrect login never claim an expired s
   await assert.rejects(() => api('/auth/login', 'POST', { username: 'someone', password: 'wrong' }));
   assert.equal(events.length, 0);
 });
+
+test('Empty-body 401 during receipt upload still reports the expired session', async () => {
+  const events = [];
+  globalThis.window = { dispatchEvent: (event) => events.push(event.type) };
+  globalThis.fetch = async () => Response.json({ token: 'unit-test-csrf' });
+  globalThis.XMLHttpRequest = class {
+    constructor() {
+      this.upload = {};
+      this.status = 401;
+      this.statusText = 'Unauthorized';
+      this.responseText = '';
+    }
+    open() {}
+    setRequestHeader() {}
+    send() { this.onload?.(); }
+  };
+  const { upload, SESSION_EXPIRED_EVENT } = await fresh();
+  await assert.rejects(
+    () => upload('/reports/test/documents', new FormData(), () => {}),
+    /Invalid response/,
+  );
+  assert.deepEqual(events, [SESSION_EXPIRED_EVENT]);
+});
