@@ -65,3 +65,25 @@ test('Login refreshes the CSRF token for the authenticated identity', async () =
   await api('/reports', 'POST', { purpose: 'Visit' });
   assert.deepEqual(mutations, ['token-1', 'token-2']);
 });
+
+test('Authenticated session expiry raises a single workspace event', async () => {
+  const events = [];
+  globalThis.window = { dispatchEvent: (event) => events.push(event.type) };
+  globalThis.fetch = async () =>
+    Response.json({ ro: 'Sesiunea a expirat', en: 'Session expired' }, { status: 401 });
+  const { api, SESSION_EXPIRED_EVENT } = await fresh();
+  await assert.rejects(() => api('/reports'), /Session expired/);
+  assert.deepEqual(events, [SESSION_EXPIRED_EVENT]);
+});
+
+test('Initial unauthenticated check and incorrect login never claim an expired session', async () => {
+  const events = [];
+  globalThis.window = { dispatchEvent: (event) => events.push(event.type) };
+  globalThis.fetch = async (url) => url.endsWith('/csrf')
+    ? Response.json({ token: 'unit-test-token' })
+    : Response.json({ en: 'Please sign in' }, { status: 401 });
+  const { api } = await fresh();
+  await assert.rejects(() => api('/me'), /Please sign in/);
+  await assert.rejects(() => api('/auth/login', 'POST', { username: 'someone', password: 'wrong' }));
+  assert.equal(events.length, 0);
+});
