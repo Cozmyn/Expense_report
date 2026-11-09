@@ -35,7 +35,7 @@ public static class DocumentOrientation
         if (rank >= 15)
             return baseline;
         var best = baseline;
-        List<OrientationEvidence> evidence = [new(0, baseline.Text, "TesseractAutoOrientation")];
+        List<OrientationEvidence> evidence = [new(0, baseline.Text, "PaddleOCR")];
         foreach (var degrees in new[] { 90, 270, 180 })
         {
             var output = Path.Combine(Path.GetDirectoryName(image)!, "orientation-" + Guid.NewGuid() + ".png");
@@ -66,12 +66,7 @@ public static class DocumentOrientation
                     ],
                     ct
                 );
-                var tsv = await LocalDocumentExtractor.Run(
-                    config["Ocr:Tesseract"] ?? "tesseract",
-                    [output, "stdout", "-l", config["Ocr:Languages"] ?? "ron+eng", "--psm", "6", "tsv"],
-                    ct
-                );
-                var page = DocumentGeometry.Tsv(baseline.Number, tsv);
+                var page = await PaddleOcrClient.Recognize(config, output, baseline.Number, ct);
                 page = page with
                 {
                     Words = page.Words?.Select(w => w with { Box = ToOriginal(w.Box, degrees) }).ToList(),
@@ -79,7 +74,7 @@ public static class DocumentOrientation
                     Height = baseline.Height,
                     RecognitionRotation = degrees,
                 };
-                evidence.Add(new(degrees, page.Text, "TesseractSingleBlock"));
+                evidence.Add(new(degrees, page.Text, "PaddleOCRRotated"));
                 var next = Rank(page);
                 if (next > rank)
                 {
