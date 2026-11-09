@@ -44,6 +44,7 @@ export default function ReceiptModal({
   onClose,
   save,
   saveDraft,
+  onSourceSelected,
 }: Any) {
   const [d, D] = useState<Any>({
     ...expense.data,
@@ -60,19 +61,16 @@ export default function ReceiptModal({
   const [focusedSource, FS] = useState<any | null>(null),
     [focusedPage, FP] = useState(expense.ocrCandidate?.pages?.[0] || 1),
     [focusedToken, FT] = useState(0);
+  const [scanField, ScanField] = useState<string | null>(null),
+    [scanRegion, ScanRegion] = useState<any | null>(null),
+    [scanBusy, ScanBusy] = useState(false),
+    [scanError, ScanError] = useState('');
   const [lookup, Lookup] = useState<Any | null>(null),
     [looking, Looking] = useState(false),
     [lookupError, LE] = useState(''),
     [external, External] = useState<Any | null>(null),
-    [externalReason, ER] = useState(''),
-    [files, Files] = useState<File[]>([]),
-    [attachmentMode, AM] = useState('individual');
+    [externalReason, ER] = useState('');
   useEffect(() => {
-    if (files.length) {
-      const url = URL.createObjectURL(files[0]);
-      Original({ name: files[0].name, url, mime: files[0].type });
-      return () => URL.revokeObjectURL(url);
-    }
     if (expense.sourceOriginal) {
       Original(expense.sourceOriginal);
       return;
@@ -93,7 +91,7 @@ export default function ReceiptModal({
           }
         : null,
     );
-  }, [files, expense.id]);
+  }, [expense.id, expense.sourceOriginal?.id]);
   const options = (kind: string) =>
     masters.filter(
       (m: Any) =>
@@ -452,85 +450,71 @@ export default function ReceiptModal({
     field?.scrollIntoView({ block: 'center' });
     field?.focus();
   };
+
+  const sourceHighlights = [
+    ...Object.entries(expense.ocrCandidate?.fields || {})
+      .filter(([key, field]: [string, any]) =>
+        field?.box && field.value != null &&
+        String(d[key] ?? '').trim() === String(field.value).trim())
+      .map(([_key, field]: [string, any]) => ({ page: field.page, ...field.box })),
+    ...(d.country === 'RO' && d.hasCompanyCui === true
+      ? (expense.ocrCandidate?.taxes || [])
+          .filter((tax: Any) => tax.box)
+          .map((tax: Any) => ({ page: tax.page, ...tax.box }))
+      : []),
+  ];
+  const scanAction = (key: string) =>
+    expense.sourceGroupId && expense.sourceAttachmentId && original ? (
+      <button type="button" className="ocr-scan-action"
+        aria-label={t('Selectează ' + key + ' din document', 'Select ' + key + ' from document')}
+        onClick={() => { ScanField(key); ScanRegion(null); ScanError(''); }}>
+        {t('Selectează pe bon', 'Select on receipt')}
+      </button>
+    ) : null;
+  const applyScan = async () => {
+    if (!scanField || !scanRegion || !expense.sourceGroupId || !expense.sourceAttachmentId) return;
+    ScanBusy(true);
+    ScanError('');
+    try {
+      const detail = await api('/reports/' + expense.reportId);
+      await api(
+        '/reports/' + expense.reportId + '/documents/' + expense.sourceAttachmentId
+          + '/groups/' + expense.sourceGroupId + '/select-field',
+        'POST',
+        { version: detail.report.version, field: scanField, region: scanRegion,
+          reason: 'User selected receipt evidence' },
+      );
+      const review = await api(
+        '/reports/' + expense.reportId + '/documents/' + expense.sourceAttachmentId + '/review',
+      );
+      const updated = review.review?.candidates?.find((g: Any) => g.id === expense.sourceGroupId);
+      const value = updated?.fields?.[scanField]?.value;
+      if (value == null) throw new Error(t('Valoarea nu a fost recunoscută. Scrie-o manual.',
+        'The value could not be recognised. Enter it manually.'));
+      set(scanField, String(value));
+      if (scanField === 'currency') set('taxCurrency', String(value));
+      FS(scanRegion);
+      FP(scanRegion.page);
+      FT((n: number) => n + 1);
+      ScanField(null);
+      ScanRegion(null);
+      await onSourceSelected?.();
+    } catch (e) {
+      ScanError((e as Error).message);
+    } finally {
+      ScanBusy(false);
+    }
+  };
   const fileSection = (
-    <section className="receipt-section">
-      <h3>{t('Fișiere pentru acest bon', 'Files for this receipt')}</h3>
-      <div className="attachment-options">
-        <label>
-          <input
-            type="radio"
-            name="attachment-mode"
-            checked={attachmentMode === 'individual'}
-            onChange={() => AM('individual')}
-          />
-          {t('Încarc fișierul acestui bon', 'Upload this receipt file')}
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="attachment-mode"
-            checked={attachmentMode === 'combined'}
-            onChange={() => {
-              AM('combined');
-              Files([]);
-            }}
-          />
-          {t(
-            'Bonurile sunt într-un fișier comun; îl voi încărca la final',
-            'Receipts are in one combined file; I will upload it at the end',
-          )}
-        </label>
-      </div>
-      {attachmentMode === 'individual' ? (
-        <>
-          <Field
-            name={t(
-              'Selectează fișierele bonului (PDF, JPG, PNG, HEIC)',
-              'Browse receipt files (PDF, JPG, PNG, HEIC)',
-            )}
-            note={t(
-              'Poți selecta mai multe fișiere. Maximum 25 MB per fișier. Scanarea se face după încărcare.',
-              'Select multiple files. Maximum 25 MB per file. Security scanning follows upload.',
-            )}
-          >
-            <input
-              type="file"
-              multiple
-              accept=".pdf,.jpg,.jpeg,.png,.heic,.heif"
-              onChange={(e) => Files(Array.from(e.target.files || []))}
-            />
-          </Field>
-          {files.map((f, i) => (
-            <div className="simple-row" key={i}>
-              <span>
-                {f.name} · {(f.size / 1024).toFixed(0)} KB
-              </span>
-              <button
-                type="button"
-                className="text-button danger"
-                onClick={() => Files((old) => old.filter((_, j) => i !== j))}
-              >
-                {t('Elimină', 'Remove')}
-              </button>
-            </div>
-          ))}
-          {!files.length && !expense.evidence?.some((e: Any) => !e.archived) && (
-            <p className="receipt-hint">
-              {t(
-                'Poți salva bonul acum, dar nu poți trimite decontul până când are un document verificat.',
-                'You can save this receipt now, but the report cannot be submitted until it has scanned evidence.',
-              )}
-            </p>
-          )}
-        </>
-      ) : (
-        <p className="receipt-hint">
-          {t(
-            'După introducerea tuturor bonurilor, folosește secțiunea „Fișier comun pentru bonuri” de la finalul decontului. Trimiterea rămâne blocată până la încărcare și scanare.',
-            'After entering all receipts, use the combined-file section at the end of the report. Submission remains blocked until upload and scanning.',
-          )}
-        </p>
-      )}
+    <section className="receipt-section receipt-evidence-note">
+      <h3>{t('Document justificativ', 'Supporting document')}</h3>
+      <p className="receipt-hint">
+        {original
+          ? t('Acest bon este asociat documentului încărcat. Verifică în previzualizare înainte de salvare.',
+              'This receipt is linked to the uploaded document. Verify it in the preview before saving.')
+          : t('Încarcă documentul din secțiunea unică de la începutul decontului, apoi asociază-l bonului.',
+              'Upload the document in the single upload section at the top of the report, then link it to this receipt.')}
+      </p>
     </section>
   );
   return (
@@ -635,7 +619,7 @@ export default function ReceiptModal({
                       : [],
                     cardId: d.payment === 'CompanyCard' ? d.cardId : null,
                   },
-                  files,
+                  [],
                 );
               } finally {
                 saving.current = false;
