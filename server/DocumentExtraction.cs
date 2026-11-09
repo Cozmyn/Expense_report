@@ -309,7 +309,7 @@ public static class ReceiptParser
                     if (hasCompanyCui)
                         warnings.Add("CUI-ul companiei apare într-un document de furnizor străin. Verifică țara. / Company CUI appears on a foreign document; verify supplier country.");
                 }
-                else if (cui.Count > 0 || Regex.IsMatch(supplierBlock, @"(?i)\b(?:ROMANIA|ROMÂNIA|BUCUREȘTI|BUCURESTI|CLUJ-NAPOCA|TIMIȘOARA|TIMISOARA|IAȘI|IASI)\b"))
+                else if (hasCompanyCui || cui.Count > 0 || Regex.IsMatch(supplierBlock, @"(?i)\b(?:ROMANIA|ROMÂNIA|BUCUREȘTI|BUCURESTI|CLUJ-NAPOCA|TIMIȘOARA|TIMISOARA|IAȘI|IASI)\b"))
                 {
                     if (!fields.ContainsKey("country"))
                         Put("country", "RO", "Romania / CUI RO");
