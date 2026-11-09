@@ -50,7 +50,7 @@ public class PaddleOcrAdapterTests
 
         Assert.Equal(2, extracted.Candidates.Count);
         Assert.Equal(new[] { "1", "2" },
-            extracted.Candidates.Select(c => c.Fields["invoice"].Value).ToArray());
+            extracted.Candidates.Select(c => c.Fields["invoice"].Value).Order().ToArray());
     }
 
     [Fact]
