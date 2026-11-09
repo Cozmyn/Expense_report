@@ -48,7 +48,8 @@ public class PlatformTests
                 Assert.Null(f.Confidence);
             }
         );
-        Assert.False(first.Fields.ContainsKey("hasCompanyCui"));
+        Assert.Equal("RO", first.Fields["country"].Value);
+        Assert.Equal("false", first.Fields["hasCompanyCui"].Value);
         Assert.Equal(2, result.Pages.Count);
     }
 
