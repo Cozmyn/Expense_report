@@ -14,6 +14,26 @@ services:
   scanner:
     image: clamav/clamav:stable
     volumes: ["scanner:/var/lib/clamav"]
+  ocr:
+    build:
+      context: .
+      dockerfile: ocr/Dockerfile
+    environment:
+      OCR_PORT: "8750"
+      HOME: /models
+    expose: ["8750"]
+    volumes: ["paddle-models:/models"]
+    restart: unless-stopped
+    mem_limit: 3072m
+    read_only: true
+    tmpfs: ["/tmp:size=268435456,mode=1777"]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8750/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 120s
+      retries: 5
   web:
     build:
       context: .
@@ -27,6 +47,7 @@ services:
       Scanner__Host: scanner
       Ocr__Enabled: "true"
       Ocr__Languages: ron+eng
+      Ocr__ServiceUrl: http://ocr:8750
       Application__BaseUrl: ${APPLICATION_BASE_URL:-http://localhost:5080}
       Session__Minutes: ${SESSION_MINUTES:-30}
       Smtp__Port: ${SMTP_PORT:-587}
@@ -39,6 +60,7 @@ services:
     depends_on:
       db: {condition: service_healthy}
       scanner: {condition: service_started}
+      ocr: {condition: service_healthy}
     restart: unless-stopped
     read_only: true
     tmpfs: ["/tmp:size=536870912,mode=1777"]
@@ -68,4 +90,5 @@ volumes:
   database:
   data:
   scanner:
+  paddle-models:
 
