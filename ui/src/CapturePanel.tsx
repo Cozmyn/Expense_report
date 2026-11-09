@@ -139,6 +139,15 @@ export default function CapturePanel({ report, t, run, refresh, reason, edit, ed
         totals[tax.rate].base = add(totals[tax.rate].base, tax.base);
         totals[tax.rate].vat = add(totals[tax.rate].vat, tax.vat);
       }
+      // Human-selected VAT source regions override OCR suggestions; never
+      // infer unknown paid tax from a zero default.
+      for (const [key, field] of Object.entries(candidate.fields || {}) as [string, Any][]) {
+        const match = /^tax(Base|Vat):(\d{1,2}(?:\.\d+)?)$/.exec(key);
+        if (!match || field?.value == null) continue;
+        const rate = match[2];
+        totals[rate] ??= { base: '', vat: '' };
+        totals[rate][match[1] === 'Base' ? 'base' : 'vat'] = String(field.value);
+      }
       data.taxes = Object.entries(totals).flatMap(([rate, value]: [string, any]) => {
         const master = masters.find(
           (m: Any) =>
