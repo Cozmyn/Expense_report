@@ -23,9 +23,12 @@ public class PaddleOcrAdapterTests
         Assert.Equal("ImageOcr", page.Method);
         Assert.Equal(1000m, page.Width);
         Assert.Equal(2000m, page.Height);
-        Assert.Equal(2, page.Words!.Count);
-        Assert.Equal(new SourceBox(.1m, .82m, .5m, .03m), page.Words[1].Box);
-        Assert.Equal(.89m, page.Words[1].Confidence);
+        Assert.Equal(5, page.Words!.Count);
+        var total = Assert.Single(page.Words, w => w.Text == "TOTAL");
+        Assert.Equal(.1m, total.Box.X);
+        Assert.Equal(.82m, total.Box.Y);
+        Assert.Equal(.89m, total.Confidence);
+        Assert.True(total.Box.Width > 0 && total.Box.Width < .5m); // Approximate token box within the OCR line.
         Assert.Contains("BON FISCAL", page.Text);
         Assert.Contains("TOTAL 123,45 RON", page.Text);
     }
