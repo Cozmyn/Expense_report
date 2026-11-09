@@ -8,6 +8,7 @@ Passing this preflight is NOT production approval; manual gates remain mandatory
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
 import sys
@@ -70,6 +71,38 @@ def _is_https_endpoint(value: str) -> bool:
         return False
 
 
+
+def _private_ocr_endpoint(value: str) -> bool:
+    """Fail closed for public OCR URLs without contacting DNS or the service."""
+    try:
+        parsed = urlsplit(value)
+        host = (parsed.hostname or "").lower().rstrip(".")
+        if (
+            parsed.scheme.lower() not in ("http", "https")
+            or not host
+            or parsed.username or parsed.password
+            or parsed.query or parsed.fragment
+            or parsed.path not in ("", "/")
+            or parsed.port == 0
+            or host in ("localhost", "0.0.0.0", "::", "127.0.0.1")
+            or host.endswith(".localhost")
+        ):
+            return False
+        try:
+            ip = ipaddress.ip_address(host)
+            return ip.is_private and not (ip.is_loopback or ip.is_link_local or ip.is_unspecified)
+        except ValueError:
+            pass
+        # Docker/Kubernetes service names or explicitly internal DNS. Public
+        # domains cannot be treated as private without a verified routing design.
+        return (
+            ("." not in host and host.replace("-", "").isalnum())
+            or host.endswith((".internal", ".local", ".svc", ".svc.cluster.local"))
+        )
+    except (ValueError, TypeError):
+        return False
+
+
 def check(config: Mapping[str, str]) -> list[Finding]:
     results: list[Finding] = []
 
@@ -119,6 +152,16 @@ def check(config: Mapping[str, str]) -> list[Finding]:
 
     if not _value(config, "Scanner__Host"):
         block("ANTIVIRUS_SCANNER", "Configure a reachable private antivirus scanning service.")
+
+    if _value(config, "Ocr__Enabled").lower() != "true":
+        block("OCR_DISABLED", "Set Ocr__Enabled=true for the approved PaddleOCR service.")
+    endpoint = _value(config, "Ocr__ServiceUrl")
+    if not endpoint:
+        block("OCR_SERVICE_URL", "Set Ocr__ServiceUrl to an explicit private PaddleOCR endpoint.")
+    elif not _private_ocr_endpoint(endpoint):
+        block("OCR_PRIVATE_ENDPOINT", "OCR must use an internal service URL without credentials or public routing.")
+    else:
+        warn("OCR_SERVICE_VERIFICATION", "Confirm PaddleOCR PP-OCRv6 model cache, private routing, full extraction, image size, latency, CPU/memory, and failure alerts on the actual deployment.")
 
     if not _value(config, "Data__Directory"):
         block("DATA_PROTECTION_KEYS", "Configure a persistent protected directory for Data Protection keys.")
