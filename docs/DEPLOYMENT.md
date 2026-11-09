@@ -4,16 +4,16 @@
 
 `compose.yaml` is a local evaluation setup bound to loopback. It uses PostgreSQL, private local files and ClamAV. It sets Development mode to allow local HTTP. Do not expose this Compose configuration publicly or use its local generated admin email/password in production. Docker image build executes tests and stops on failure.
 
-Node 22 builds the frontend. .NET 10 builds/publishes the backend. Runtime image uses the official `10.0-noble` Ubuntu variant and installs Romanian/English Tesseract, Poppler and DejaVu Unicode fonts. Image tags are mutable: pin approved digests in the release pipeline. Bootstrap creates new installations and applies the application’s repeatable additive schema upgrades. Do not point `--init` at an existing unrelated database.
+Node 22 builds the frontend. .NET 10 builds/publishes the backend. Runtime image uses the official `10.0-noble` Ubuntu variant and Poppler/DejaVu fonts. Legacy Tesseract binaries may still be present for compatibility but **are not used by the active OCR pipeline**. Scanned images are processed by the private PaddleOCR service (see `ocr/README.md`). Image tags are mutable: pin approved digests in the release pipeline. Bootstrap creates new installations and applies the application’s repeatable additive schema upgrades. Do not point `--init` at an existing unrelated database.
 
 ## Actualizarea unei instalări existente / Existing installation upgrade
 
 Pentru instalările acestei aplicații anterioare fluxului de bonuri, realizează backup și oprește versiunea veche; construiește noua imagine, apoi rulează serviciul de inițializare înainte de pornirea aplicației:
 
 ```sh
-docker compose build
+docker compose build web ocr
 docker compose --profile setup run --rm init
-docker compose up -d web
+docker compose up -d db scanner ocr web
 ```
 
 `--init` / `--bootstrap` creează repetabil tabelele de atașamente, preferințe, comentarii, alocări și versiuni de schemă, plus coloanele noi și triggerele append-only, dacă lipsesc. Nu rescrie deconturile, bonurile sau documentele existente. Câmpurile noi ale bonului sunt stocate în JSON; documentele vechi cu `InvoiceWithCui` păstrează interpretarea CUI/TVA și moneda contabilă RON până la editare. Acest upgrade aditiv este testat pe SQLite/PostgreSQL; nu înlocuiește un sistem complet de migrări și rollback pentru producție.
@@ -29,12 +29,23 @@ Separate environment, database and bucket for DEV, UAT and PROD. Production sour
 - `Data__Directory` durable shared directory for data-protection keys; protect and encrypt keys with an approved key-management provider. Current source only persists them to disk.
 - `Storage__Provider=S3`, `Storage__Endpoint`, `Storage__Bucket`, `Storage__AccessKey`, `Storage__SecretKey`; bucket must be private, encrypted, versioned and subject to retention policy. Prefer workload identity and change the source registration if eliminating long-lived access keys.
 - `Scanner__Host`, `Scanner__Port=3310` on a private service network; upload limits must also be configured at the ingress. Defaults are 25 MB/file and 200 MB/report; dated upload policy may lower/raise them up to the server cap of 100 MB/file and 1,000 MB/report.
-- `Ocr__Enabled=true`, `Ocr__Languages=ron+eng`, `Ocr__MaxPages=50`; `Ocr__PdfInfo`, `Ocr__PdfRenderer`, `Ocr__Tesseract`, `Ocr__HeicConverter` may override executable paths. Poppler and libheif are installed in the image.
+- **Private PaddleOCR:** `Ocr__Enabled=true`, `Ocr__ServiceUrl=http://ocr:8750` (use a **private, reachable** service name; never expose OCR's HTTP port on the public ingress), `Ocr__Languages=ro+en`, `Ocr__MaxPages=50`. The active image engine is PaddleOCR PP-OCRv6; OCR is also used for rotated images. Poppler and libheif remain needed for document conversion and text-layer extraction. Tesseract settings are historical and do not control the active OCR engine.
+- **CPU resources and model provisioning:** budget at least the tested 5 GiB OCR-service limit and sufficient startup time; warm and cache the approved model weights in the persistent OCR model volume **before admitting real uploads**. Initial startup may download model weights from Hugging Face; air-gapped or restricted networks need an approved offline provisioning process. Verify service health, CPU latency, peak memory and correct model version on the actual hosts before go-live.
 - SMTP TLS configuration via `Smtp__Host`, `Smtp__Port=587`, `Smtp__From`, `Smtp__Username`, `Smtp__Password`.
 - `Session__Minutes=30` controls idle timeout; activity refreshes the server session. `Application__BaseUrl` must use the real HTTPS origin for recovery links.
 - `DECONT_FONT_DIRECTORY` if the DejaVu font folder differs from `/usr/share/fonts/truetype/dejavu`.
 
 Use a managed HTTPS ingress terminating TLS, enforce HSTS and trusted forwarded headers, serve frontend and API on the same origin, and restrict egress/ingress. There is no included production ingress or certificate setup. Do not enable cross-origin cookie access as a shortcut.
+
+## Read-only production OCR preflight
+
+Run the redacted configuration audit using the **actual deployment configuration** (no credentials in GitHub logs):
+
+```sh
+python3 deploy/production_preflight.py --json
+```
+
+Missing/disabled OCR or an OCR URL that points to localhost, an arbitrary public endpoint, or contains embedded credentials is now a **configuration blocker**. Passing this script does not prove OCR accuracy or network reachability. The approved private OCR service must be reachable from the application; validate model warm-up, a synthetic scan, a manual multi-bon split, source selection, recovery on service restart, and user-visible failure messages in staging. See `docs/FINAL-UI-OCR-ACCEPTANCE-2026-11-09.md` for go/no-go evidence.
 
 ## Release gates
 
