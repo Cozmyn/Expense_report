@@ -2372,3 +2372,34 @@ textarea {
   .manager-next-actions .simple-row { gap: 12px; }
   .manager-action-open { white-space: normal; }
 }
+
+/* Phase 4: accessible authentication recovery and safe receipt editing. */
+.session-expired-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0 0 22px;
+  padding: 16px 18px;
+  border: 2px solid #b45309;
+  border-radius: 12px;
+  color: #65320a;
+  background: #fff8e6;
+}
+.session-expired-banner > svg { flex-shrink: 0; }
+.session-expired-banner > div { flex: 1; min-width: 0; }
+.session-expired-banner strong { display: block; font-size: 16px; }
+.session-expired-banner p { color: #65320a; margin: 4px 0 0; line-height: 1.5; }
+.session-expired-banner button { flex-shrink: 0; }
+.receipt-modal #expense-title:focus { outline: none; }
+.receipt-modal #expense-title:focus-visible {
+  outline: 3px solid var(--focus, #1d4ed8);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+@media (max-width: 760px) {
+  .session-expired-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .session-expired-banner button { width: 100%; }
+}

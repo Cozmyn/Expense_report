@@ -174,6 +174,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   );
   const begin = async () => {
     await page.getByRole('button', { name: 'Adaugă bon / document', exact: true }).click();
+    await expect(dialog.getByRole('heading', { name: 'Adaugă un bon / document' })).toBeFocused();
     await expect(dialog.getByLabel('Metoda de plată', { exact: true })).toHaveCount(0);
     await dialog.getByLabel('Tip cheltuială', { exact: true }).selectOption(cat);
     await dialog.getByLabel('Centru de cost', { exact: true }).selectOption(cc);
@@ -185,6 +186,15 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     await expect(dialog).not.toBeVisible();
   };
   await begin();
+  const dismissedDialogs: string[] = [];
+  page.once('dialog', async (prompt) => {
+    dismissedDialogs.push(prompt.message());
+    await prompt.dismiss();
+  });
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeVisible();
+  expect(dismissedDialogs[0]).toContain('Închizi fără să salvezi bonul?');
+  await expect(dialog.getByRole('heading', { name: 'Adaugă un bon / document' })).toBeVisible();
   await dialog
     .getByLabel('Bonul are înscris CUI-ul companiei?', { exact: true })
     .selectOption('yes');
@@ -721,6 +731,16 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   ).toBeVisible();
   expect((await employee.get('/api/me')).status()).toBe(401);
   await shot(page, '12-profile');
+  await page.evaluate(() => window.dispatchEvent(new Event('decont:session-expired')));
+  const expiredBanner = page.locator('.session-expired-banner');
+  await expect(expiredBanner).toContainText('Sesiunea a expirat');
+  await page.getByLabel('Limba interfeței', { exact: true }).selectOption('en');
+  await expect(expiredBanner).toContainText('Your session has expired');
+  await page.getByLabel('Interface language', { exact: true }).selectOption('ro');
+  await expect(expiredBanner).toContainText('Sesiunea a expirat');
+  page.once('dialog', (prompt) => prompt.accept());
+  await page.getByRole('button', { name: 'Autentifică-te din nou' }).click();
+  await expect(page.getByRole('heading', { name: 'Autentificare', exact: true })).toBeVisible();
   if (suffix === 'chromium') {
     const ctx = await browser.newContext({ storageState: await admin.storageState() });
     const ap = await ctx.newPage();
