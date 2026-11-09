@@ -509,7 +509,7 @@ function App() {
             <div className="error" role="alert">
               <AlertCircle size={18} />
               <span>{error}</span>
-              <button onClick={() => E('')} className="icon">
+              <button onClick={() => E('')} className="icon" aria-label={t('Închide mesajul de eroare', 'Dismiss error message')}>
                 <X size={17} />
               </button>
             </div>
@@ -518,7 +518,7 @@ function App() {
             <div className="success" role="status">
               <CheckCircle2 size={18} />
               {notice}
-              <button className="icon" onClick={() => N('')}>
+              <button className="icon" onClick={() => N('')} aria-label={t('Închide confirmarea', 'Dismiss confirmation')}>
                 <X size={16} />
               </button>
             </div>
