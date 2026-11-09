@@ -334,9 +334,15 @@ export default function ReceiptModal({
   }, [d.cui, d.date, vat]);
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
-      const changed = expense.id
-        ? JSON.stringify(d) !== JSON.stringify(expense.data)
-        : JSON.stringify({ data: d, taxes }) !== lastSaved.current;
+      const changed =
+        modified.current &&
+        (expense.id
+          ? JSON.stringify(d) !== JSON.stringify(expense.data)
+          : JSON.stringify({
+              data: d,
+              taxes,
+              sourceVersion: expense.ocrVersion,
+            }) !== lastSaved.current);
       if (changed && !saving.current) {
         event.preventDefault();
         event.returnValue = '';
