@@ -1,0 +1,74 @@
+name: PaddleOCR live model smoke
+on:
+  push:
+    branches:
+      - ocr/paddle-supplier-learning-20261109
+    paths:
+      - "ocr/**"
+      - ".github/workflows/paddle-live-smoke.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  paddle-cpu-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build PaddleOCR CPU container
+        run: docker build -f ocr/Dockerfile -t expense-paddle:smoke .
+      - name: Start isolated local OCR container
+        run: |
+          docker volume create paddle-smoke-models
+          docker run --detach --name paddle-smoke --memory 5g \
+            --read-only --tmpfs /tmp:size=268435456,mode=1777 \
+            -v paddle-smoke-models:/models -p 127.0.0.1:8751:8750 expense-paddle:smoke
+      - name: Verify model loads and identifies synthetic receipt text
+        run: |
+          python3 -m pip install --quiet Pillow
+          python3 - <<'PY'
+          from PIL import Image, ImageDraw, ImageFont
+          image = Image.new("RGB", (1400, 1000), "white")
+          draw = ImageDraw.Draw(image)
+          font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 62)
+          for y, line in [(100, "BON FISCAL"), (260, "BON NR 12345"),
+                          (460, "TOTAL 123,45 RON")]:
+              draw.text((70, y), line, font=font, fill="black")
+          image.save("/tmp/synthetic-receipt.png")
+          PY
+          for i in $(seq 1 90); do
+            if curl --silent --fail --max-time 3 http://127.0.0.1:8751/health > /tmp/ocr-health.json; then
+              break
+            fi
+            sleep 6
+          done
+          python3 - <<'PY'
+          import json
+          with open("/tmp/ocr-health.json") as fh:
+              health = json.load(fh)
+          assert health["status"] == "Ready"
+          assert health["engine"] == "PP-OCRv6"
+          assert "ro" in health["languages"]
+          PY
+          curl --fail --show-error --max-time 120 \
+            --header "Content-Type: application/octet-stream" \
+            --data-binary @/tmp/synthetic-receipt.png \
+            http://127.0.0.1:8751/ocr > /tmp/ocr-response.json
+          python3 - <<'PY'
+          import json
+          with open("/tmp/ocr-response.json") as fh:
+              data = json.load(fh)
+          texts = [w["text"] for w in data["words"]]
+          assert len(texts) > 0, "No text recognized by live PaddleOCR"
+          assert any("TOTAL" in s.upper() for s in texts), "Total label not recognized"
+          assert all(0 <= w["x"] <= 1 and 0 <= w["y"] <= 1 for w in data["words"])
+          print("Live model loaded and recognized synthetic receipt with", len(texts), "text blocks")
+          PY
+      - name: Show startup diagnostics if smoke fails
+        if: failure()
+        run: |
+          docker ps -a --filter name=paddle-smoke
+          docker logs --tail 90 paddle-smoke || true
+      - name: Remove local smoke resources
+        if: always()
+        run: docker rm -f paddle-smoke || true
