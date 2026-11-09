@@ -46,7 +46,7 @@ services:
       Storage__Directory: /app/.data/objects
       Scanner__Host: scanner
       Ocr__Enabled: "true"
-      Ocr__Languages: ron+eng
+      Ocr__Languages: ro+en
       Ocr__ServiceUrl: http://ocr:8750
       Application__BaseUrl: ${APPLICATION_BASE_URL:-http://localhost:5080}
       Session__Minutes: ${SESSION_MINUTES:-30}
