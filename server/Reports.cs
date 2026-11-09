@@ -125,6 +125,7 @@ public class Reports(Db db, Posting? posting = null)
             ManagerId = assignment?.ManagerId ?? user.ManagerId ?? "",
             Purpose = purpose.Trim(),
         };
+        r.CostCenter = DocumentAssistance.Defaults(await db.Masters.ToListAsync(), r, day).CostCenter ?? "";
         db.Reports.Add(r);
         Log(u, r.Id, "Report", "Created", after: new { r.Number, r.Purpose });
         return r;
@@ -166,9 +167,47 @@ public class Reports(Db db, Posting? posting = null)
         r.CardId = card;
     }
 
+    public async Task ConfigureCostCenter(Report r, string code)
+    {
+        var value = code.Trim();
+        if (value != "")
+        {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var masters = await db.Masters.Where(m => m.Kind == "costCenters" && m.Code == value).ToListAsync();
+            Guard.Require(
+                masters.Any(m => Rules.Effective(m, today)),
+                "cost_center",
+                "Selectează un centru de cost activ.",
+                "Select an active cost centre."
+            );
+        }
+        Guard.Require(
+            value != "" || !r.Lines.Any(l => !l.Archived),
+            "cost_center",
+            "Selectează un centru de cost pentru bonurile existente.",
+            "Select a cost centre for existing receipts."
+        );
+        foreach (var line in r.Lines.Where(l => !l.Archived))
+        {
+            var old = line.Data();
+            if (old.CostCenter == value) continue;
+            Guard.Require(
+                !await db.Matches.AnyAsync(m => m.LineId == line.Id),
+                "cost_center_matched",
+                "Anulează asocierea bancară înainte să modifici centrul de cost.",
+                "Undo the bank match before changing the cost centre."
+            );
+            FinancialCalculations.Invalidate(line, true);
+            line.Json = Serialization.Write(old with { CostCenter = value });
+        }
+        r.CostCenter = value;
+    }
+
     public async Task Apply(Line l, ExpenseData input)
     {
         var header = await db.Reports.FindAsync(l.ReportId);
+        if (!string.IsNullOrWhiteSpace(header?.CostCenter))
+            input = input with { CostCenter = header.CostCenter };
         if (header?.Payment != null)
             Guard.Require(
                 input.Payment == header.Payment && input.CardId == header.CardId,
@@ -254,6 +293,7 @@ public class Reports(Db db, Posting? posting = null)
                 r.EmployeeName,
                 r.EmployeeWorker,
                 r.DepartmentCode,
+                r.CostCenter,
                 r.Payment,
                 r.CardId,
                 r.ManagerId,
