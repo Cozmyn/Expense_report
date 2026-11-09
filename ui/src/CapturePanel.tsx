@@ -11,6 +11,20 @@ export default function CapturePanel({ report, t, run, refresh, reason, edit, ed
     [autoFiles, AutoFiles] = useState<string[]>([]);
   const openedGroups = useRef(new Set<string>());
   const autoOpening = useRef(false);
+  const entryVersion = useRef<number | null>(null);
+  const stopAutomaticReview = useRef(false);
+  useEffect(() => {
+    if (editing && entryVersion.current == null) entryVersion.current = report.version;
+    if (!editing && entryVersion.current != null) {
+      // Closing an unmodified review is an explicit cancellation; do not
+      // keep opening more dialogs when the employee needs to regroup pages.
+      if (entryVersion.current === report.version) {
+        stopAutomaticReview.current = true;
+        AutoFiles([]);
+      }
+      entryVersion.current = null;
+    }
+  }, [editing, report.version]);
   const files = (report.attachments || []).filter((f: Any) => !f.archived);
   useEffect(() => {
     if (
@@ -71,6 +85,7 @@ export default function CapturePanel({ report, t, run, refresh, reason, edit, ed
             reason,
             receiptMode,
           });
+          stopAutomaticReview.current = false;
           AutoFiles((old) => [...old, grant.documentId]);
           const form = new FormData();
           form.append('version', String(version));
@@ -187,7 +202,7 @@ export default function CapturePanel({ report, t, run, refresh, reason, edit, ed
 
   // Open each OCR draft in sequence; unverified numbers are not saved to accounting.
   useEffect(() => {
-    if (!autoFiles.length || editing || autoOpening.current) return;
+    if (!autoFiles.length || editing || autoOpening.current || stopAutomaticReview.current) return;
     const id = autoFiles[0];
     const file = files.find((f: Any) => f.id === id);
     if (!file) return;
