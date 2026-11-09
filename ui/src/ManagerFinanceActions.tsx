@@ -5,8 +5,8 @@ type Translate = (ro: string, en: string) => string;
 
 /** The actionable set comes from the server's canApprove flag; we never infer permissions from state. */
 export function ManagerNextActions({
-  reports, open, t,
-}: { reports: Any[]; open: (id: string) => void; t: Translate }) {
+  reports, open, openAll, t,
+}: { reports: Any[]; open: (id: string) => void; openAll: () => void; t: Translate }) {
   const pending = reports
     .filter((report) => report.canApprove)
     .sort((a, b) => (b.ageDays || 0) - (a.ageDays || 0));
@@ -42,6 +42,12 @@ export function ManagerNextActions({
           </span>
         </button>
       ))}
+      {pending.length > 4 && (
+        <button type="button" className="secondary" onClick={openAll}>
+          {t('Vezi toate aprobările', 'View all approvals')} ({pending.length})
+          <ArrowUpRight size={15} aria-hidden="true" />
+        </button>
+      )}
     </section>
   );
 }
