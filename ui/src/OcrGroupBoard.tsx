@@ -155,10 +155,28 @@ export default function OcrGroupBoard({
       <h3>{t('Documente de verificat', 'Documents to review')}</h3>
       <p className="small muted">
         {t(
-          'Verifică documentul original și confirmă datele fiecărui bon. Pentru corecții de grupare, deschide opțiunile avansate.',
-          'Check each original document and confirm the receipt details. Open advanced tools to change page grouping.',
+          'Verifică fiecare bon înainte de a crea cheltuiala. Poți delimita separat mai multe bonuri din același PDF.',
+          'Review each receipt before creating an expense. You can select several receipts from one PDF.',
         )}
       </p>
+      <details className="quick-help">
+        <summary>{t('Mai multe bonuri într-un PDF?', 'Multiple receipts in one PDF?')}</summary>
+        <ol>
+          <li>{t('Deschide delimitarea și trasează o regiune pentru fiecare bon.', 'Open the selection tool and draw one region per receipt.')}</li>
+          <li>{t('Creează câte un grup separat și verifică datele extrase.', 'Create one document group per receipt and review the extracted fields.')}</li>
+          <li>{t('Confirmă fiecare grup pentru a crea cheltuieli separate.', 'Confirm each group to create separate expenses.')}</li>
+        </ol>
+      </details>
+      <button
+        type="button"
+        className="secondary"
+        onClick={() => {
+          RG({ id: 'new-region', pages: [1] });
+          Regions([]);
+        }}
+      >
+        {t('Delimitează un bon din PDF', 'Select another receipt from PDF')}
+      </button>
       {(changing || stale) && (
         <p role="status">
           {t(
@@ -705,19 +723,21 @@ export default function OcrGroupBoard({
               >
                 {t('Adaugă pagină / regiune', 'Add page / region')}
               </button>
-              <button
-                className="secondary"
-                disabled={reason.trim().length < 3}
-                onClick={() => command('regions', { groups: [regionGroup.id], regions })}
-              >
-                {t('Salvează delimitarea', 'Save boundaries')}
-              </button>
+              {regionGroup.id !== 'new-region' && (
+                <button
+                  className="secondary"
+                  disabled={reason.trim().length < 3}
+                  onClick={() => command('regions', { groups: [regionGroup.id], regions })}
+                >
+                  {t('Salvează delimitarea', 'Save boundaries')}
+                </button>
+              )}
               <button
                 className="secondary"
                 disabled={reason.trim().length < 3 || regions.length !== 1}
                 onClick={() => command('add', { groups: [], regions })}
               >
-                {t('Creează al doilea document din regiune', 'Create second document from region')}
+                {t('Creează un bon separat din regiune', 'Create separate receipt group from region')}
               </button>
               <button className="text-button" onClick={() => RG(null)}>
                 {t('Închide', 'Close')}
