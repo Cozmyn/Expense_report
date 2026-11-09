@@ -22,6 +22,7 @@ public class Report
     public string EmployeeName { get; set; } = "";
     public string EmployeeWorker { get; set; } = "";
     public string DepartmentCode { get; set; } = "";
+    public string CostCenter { get; set; } = "";
     public string? Payment { get; set; }
     public Guid? CardId { get; set; }
     public string State { get; set; } = States.Draft;
@@ -114,6 +115,8 @@ public interface IOriginalDocument
 public class ReportAttachment : IOriginalDocument
 {
     public bool Capture { get; set; }
+    // Immutable upload intent: one receipt or several receipts in a PDF/photo.
+    public string ReceiptMode { get; set; } = "Auto";
     public string UploadedBy { get; set; } = "";
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid ReportId { get; set; }
