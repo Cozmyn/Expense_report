@@ -147,9 +147,21 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     page.getByRole('heading', { name: 'Privire de ansamblu', exact: true }),
   ).toBeVisible();
   await shot(page, '02-dashboard');
+  const ocrHelp = page.locator('.report-instructions details.quick-help').filter({
+    has: page.locator('summary').filter({ hasText: 'Cum citește aplicația un bon?' }),
+  });
+  await ocrHelp.locator('summary').click();
+  await expect(ocrHelp).toContainText('OCR poate greși sau poate rata câmpuri.');
+  await page.getByRole('button', { name: 'RO', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
+  await expect(page.getByText('How does receipt scanning work?', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'EN', exact: true }).click();
   await page.getByRole('button', { name: 'Decont nou', exact: true }).click();
   await page.getByLabel('Scopul decontului').fill('Client visit ' + suffix);
   await page.getByRole('button', { name: 'Salvează datele generale' }).click();
+  await expect(
+    page.getByText('Cum citește aplicația un bon?', { exact: true }),
+  ).toBeVisible();
   await expect(page.getByLabel('Nume angajat', { exact: true })).toHaveValue('employee-' + suffix);
   await expect(page.getByLabel('LantID', { exact: true })).toHaveValue('TEST-WORKER');
   await expect(
@@ -488,7 +500,14 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   const pack = await employee.get('/api/reports/' + report.id + '/pack');
   expect(pack.ok()).toBeTruthy();
   await page.reload();
-  await expect(page.getByRole('cell', { name: 'Postat', exact: true })).toBeVisible();
+  if (suffix === 'chromium') {
+    await expect(page.getByRole('cell', { name: 'Postat', exact: true })).toBeVisible();
+  } else {
+    const reportCard = page.locator('.report-cards .report-card').filter({ hasText: report.purpose });
+    await expect(reportCard).toBeVisible();
+    await expect(reportCard.locator('.badge')).toHaveText('Postat');
+    await expect(reportCard).toContainText('RON');
+  }
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(page.viewportSize()!.width);
