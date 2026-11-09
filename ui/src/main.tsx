@@ -21,7 +21,6 @@ import {
 } from './PlatformPages';
 import CapturePanel from './CapturePanel';
 import ExpenseModal, { newReceipt } from './ReceiptModal';
-import ReportAttachments from './ReportAttachments';
 import { Field } from './Fields';
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -844,12 +843,14 @@ function ReportDetail({
     [reason, Reason] = useState(''),
     [selectedDoc, SD] = useState<Any | null>(null);
   const [headerPayment, HP] = useState(r.payment || r.lines[0]?.data.payment || 'Personal'),
-    [headerCard, HC] = useState(r.cardId || r.lines[0]?.data.cardId || '');
+    [headerCard, HC] = useState(r.cardId || r.lines[0]?.data.cardId || ''),
+    [headerCostCenter, HCC] = useState(r.costCenter || '');
   useEffect(() => {
     Purpose(r.purpose);
     HP(r.payment || r.lines[0]?.data.payment || 'Personal');
     HC(r.cardId || r.lines[0]?.data.cardId || '');
-  }, [r.id, r.purpose, r.payment, r.cardId]);
+    HCC(r.costCenter || '');
+  }, [r.id, r.purpose, r.payment, r.cardId, r.costCenter]);
   const own =
     me.roles.includes('Employee') &&
     r.employeeId === me.id &&
@@ -983,7 +984,11 @@ function ReportDetail({
         </span>
       </div>
       <section className="panel compact">
-        <h2>{t('Date generale', 'Report header')}</h2>
+        <h2>{t('1. Datele decontului', '1. Report details')}</h2>
+        <p className="small muted">
+          {t('Completezi aceste informații o singură dată. Managerul este atribuit automat, iar centrul de cost poate fi schimbat aici pentru toate bonurile.',
+             'Enter these details once. The manager is assigned automatically; you can change the cost centre here for every receipt.')}
+        </p>
         <div className="form-grid">
           <Field name={t('Nume angajat', 'Employee name')}>
             <input
@@ -993,6 +998,9 @@ function ReportDetail({
                 t('Nedisponibil în istoricul acestui decont', 'Not recorded for this report')
               }
             />
+          </Field>
+          <Field name={t('Manager desemnat automat', 'Automatically assigned manager')}>
+            <input readOnly value={detail.managerName || (r.managerId ? t('Manager atribuit', 'Manager assigned') : t('Lipsește managerul — contactează administratorul', 'Manager missing — contact administrator'))} />
           </Field>
           <Field name="LantID">
             <input readOnly value={r.employeeWorker || t('Neconfigurat', 'Not configured')} />
@@ -1020,6 +1028,17 @@ function ReportDetail({
       {editable && (
         <section className="panel compact">
           <div className="form-grid">
+            <Field name={t('Centru de cost al decontului', 'Report cost centre')}
+              note={t('Se aplică automat tuturor bonurilor; poți modifica alegerea aici.',
+                      'Automatically applies to every receipt; change it here.')}>
+              <select value={headerCostCenter} onChange={(e) => HCC(e.target.value)}>
+                <option value="">{t('Selectează centrul de cost', 'Select cost centre')}</option>
+                {masters.filter((m: Any) => m.kind === 'costCenters' && m.active
+                    && m.from <= today() && (!m.to || m.to >= today())).map((m: Any) => (
+                  <option key={m.id} value={m.code}>{label(m)}</option>
+                ))}
+              </select>
+            </Field>
             <Field name={t('Metoda de plată a decontului', 'Report payment method')}>
               <select
                 disabled={r.lines.length > 0}
@@ -1084,7 +1103,8 @@ function ReportDetail({
                 (headerPayment === 'CompanyCard' && !headerCard) ||
                 (purpose === r.purpose &&
                   headerPayment === r.payment &&
-                  (headerCard || null) === (r.cardId || null))
+                  (headerCard || null) === (r.cardId || null) &&
+                  headerCostCenter === (r.costCenter || ''))
               }
               onClick={() =>
                 change(
@@ -1094,6 +1114,7 @@ function ReportDetail({
                     purpose,
                     payment: headerPayment,
                     cardId: headerPayment === 'CompanyCard' ? headerCard : null,
+                    costCenter: headerCostCenter,
                   },
                   'PATCH',
                 )
@@ -1127,6 +1148,7 @@ function ReportDetail({
           refresh={refresh}
           reason={reason}
           edit={Editing}
+          editing={editing}
           masters={masters}
         />
       )}
@@ -1258,50 +1280,10 @@ function ReportDetail({
                       >
                         {t('Arhivează', 'Archive')}
                       </button>
-                      <div className="receipt-upload">
-                        <Field
-                          name={t(
-                            'Fișiere pentru bonul ' + l.position,
-                            'Files for receipt ' + l.position,
-                          )}
-                        >
-                          <input
-                            type="file"
-                            multiple
-                            accept=".pdf,.jpg,.jpeg,.png,.heic,.heif"
-                            onChange={(e) => {
-                              const files = Array.from(e.target.files || []);
-                              e.target.value = '';
-                              if (files.length)
-                                run(async () => {
-                                  let currentVersion = r.version;
-                                  try {
-                                    for (const file of files) {
-                                      const form = new FormData();
-                                      form.append('file', file);
-                                      form.append('version', String(currentVersion));
-                                      form.append('reason', reason);
-                                      const saved = await api(
-                                        `/reports/${r.id}/lines/${l.id}/evidence`,
-                                        'POST',
-                                        form,
-                                      );
-                                      currentVersion = saved.version;
-                                    }
-                                  } finally {
-                                    await refresh();
-                                  }
-                                });
-                            }}
-                          />
-                        </Field>
-                        <small>
-                          {t(
-                            'Selectează fișierul bonului sau folosește fișierul comun de la final.',
-                            'Browse receipt files or use the combined file at the end.',
-                          )}
-                        </small>
-                      </div>
+                      <p className="small muted">{t(
+                        'Pentru documente folosește încărcarea unică de mai sus.',
+                        'Upload documents using the single upload section above.',
+                      )}</p>
                     </>
                   )}
                   {finance && editable && (
@@ -1441,17 +1423,6 @@ function ReportDetail({
         </div>
       )}
       <Comments detail={detail} t={t} run={run} refresh={refresh} allowed={decision || finance} />
-      {tab === 'expenses' && (
-        <ReportAttachments
-          report={r}
-          editable={editable}
-          busy={busy}
-          reason={reason}
-          t={t}
-          run={run}
-          refresh={refresh}
-        />
-      )}
       {tab === 'history' && <RevisionComparison detail={detail} t={t} run={run} />}{' '}
       {tab === 'history' && <ReportJobs report={r} t={t} run={run} />}{' '}
       {tab === 'history' && (
@@ -1588,6 +1559,7 @@ function ReportDetail({
           reportCardId={
             r.cardId || r.lines.find((l: Any) => l.id !== editing.id)?.data.cardId || null
           }
+          reportCostCenter={r.costCenter || ''}
           finance={finance}
           draftStorageKey={
             editing.sourceGroupId ? 'ocr-draft:' + editing.sourceGroupId : 'receipt-draft:' + r.id
@@ -1597,6 +1569,7 @@ function ReportDetail({
           t={t}
           busy={busy}
           onClose={() => Editing(null)}
+          onSourceSelected={refresh}
           saveDraft={
             editing.sourceGroupId && !editing.id
               ? async (data: Any) => {
