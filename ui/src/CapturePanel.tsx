@@ -3,6 +3,7 @@ import OcrGroupBoard from './OcrGroupBoard';
 import React, { useEffect, useState } from 'react';
 import { api, upload as transfer } from './api';
 import { newReceipt } from './ReceiptModal';
+import { OcrHelp } from './QuickGuides';
 type Any = Record<string, any>;
 export default function CapturePanel({ report, t, run, refresh, reason, edit, masters }: Any) {
   const [working, W] = useState(false),
@@ -174,10 +175,11 @@ export default function CapturePanel({ report, t, run, refresh, reason, edit, ma
       <h2>{t('Încarcă documentele și extrage datele', 'Upload documents and extract details')}</h2>
       <p>
         {t(
-          'OCR propune valori. Verifică originalul, separă bonurile și confirmă fiecare bon înainte de salvare.',
-          'OCR suggests values. Check the original, separate receipts and confirm each receipt before saving.',
+          'Încarcă o fotografie sau un PDF. Verifici fiecare bon înainte de salvare.',
+          'Upload a photo or PDF. You review each receipt before saving.',
         )}
       </p>
+      <OcrHelp t={t} />
       <div className="form-grid">
         <label className="field">
           {t('Selectează documente PDF / imagini', 'Browse PDF documents / images')}

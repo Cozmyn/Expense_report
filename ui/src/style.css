@@ -2051,3 +2051,152 @@ textarea {
   min-width: 0;
   max-width: 100%;
 }
+
+/* Phase 1: readable report lists, short optional help and the next step. */
+.report-link small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+.report-cards {
+  display: none;
+}
+.quick-help {
+  border-top: 1px solid var(--border);
+}
+.quick-help summary {
+  color: var(--green);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.quick-help ol {
+  margin: 0 0 12px;
+  padding-left: 24px;
+}
+.quick-help li {
+  margin-bottom: 9px;
+  line-height: 1.5;
+}
+.quick-help p {
+  margin-bottom: 12px;
+}
+.dashboard-next-step {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+.dashboard-next-step h2 {
+  margin-bottom: 6px;
+}
+.dashboard-next-step p {
+  margin-bottom: 0;
+}
+.dashboard-next-step button {
+  flex-shrink: 0;
+}
+.report-next-step {
+  border: 1px solid #b9d9c8;
+  border-left: 4px solid var(--green);
+  background: #f0f8f3;
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 18px;
+}
+.report-next-step strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #075e50;
+}
+.report-next-step p {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.5;
+}
+@media (max-width: 760px) {
+  .list-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .list-toolbar .search,
+  .list-toolbar select {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+  }
+  .list-toolbar select {
+    font-size: 14px;
+  }
+  .dashboard-next-step {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .dashboard-next-step button {
+    align-self: flex-start;
+  }
+  .report-list-table {
+    display: none;
+  }
+  .report-cards {
+    display: grid;
+    gap: 12px;
+  }
+  .report-card {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    padding: 16px;
+    min-width: 0;
+  }
+  .report-card-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .report-card-title {
+    font-size: 15px;
+    line-height: 1.4;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    overflow-wrap: anywhere;
+    min-width: 0;
+    min-height: 44px;
+  }
+  .report-card-heading .badge {
+    flex-shrink: 0;
+    max-width: 48%;
+    white-space: normal;
+    line-height: 1.3;
+  }
+  .report-card-meta {
+    font-size: 12px;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+    margin: 4px 0 12px;
+  }
+  .report-card-facts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .report-card-facts span,
+  .report-card-facts strong {
+    display: block;
+    overflow-wrap: anywhere;
+  }
+  .report-card-facts span {
+    color: var(--muted);
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+  .report-card-facts strong {
+    color: var(--text);
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+  }
+}
