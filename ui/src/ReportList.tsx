@@ -32,6 +32,9 @@ export function ReportList({ rows, t, state, open, lang = 'ro' }: Any) {
   const age = (r: Any) =>
     r.ageDays ?? Math.floor((Date.now() - new Date(r.created).getTime()) / 86400000);
   const title = (r: Any) => r.purpose || t('Decont fără titlu', 'Untitled report');
+  const people = (r: Any) => [r.number, r.employeeName, r.managerName].filter(Boolean).join(' · ');
+  const ageLabel = (r: Any) =>
+    t(age(r) === 1 ? 'zi' : 'zile', age(r) === 1 ? 'day' : 'days');
 
   return (
     <>
@@ -76,8 +79,7 @@ export function ReportList({ rows, t, state, open, lang = 'ro' }: Any) {
                   <button className="report-link" onClick={() => open(r.id)}>
                     {title(r)}
                     <small>
-                      {r.number} · {r.employeeName} · {r.managerName} · {age(r)}{' '}
-                      {t('zile', 'days')}
+                      {people(r)} · {age(r)} {ageLabel(r)}
                     </small>
                   </button>
                 </td>
@@ -102,7 +104,7 @@ export function ReportList({ rows, t, state, open, lang = 'ro' }: Any) {
           </tbody>
         </table>
       </div>
-      <div className="report-cards" aria-label={t('Deconturi', 'Expense reports')}>
+      <section className="report-cards" aria-label={t('Deconturi', 'Expense reports')}>
         {shown.map((r: Any) => (
           <article key={r.id} className="report-card">
             <div className="report-card-heading">
@@ -112,9 +114,7 @@ export function ReportList({ rows, t, state, open, lang = 'ro' }: Any) {
               <span className={'badge ' + r.state.toLowerCase()}>{state(r.state)}</span>
             </div>
             <p className="report-card-meta">
-              {r.number}
-              {r.employeeName ? ' · ' + r.employeeName : ''}
-              {r.managerName ? ' · ' + r.managerName : ''} · {age(r)} {t('zile', 'days')}
+              {people(r)} · {age(r)} {ageLabel(r)}
             </p>
             <div className="report-card-facts">
               <div>
@@ -128,7 +128,7 @@ export function ReportList({ rows, t, state, open, lang = 'ro' }: Any) {
             </div>
           </article>
         ))}
-      </div>
+      </section>
       {!shown.length && (
         <div className="empty">
           <Receipt size={32} />
