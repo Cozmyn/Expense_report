@@ -16,7 +16,7 @@ The PaddleOCR model is downloaded **on initial startup** to the named `paddle-mo
 
 - Python package: `paddleocr==3.7.0`, which is Apache-2.0 licensed.
 - Model: `PP-OCRv6`, `lang="ro"`; the unified Latin model also covers English.
-- CPU memory reservation/limit: OCR service 3 GiB; the web container remains unchanged.
+- CPU memory reservation/limit: OCR service 5 GiB (adjust OCR_MEMORY_LIMIT after measuring peak usage); the web container remains unchanged.
 - Environment: `Ocr__ServiceUrl=http://ocr:8750`; `Ocr__Enabled=true`.
 - Health: `GET http://ocr:8750/health` **within the Compose network only**.
 - No second OCR engine runs in parallel. If PaddleOCR is unavailable, processing fails and users can review/enter receipts manually. Do not silently fall back to lower-quality extraction.
