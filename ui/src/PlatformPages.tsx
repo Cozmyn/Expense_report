@@ -288,16 +288,13 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
       exception: '',
       sort: 'age',
     }),
-    [loaded, L] = useState(false),
-    [showFilters, ShowFilters] = useState(false);
+    [loaded, L] = useState(false);
   useEffect(() => {
     run(async () => {
       R(await api('/finance/queue'));
       const saved = await api('/preferences/finance-filters');
       if (saved.sort) {
         F(saved);
-        if (Object.entries(saved).some(([key, value]) => key !== 'sort' && !!value))
-          ShowFilters(true);
       }
       L(true);
     });
@@ -367,11 +364,11 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
           <span>{t('Gata pentru ERP', 'Ready for ERP')}{filter.ready ? ' ✓' : ''}</span>
         </button>
       </div>
-      <details className="finance-advanced-filters" open={showFilters} onToggle={(event) => ShowFilters(event.currentTarget.open)}>
-        <summary>
+      <section className="finance-advanced-filters" onToggle={(event) => ShowFilters(event.currentTarget.open)}>
+        <h4>
           {t('Caută și filtrează deconturile', 'Search and filter reports')}
           {activeFilters > 0 ? ' · ' + activeFilters : ''}
-        </summary>
+        </h4>
       <div className="form-grid">
         {['q', 'employee', 'manager', 'supplier', 'age'].map((k) => (
           <Field
@@ -459,7 +456,7 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
           {t('Șterge filtrele active', 'Clear active filters')}
         </button>
       </div>
-      </details>
+      </section>
       <p>
         {shown.length} {t('deconturi', 'reports')}
       </p>
@@ -605,14 +602,14 @@ export function Reporting({ t, run, open }: Any) {
           </tbody>
         </table>
       </div>
-      <details>
-        <summary>{t('Detalii bonuri', 'Receipt details')}</summary>
+      <section>
+        <h4>{t('Detalii bonuri', 'Receipt details')}</h4>
         {scoped.map((r) => (
           <button className="simple-row row-button" key={r.lineId} onClick={() => open(r.reportId)}>
             {r.number} · {r.employee} · {r.date} · {r.amount} {r.currency}
           </button>
         ))}
-      </details>
+      </section>
     </section>
   );
 }
@@ -817,11 +814,11 @@ export function AuditSearch({ t, run }: Any) {
                 <td>{a.entity}</td>
                 <td>
                   <p>{a.reason}</p>
-                  <details>
-                    <summary>{t('Înainte / după', 'Before / after')}</summary>
+                  <section>
+                    <h4>{t('Înainte / după', 'Before / after')}</h4>
                     <pre className="ocr-text">{a.before || '—'}</pre>
                     <pre className="ocr-text">{a.after || '—'}</pre>
-                  </details>
+                  </section>
                 </td>
               </tr>
             ))}
