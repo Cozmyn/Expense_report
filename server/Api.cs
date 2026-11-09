@@ -15,6 +15,7 @@ public static class Api
             r.EmployeeName,
             r.EmployeeWorker,
             r.DepartmentCode,
+            r.CostCenter,
             r.Payment,
             r.CardId,
             r.ManagerId,
@@ -223,9 +224,12 @@ public static class Api
                             r.Purpose,
                             r.Payment,
                             r.CardId,
+                            r.CostCenter,
                         };
                         if (i.Payment != null)
                             await svc.ConfigureHeader(r, i.Payment, i.CardId);
+                        if (i.CostCenter != null)
+                            await svc.ConfigureCostCenter(r, i.CostCenter);
                         r.Purpose = i.Purpose.Trim();
                         Reports.Touch(r);
                         svc.Log(
@@ -239,6 +243,7 @@ public static class Api
                                 r.Purpose,
                                 r.Payment,
                                 r.CardId,
+                                r.CostCenter,
                             },
                             i.Reason
                         );
@@ -652,7 +657,7 @@ public static class Api
 
 public record CreateReport(string Purpose);
 
-public record ReportEdit(long Version, string Purpose, string? Reason, string? Payment = null, Guid? CardId = null);
+public record ReportEdit(long Version, string Purpose, string? Reason, string? Payment = null, Guid? CardId = null, string? CostCenter = null);
 
 public record LineEdit(
     long Version,
