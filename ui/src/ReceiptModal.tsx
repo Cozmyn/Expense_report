@@ -65,6 +65,7 @@ export default function ReceiptModal({
     [focusedToken, FT] = useState(0);
   const [scanField, ScanField] = useState<string | null>(null),
     [scanRegion, ScanRegion] = useState<any | null>(null),
+    [manualHighlights, ManualHighlights] = useState<any[]>([]),
     [scanBusy, ScanBusy] = useState(false),
     [scanError, ScanError] = useState('');
   const [lookup, Lookup] = useState<Any | null>(null),
@@ -500,8 +501,14 @@ export default function ReceiptModal({
       const value = updated?.fields?.[scanField]?.value;
       if (value == null) throw new Error(t('Valoarea nu a fost recunoscută. Scrie-o manual.',
         'The value could not be recognised. Enter it manually.'));
-      set(scanField, String(value));
-      if (scanField === 'currency') set('taxCurrency', String(value));
+      if (scanField.startsWith('taxBase:') || scanField.startsWith('taxVat:')) {
+        const [kind, rate] = scanField.split(':');
+        updateTax(Number(rate), kind === 'taxBase' ? 'base' : 'vat', String(value));
+      } else {
+        set(scanField, String(value));
+        if (scanField === 'currency') set('taxCurrency', String(value));
+      }
+      ManualHighlights((old) => [...old, scanRegion]);
       FS(scanRegion);
       FP(scanRegion.page);
       FT((n: number) => n + 1);
@@ -560,7 +567,7 @@ export default function ReceiptModal({
                 document={{ ...original, reportId: expense.reportId }}
                 t={t}
                 regions={expense.ocrCandidate?.regions || []}
-                highlights={sourceHighlights}
+                highlights={[...sourceHighlights, ...manualHighlights]}
                 onRegionSelect={scanField ? ScanRegion : undefined}
                 focus={focusedSource}
                 focusPage={focusedPage}
@@ -1183,7 +1190,8 @@ export default function ReceiptModal({
                   {taxRows.map((row) => (
                     <div key={row.pct} className="vat-grid">
                       <strong>{row.pct}%</strong>
-                      <Field name={t('Bază ' + row.pct + '%', 'Base ' + row.pct + '%')}>
+                      <Field name={t('Bază ' + row.pct + '%', 'Base ' + row.pct + '%')}
+                        action={scanAction('taxBase:' + row.pct)}>
                         <input
                           data-ocr-field={'tax:' + row.pct}
                           type="number"
@@ -1193,7 +1201,8 @@ export default function ReceiptModal({
                           onChange={(e) => updateTax(row.pct, 'base', e.target.value)}
                         />
                       </Field>
-                      <Field name={t('TVA ' + row.pct + '%', 'VAT ' + row.pct + '%')}>
+                      <Field name={t('TVA ' + row.pct + '%', 'VAT ' + row.pct + '%')}
+                        action={row.pct === 0 ? null : scanAction('taxVat:' + row.pct)}>
                         <input
                           type="number"
                           step="any"
