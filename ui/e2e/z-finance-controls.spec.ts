@@ -242,11 +242,11 @@ test('Reversible reset, statement charges and independent Finance policy approva
     .getByLabel('Motiv verificare', { exact: true })
     .fill('Confirm principal without double booking fees');
   await fxRow.getByRole('button', { name: 'Confirmă suma din bancă', exact: true }).click();
-  await expect(fxRow.locator('summary').filter({ hasText: 'Istoric calcul și FX' })).toContainText(
+  await expect(fxRow.locator('h4').filter({ hasText: 'Istoric calcul și FX' })).toContainText(
     '(1)',
   );
   await fxRow.getByRole('button', { name: 'Confirmă baza și totalul', exact: true }).click();
-  await expect(fxRow.locator('summary').filter({ hasText: 'Istoric calcul și FX' })).toContainText(
+  await expect(fxRow.locator('h4').filter({ hasText: 'Istoric calcul și FX' })).toContainText(
     '(2)',
   );
   report = await detail();
