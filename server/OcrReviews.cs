@@ -93,6 +93,9 @@ public static class OcrReviews
         var reportEntity = await db.Reports.FindAsync(report);
         var editable =
             reportEntity != null && (States.EmployeeEdit(reportEntity.State) || States.FinanceEdit(reportEntity.State));
+        // Keep the original extraction immutable for audit. Supplier hints affect only
+        // new, unverified group suggestions and never overwrite prior verified data.
+        var suggested = editable ? await SupplierOcrLearning.Suggest(db, result) : result;
         var json = Serialization.Write(result);
         var fingerprint = Serialization.Hash(json);
         var review = await db.DocumentReviews.FindAsync(document);
@@ -110,7 +113,7 @@ public static class OcrReviews
                 PageCount = result.Pages.Max(p => p.Number),
             };
             db.DocumentReviews.Add(review);
-            foreach (var c in result.Candidates)
+            foreach (var c in suggested.Candidates)
             {
                 db.DocumentGroups.Add(
                     new()
@@ -136,7 +139,7 @@ public static class OcrReviews
                 .Select(p => p.Page)
                 .ToHashSet();
             bool added = false;
-            foreach (var c in result.Candidates)
+            foreach (var c in suggested.Candidates)
             {
                 var regions = c.Regions ?? c.Pages.Select(p => new SourceRegion(p)).ToList();
                 if (
