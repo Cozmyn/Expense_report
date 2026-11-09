@@ -50,7 +50,7 @@ import {
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
-import { api } from './api';
+import { api, SESSION_EXPIRED_EVENT } from './api';
 import './style.css';
 import { money, stateText } from './ReportDisplay';
 import { Stat, ReportList } from './ReportList';
@@ -126,7 +126,13 @@ function App() {
     [busy, B] = useState(false),
     [mobile, Mobile] = useState(false),
     [notices, Notices] = useState<Any[]>([]),
-    [showNotices, SN] = useState(false);
+    [showNotices, SN] = useState(false),
+    [sessionExpired, SessionExpired] = useState(false);
+  useEffect(() => {
+    const onExpired = () => SessionExpired(true);
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+  }, []);
   const role = (r: string) => me?.roles.includes(r);
   const label = (m: Any) => (lang === 'ro' ? m.nameRo : m.nameEn || m.nameRo);
   async function run(work: () => Promise<any>) {
@@ -212,6 +218,7 @@ function App() {
                 await api('/auth/login', 'POST', { username, password });
                 const u = await api('/me');
                 M(u);
+                SessionExpired(false);
                 if (!u.changePassword) await load();
               });
             }}
@@ -467,6 +474,37 @@ function App() {
           </div>
         )}
         <main>
+          {sessionExpired && (
+            <section className="session-expired-banner" role="alert">
+              <AlertCircle size={22} aria-hidden="true" />
+              <div>
+                <strong>{t('Sesiunea a expirat', 'Your session has expired')}</strong>
+                <p>
+                  {t(
+                    'Nu mai poți salva până nu te autentifici din nou. Copiază orice informații încă nesalvate înainte să continui.',
+                    'You cannot save until you sign in again. Copy any unsaved details before continuing.',
+                  )}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  if (!window.confirm(t(
+                    'Dacă ai modificări nesalvate, acestea se pot pierde. Te autentifici din nou?',
+                    'Any unsaved changes may be lost. Sign in again?',
+                  ))) return;
+                  SessionExpired(false);
+                  D(null);
+                  M(null);
+                  Password('');
+                  P('dashboard');
+                }}
+              >
+                {t('Autentifică-te din nou', 'Sign in again')}
+              </button>
+            </section>
+          )}
           {error && (
             <div className="error" role="alert">
               <AlertCircle size={18} />
