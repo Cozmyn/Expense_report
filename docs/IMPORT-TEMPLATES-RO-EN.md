@@ -1,6 +1,6 @@
 # Ghid de import / Import templates (RO + EN)
 
-> **Status:** PR #15, în verificare. Exemplele folosesc utilizatori fictivi `example.invalid`. Înlocuiește-i cu datele aprobate ale companiei. **Nu importa date personale reale într-un mediu de test.**
+> **Status:** Integrat în `main` prin [PR #15](https://github.com/Cozmyn/Expense_report/pull/15). Exemplele folosesc utilizatori fictivi `example.invalid`. Înlocuiește-i cu datele aprobate ale companiei. **Nu importa date personale reale într-un mediu de test.**
 
 ## RO — Ordinea recomandată
 
