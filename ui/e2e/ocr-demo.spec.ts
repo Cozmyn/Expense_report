@@ -101,7 +101,7 @@ test('PDF02 recorded source-to-expense walkthrough', async ({ browser }, info) =
       reason: 'Synthetic OCR demo account',
     });
   const manager = await create('ocr-manager-' + tag, ['Manager']);
-  await create('ocr-employee-' + tag, ['Employee'], manager.id);
+  const employeeUser = await create('ocr-employee-' + tag, ['Employee'], manager.id);
   const master = async (kind: string, code: string, json: any) =>
     mutate(admin, '/configuration/masters', {
       kind,
@@ -118,6 +118,25 @@ test('PDF02 recorded source-to-expense walkthrough', async ({ browser }, info) =
     cc = 'DEMO-CC-' + tag;
   await master('expenseTypes', category, { ocrKeywords: ['motorina'] });
   await master('costCenters', cc, { erpCode: cc });
+  // The approval policy must use a real owner mapping even for test reports.
+  await mutate(admin, '/admin/cost-center-owners/' + encodeURIComponent(cc), {
+    costCenterCode: cc,
+    managerId: manager.id,
+    reason: 'Set test owner for verified OCR receipts',
+  }, 'PUT');
+  // User profile allocation is the authoritative default for each receipt.
+  await mutate(admin, '/admin/users/' + employeeUser.id, {
+    username: 'ocr-employee-' + tag,
+    name: 'ocr-employee-' + tag,
+    email: 'ocr-employee-' + tag + '@example.invalid',
+    worker: 'DEMO-' + tag,
+    managerId: manager.id,
+    costCenter: cc,
+    active: true,
+    roles: ['Employee'],
+    password: null,
+    reason: 'E2E employee cost centre allocation',
+  }, 'PUT');
   await master('accounting', category, { mainAccount: 'DEMO-GL', localAccount: 'DEMO-LOCAL' });
   const configured = await (await admin.get('/api/configuration/masters')).json();
   for (const rate of [0, 11, 21])
@@ -330,6 +349,13 @@ test('PDF02 recorded source-to-expense walkthrough', async ({ browser }, info) =
   expect((await review()).candidates).toHaveLength(9);
   await screenshot('06-retry-stable-expense-ids');
   expect((await review()).unassignedPages).toEqual([]);
+  // If submission is blocked, report the *actual* validation errors, not just
+  // a generic disabled-button timeout.
+  const validation = await (await employee.get('/api/reports/' + report.id)).json();
+  const blocking = (validation.issues || [])
+    .filter((issue: any) => issue.blocking)
+    .map((issue: any) => ({ code: issue.code, lineId: issue.lineId, message: issue.en || issue.messageEn || issue.ro || issue.messageRo }));
+  expect(blocking, 'Unexpected blocking issues after all 9 OCR receipts were reviewed').toEqual([]);
   await expect(
     page.getByRole('button', { name: 'Trimite la aprobare', exact: true }),
   ).toBeEnabled();

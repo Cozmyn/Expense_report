@@ -3,6 +3,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PADDLE_PDX_MODEL_SOURCE=HUGGINGFACE \
     PADDLE_PDX_CACHE_HOME=/models \
+    HOME=/models \
+    XDG_CACHE_HOME=/models/.cache \
+    HF_HOME=/models/.cache/huggingface \
+    MODELSCOPE_CACHE=/models/.cache/modelscope \
+    PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True \
     OCR_PORT=8750
 WORKDIR /service
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -31,7 +31,7 @@ export function VehicleSettings({ t, run, refresh }: Any) {
     run(load);
   }, []);
   return (
-    <section>
+    <section className="vehicle-settings" aria-label={t('Deductibilitate auto', 'Vehicle deductibility')}>
       <h4>{t('Deductibilitate auto', 'Vehicle deductibility')}</h4>
       <p>
         {t(
