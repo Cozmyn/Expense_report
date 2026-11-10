@@ -35,6 +35,8 @@ export default function ReceiptModal({
   expense,
   reportPayment,
   reportCardId,
+  reportCostCenter,
+  employeeCostCenter,
   finance,
   draftStorageKey,
   masters,
@@ -44,9 +46,15 @@ export default function ReceiptModal({
   onClose,
   save,
   saveDraft,
+  onSourceSelected,
 }: Any) {
   const [d, D] = useState<Any>({
     ...expense.data,
+    // Existing expense keeps its allocation; each NEW receipt defaults to the
+    // employee's database assignment, independently from the header choice.
+    costCenter: expense.id
+      ? (expense.data.costCenter || '')
+      : (employeeCostCenter || expense.data.costCenter || reportCostCenter || ''),
     hasCompanyCui:
       expense.data.hasCompanyCui ??
       (expense.data.documentType === 'InvoiceWithCui'
@@ -60,19 +68,18 @@ export default function ReceiptModal({
   const [focusedSource, FS] = useState<any | null>(null),
     [focusedPage, FP] = useState(expense.ocrCandidate?.pages?.[0] || 1),
     [focusedToken, FT] = useState(0);
+  const [scanField, ScanField] = useState<string | null>(null),
+    [scanRegion, ScanRegion] = useState<any | null>(null),
+    [manualHighlights, ManualHighlights] = useState<any[]>([]),
+    [scanBusy, ScanBusy] = useState(false),
+    [scanError, ScanError] = useState(''),
+    [financeScanReason, FinanceScanReason] = useState('');
   const [lookup, Lookup] = useState<Any | null>(null),
     [looking, Looking] = useState(false),
     [lookupError, LE] = useState(''),
     [external, External] = useState<Any | null>(null),
-    [externalReason, ER] = useState(''),
-    [files, Files] = useState<File[]>([]),
-    [attachmentMode, AM] = useState('individual');
+    [externalReason, ER] = useState('');
   useEffect(() => {
-    if (files.length) {
-      const url = URL.createObjectURL(files[0]);
-      Original({ name: files[0].name, url, mime: files[0].type });
-      return () => URL.revokeObjectURL(url);
-    }
     if (expense.sourceOriginal) {
       Original(expense.sourceOriginal);
       return;
@@ -93,7 +100,7 @@ export default function ReceiptModal({
           }
         : null,
     );
-  }, [files, expense.id]);
+  }, [expense.id, expense.sourceOriginal?.id]);
   const options = (kind: string) =>
     masters.filter(
       (m: Any) =>
@@ -159,13 +166,20 @@ export default function ReceiptModal({
         if (
           active &&
           saved.data &&
-          (!expense.sourceGroupId ||
-            !expense.ocrCandidate?.correctedExpense ||
-            saved.sourceVersion === expense.ocrVersion) &&
+          (!expense.sourceGroupId || saved.sourceVersion === expense.ocrVersion) &&
           (!expense.ocrCandidate || expense.sourceGroupId) &&
           (!expense.sourceAttachmentId || expense.sourceGroupId)
         ) {
-          D(saved.data);
+          D((current: Any) => {
+            const merged = { ...current, ...saved.data };
+            // A stale or incomplete private draft must not erase a new
+            // structured OCR suggestion from the same source version.
+            for (const [key, source] of Object.entries(expense.ocrCandidate?.fields || {}) as [string, Any][]) {
+              if ((merged[key] === '' || merged[key] == null) && source.value != null)
+                merged[key] = source.value;
+            }
+            return merged;
+          });
           Taxes(saved.taxes || taxes);
           DS(t('Ciornă restaurată', 'Draft restored'));
         }
@@ -388,7 +402,10 @@ export default function ReceiptModal({
     vat &&
     (blankTax ||
       used.length === 0 ||
-      used.some((row) => !row.rateId || (row.pct === 0 && compare(row.vat || '0', '0') !== 0)));
+      used.some((row) =>
+        !row.rateId ||
+        (rates(row.pct).length > 1 && !taxes[row.pct]?.rateId) ||
+        (row.pct === 0 && compare(row.vat || '0', '0') !== 0)));
   const validationKey = JSON.stringify({
     ...d,
     taxCurrency: d.currency,
@@ -452,85 +469,79 @@ export default function ReceiptModal({
     field?.scrollIntoView({ block: 'center' });
     field?.focus();
   };
+
+  const sourceHighlights = [
+    ...Object.entries(expense.ocrCandidate?.fields || {})
+      .filter(([key, field]: [string, any]) =>
+        field?.box && field.value != null &&
+        String(d[key] ?? '').trim() === String(field.value).trim())
+      .map(([_key, field]: [string, any]) => ({ page: field.page, ...field.box })),
+    ...(d.country === 'RO' && d.hasCompanyCui === true
+      ? (expense.ocrCandidate?.taxes || [])
+          .filter((tax: Any) => tax.box)
+          .map((tax: Any) => ({ page: tax.page, ...tax.box }))
+      : []),
+  ];
+  const scanAction = (key: string) =>
+    expense.sourceGroupId && expense.sourceAttachmentId && original ? (
+      <button type="button" className="ocr-scan-action"
+        aria-label={t('Selectează ' + key + ' din document', 'Select ' + key + ' from document')}
+        onClick={() => { ScanField(key); ScanRegion(null); ScanError(''); }}>
+        {t('Selectează pe bon', 'Select on receipt')}
+      </button>
+    ) : null;
+  const applyScan = async () => {
+    if (!scanField || !scanRegion || !expense.sourceGroupId || !expense.sourceAttachmentId) return;
+    ScanBusy(true);
+    ScanError('');
+    try {
+      const detail = await api('/reports/' + expense.reportId);
+      if (finance && financeScanReason.trim().length < 3)
+        throw new Error(t('Completează motivul corecției Finance.', 'Enter a reason for the Finance correction.'));
+      await api(
+        '/reports/' + expense.reportId + '/documents/' + expense.sourceAttachmentId
+          + '/groups/' + expense.sourceGroupId + '/select-field',
+        'POST',
+        { version: detail.report.version, field: scanField, region: scanRegion,
+          reason: finance ? financeScanReason : 'Employee verified the source region' },
+      );
+      const review = await api(
+        '/reports/' + expense.reportId + '/documents/' + expense.sourceAttachmentId + '/review',
+      );
+      const updated = review.review?.candidates?.find((g: Any) => g.id === expense.sourceGroupId);
+      const value = updated?.fields?.[scanField]?.value;
+      if (value == null) throw new Error(t('Valoarea nu a fost recunoscută. Scrie-o manual.',
+        'The value could not be recognised. Enter it manually.'));
+      if (scanField.startsWith('taxBase:') || scanField.startsWith('taxVat:')) {
+        const [kind, rate] = scanField.split(':');
+        updateTax(Number(rate), kind === 'taxBase' ? 'base' : 'vat', String(value));
+      } else {
+        set(scanField, String(value));
+        if (scanField === 'currency') set('taxCurrency', String(value));
+      }
+      ManualHighlights((old) => [...old, scanRegion]);
+      FS(scanRegion);
+      FP(scanRegion.page);
+      FT((n: number) => n + 1);
+      ScanField(null);
+      ScanRegion(null);
+      await onSourceSelected?.();
+    } catch (e) {
+      ScanError((e as Error).message);
+    } finally {
+      ScanBusy(false);
+    }
+  };
   const fileSection = (
-    <section className="receipt-section">
-      <h3>{t('Fișiere pentru acest bon', 'Files for this receipt')}</h3>
-      <div className="attachment-options">
-        <label>
-          <input
-            type="radio"
-            name="attachment-mode"
-            checked={attachmentMode === 'individual'}
-            onChange={() => AM('individual')}
-          />
-          {t('Încarc fișierul acestui bon', 'Upload this receipt file')}
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="attachment-mode"
-            checked={attachmentMode === 'combined'}
-            onChange={() => {
-              AM('combined');
-              Files([]);
-            }}
-          />
-          {t(
-            'Bonurile sunt într-un fișier comun; îl voi încărca la final',
-            'Receipts are in one combined file; I will upload it at the end',
-          )}
-        </label>
-      </div>
-      {attachmentMode === 'individual' ? (
-        <>
-          <Field
-            name={t(
-              'Selectează fișierele bonului (PDF, JPG, PNG, HEIC)',
-              'Browse receipt files (PDF, JPG, PNG, HEIC)',
-            )}
-            note={t(
-              'Poți selecta mai multe fișiere. Maximum 25 MB per fișier. Scanarea se face după încărcare.',
-              'Select multiple files. Maximum 25 MB per file. Security scanning follows upload.',
-            )}
-          >
-            <input
-              type="file"
-              multiple
-              accept=".pdf,.jpg,.jpeg,.png,.heic,.heif"
-              onChange={(e) => Files(Array.from(e.target.files || []))}
-            />
-          </Field>
-          {files.map((f, i) => (
-            <div className="simple-row" key={i}>
-              <span>
-                {f.name} · {(f.size / 1024).toFixed(0)} KB
-              </span>
-              <button
-                type="button"
-                className="text-button danger"
-                onClick={() => Files((old) => old.filter((_, j) => i !== j))}
-              >
-                {t('Elimină', 'Remove')}
-              </button>
-            </div>
-          ))}
-          {!files.length && !expense.evidence?.some((e: Any) => !e.archived) && (
-            <p className="receipt-hint">
-              {t(
-                'Poți salva bonul acum, dar nu poți trimite decontul până când are un document verificat.',
-                'You can save this receipt now, but the report cannot be submitted until it has scanned evidence.',
-              )}
-            </p>
-          )}
-        </>
-      ) : (
-        <p className="receipt-hint">
-          {t(
-            'După introducerea tuturor bonurilor, folosește secțiunea „Fișier comun pentru bonuri” de la finalul decontului. Trimiterea rămâne blocată până la încărcare și scanare.',
-            'After entering all receipts, use the combined-file section at the end of the report. Submission remains blocked until upload and scanning.',
-          )}
-        </p>
-      )}
+    <section className="receipt-section receipt-evidence-note">
+      <h3>{t('Document justificativ', 'Supporting document')}</h3>
+      <p className="receipt-hint">
+        {original
+          ? t('Acest bon este asociat documentului încărcat. Verifică în previzualizare înainte de salvare.',
+              'This receipt is linked to the uploaded document. Verify it in the preview before saving.')
+          : t('Încarcă documentul din secțiunea unică de la începutul decontului, apoi asociază-l bonului.',
+              'Upload the document in the single upload section at the top of the report, then link it to this receipt.')}
+      </p>
     </section>
   );
   return (
@@ -567,16 +578,42 @@ export default function ReceiptModal({
                 document={{ ...original, reportId: expense.reportId }}
                 t={t}
                 regions={expense.ocrCandidate?.regions || []}
+                highlights={[...sourceHighlights, ...manualHighlights]}
+                onRegionSelect={scanField ? ScanRegion : undefined}
                 focus={focusedSource}
                 focusPage={focusedPage}
                 focusToken={focusedToken}
               />
               <p className="small muted">
-                {t(
-                  'Copiază datele și defalcarea TVA exact de pe bon. Fișierul nou va fi scanat după salvare.',
-                  'Copy receipt data and VAT exactly. New files are scanned after saving.',
-                )}
+                {t('Zonele verzi sunt valori citite și folosite în formular; zona albastră indică informația selectată.',
+                   'Green regions are recognised values used in the form; the blue region is the selected source.')}
               </p>
+              {scanField && (
+                <section className="ocr-scan-panel" role="region" aria-label={t('Selectare valoare din document', 'Select value from document')}>
+                  <h4>{t('Selectează valoarea pe document', 'Select the value on the document')}</h4>
+                  <p>{t('Apasă „Delimitează regiunea”, trasează peste text și confirmă. Poți oricând scrie manual în câmp.',
+                      'Choose “Select source region”, draw over the text and confirm. You can always type the value manually.')}</p>
+                  {scanRegion && <p role="status">{t('Regiune selectată', 'Region selected')}: {t('pagina', 'page')} {scanRegion.page}</p>}
+                  {finance && (
+                    <Field name={t('Motivul corecției OCR (Finance)', 'Reason for OCR correction (Finance)')}>
+                      <input required minLength={3} value={financeScanReason}
+                        onChange={(e) => FinanceScanReason(e.target.value)}
+                        placeholder={t('Ce informație a fost corectată?', 'What source information was corrected?')} />
+                    </Field>
+                  )}
+                  {scanError && <p className="error" role="alert">{scanError}</p>}
+                  <div className="actions">
+                    <button type="button" className="primary"
+                      disabled={!scanRegion || scanBusy || (finance && financeScanReason.trim().length < 3)}
+                      onClick={applyScan}>
+                      {scanBusy ? t('Se citește…', 'Reading…') : t('Folosește selecția', 'Use selected text')}
+                    </button>
+                    <button type="button" className="secondary" onClick={() => { ScanField(null); ScanRegion(null); ScanError(''); }}>
+                      {t('Completez manual', 'Enter manually')}
+                    </button>
+                  </div>
+                </section>
+              )}
             </aside>
           )}
           <form
@@ -635,7 +672,7 @@ export default function ReceiptModal({
                       : [],
                     cardId: d.payment === 'CompanyCard' ? d.cardId : null,
                   },
-                  files,
+                  [],
                 );
               } finally {
                 saving.current = false;
@@ -745,7 +782,7 @@ export default function ReceiptModal({
                     ))}
                   </select>
                 </Field>
-                <Field name={t('Data bonului / documentului', 'Receipt / document date')}>
+                <Field name={t('Data bonului / documentului', 'Receipt / document date')} action={scanAction('date')}>
                   <input
                     data-ocr-field="date"
                     required
@@ -798,10 +835,11 @@ export default function ReceiptModal({
                       ...old,
                       country:
                         e.target.value === 'yes' ? 'RO' : e.target.value === 'no' ? 'ZZ' : '',
-                      hasCompanyCui: e.target.value === 'yes' ? null : false,
-                      cui: null,
-                      supplier: '',
-                      supplierConfirmed: false,
+                      hasCompanyCui: e.target.value === 'yes'
+                        ? (old.country === 'RO' ? old.hasCompanyCui : null) : false,
+                      cui: e.target.value === 'yes' ? old.cui : null,
+                      supplier: e.target.value === 'yes' ? old.supplier : '',
+                      supplierConfirmed: e.target.value === 'yes' ? old.supplierConfirmed : false,
                       taxCurrency: old.currency,
                     }))
                   }
@@ -855,9 +893,9 @@ export default function ReceiptModal({
                       D((old) => ({
                         ...old,
                         hasCompanyCui: e.target.value === '' ? null : e.target.value === 'yes',
-                        cui: null,
-                        supplier: '',
-                        supplierConfirmed: false,
+                        cui: old.cui,
+                        supplier: old.supplier,
+                        supplierConfirmed: old.supplierConfirmed,
                         taxCurrency: old.currency,
                       }))
                     }
@@ -893,7 +931,7 @@ export default function ReceiptModal({
                   )}
                 </h3>
                 <div className="form-grid">
-                  <Field name={t('CUI furnizor', 'Supplier VAT ID')}>
+                  <Field name={t('CUI furnizor', 'Supplier VAT ID')} action={scanAction('cui')}>
                     <input
                       data-ocr-field="cui"
                       required
@@ -908,7 +946,7 @@ export default function ReceiptModal({
                       }
                     />
                   </Field>
-                  <Field name={t('Număr bon / document', 'Receipt / document number')}>
+                  <Field name={t('Număr bon / document', 'Receipt / document number')} action={scanAction('invoice')}>
                     <input
                       data-ocr-field="invoice"
                       required
@@ -942,10 +980,10 @@ export default function ReceiptModal({
                   </div>
                 )}
                 {d.cui && (
-                  <details className="receipt-optional">
-                    <summary>
+                  <section className="receipt-optional">
+                    <h4>
                       {t('Verificare suplimentară a furnizorului', 'Additional supplier checks')}
-                    </summary>
+                    </h4>
                     <div className="actions">
                     <button
                       type="button"
@@ -1005,7 +1043,7 @@ export default function ReceiptModal({
                         </>
                       )}
                     </div>
-                  </details>
+                  </section>
                 )}
                 {lookup?.found &&
                   expense.ocrCandidate?.fields?.supplier?.value &&
@@ -1024,7 +1062,7 @@ export default function ReceiptModal({
                     {lookupError}
                   </p>
                 )}
-                <Field name={t('Denumire furnizor', 'Supplier name')}>
+                <Field name={t('Denumire furnizor', 'Supplier name')} action={scanAction('supplier')}>
                   <input
                     data-ocr-field="supplier"
                     required
@@ -1051,7 +1089,7 @@ export default function ReceiptModal({
             )}
             <section className="receipt-section">
               <h3>{t('Descriere și sumă', 'Description and amount')}</h3>
-              <Field name={t('Descriere / justificare', 'Description / business justification')}>
+              <Field name={t('Descriere / justificare', 'Description / business justification')} action={scanAction('description')}>
                 <textarea
                   data-ocr-field="description"
                   required
@@ -1060,7 +1098,7 @@ export default function ReceiptModal({
                 />
               </Field>
               <div className="form-grid">
-                <Field name={t('Moneda bonului', 'Receipt currency')}>
+                <Field name={t('Moneda bonului', 'Receipt currency')} action={scanAction('currency')}>
                   <input
                     data-ocr-field="currency"
                     required
@@ -1077,7 +1115,7 @@ export default function ReceiptModal({
                   />
                 </Field>
                 <Field
-                  name={t('Total bon în moneda documentului', 'Receipt total in document currency')}
+                  name={t('Total bon în moneda documentului', 'Receipt total in document currency')} action={scanAction('amount')}
                 >
                   <input
                     data-ocr-field="amount"
@@ -1147,22 +1185,10 @@ export default function ReceiptModal({
                       'For each rate on the receipt, copy the base excluding VAT and the VAT paid. Leave unused rates at 0. The total is reconstructed from all bases plus VAT.',
                     )}
                   </p>
-                  <Field name={t('Moneda defalcării TVA', 'VAT breakdown currency')}>
-                    <select
-                      value={d.taxCurrency || d.currency}
-                      onChange={(e) => set('taxCurrency', e.target.value)}
-                    >
-                      <option value={d.currency}>{d.currency}</option>
-                      {d.currency !== 'RON' && (
-                        <option value="RON">
-                          {t(
-                            'RON (valori contabile existente)',
-                            'RON (existing accounting values)',
-                          )}
-                        </option>
-                      )}
-                    </select>
-                  </Field>
+                  <p className="small muted">
+                    {t('Baza și TVA sunt în moneda documentului: ', 'Tax base and paid VAT use the document currency: ')}
+                    <strong>{d.currency}</strong>.
+                  </p>
                   <div className="vat-grid vat-head">
                     <span>{t('Cotă', 'Rate')}</span>
                     <span>{t('Bază fără TVA', 'Base excluding VAT')}</span>
@@ -1172,7 +1198,8 @@ export default function ReceiptModal({
                   {taxRows.map((row) => (
                     <div key={row.pct} className="vat-grid">
                       <strong>{row.pct}%</strong>
-                      <Field name={t('Bază ' + row.pct + '%', 'Base ' + row.pct + '%')}>
+                      <Field name={t('Bază ' + row.pct + '%', 'Base ' + row.pct + '%')}
+                        action={scanAction('taxBase:' + row.pct)}>
                         <input
                           data-ocr-field={'tax:' + row.pct}
                           type="number"
@@ -1182,7 +1209,8 @@ export default function ReceiptModal({
                           onChange={(e) => updateTax(row.pct, 'base', e.target.value)}
                         />
                       </Field>
-                      <Field name={t('TVA ' + row.pct + '%', 'VAT ' + row.pct + '%')}>
+                      <Field name={t('TVA ' + row.pct + '%', 'VAT ' + row.pct + '%')}
+                        action={row.pct === 0 ? null : scanAction('taxVat:' + row.pct)}>
                         <input
                           type="number"
                           step="any"
@@ -1192,43 +1220,14 @@ export default function ReceiptModal({
                           onChange={(e) => updateTax(row.pct, 'vat', e.target.value)}
                         />
                       </Field>
-                      <details>
-                        <summary>{t('Dovadă TVA', 'VAT evidence')}</summary>
-                        <Field name={t('Stare TVA ' + row.pct + '%', 'VAT state ' + row.pct + '%')}>
-                          <select
-                            value={row.state ?? ''}
-                            onChange={(e) =>
-                              updateTax(
-                                row.pct,
-                                'state',
-                                e.target.value === '' ? null : Number(e.target.value),
-                              )
-                            }
-                          >
-                            <option value="">
-                              {t('Valoare verificată pe document', 'Value checked on source')}
-                            </option>
-                            <option value="0">{t('Necunoscut', 'Unknown')}</option>
-                            <option value="1">{t('Neprezentat', 'Not present')}</option>
-                            <option value="2">{t('Zero explicit', 'Explicit zero')}</option>
-                            <option value="3">{t('Sumă tipărită', 'Printed amount')}</option>
-                          </select>
-                        </Field>
-                        <Field name={t('Pagina dovezii', 'Evidence page')}>
-                          <input
-                            type="number"
-                            min="1"
-                            value={row.evidencePage || ''}
-                            onChange={(e) =>
-                              updateTax(
-                                row.pct,
-                                'evidencePage',
-                                e.target.value ? Number(e.target.value) : null,
-                              )
-                            }
-                          />
-                        </Field>
-                      </details>
+                      {expense.ocrCandidate?.taxes?.some(
+                        (tax: Any) => Number(tax.rate) === row.pct
+                      ) && (
+                        <small className="receipt-hint">
+                          {t('Propus din original; verifică baza și TVA-ul efectiv.',
+                             'Suggested from the original; verify the taxable base and actual paid VAT.')}
+                        </small>
+                      )}
                       <span>
                         {formatMoney(
                           add(row.base || '0', row.vat || '0'),
@@ -1238,22 +1237,27 @@ export default function ReceiptModal({
                         {d.taxCurrency}
                       </span>
                       {rates(row.pct).length > 1 && (
-                        <div className="vat-mapping">
-                          <Field
-                            name={t('Mapare TVA ' + row.pct + '%', 'VAT mapping ' + row.pct + '%')}
-                          >
-                            <select
-                              value={row.rateId}
-                              onChange={(e) => updateTax(row.pct, 'rateId', e.target.value)}
-                            >
+                        finance ? (
+                          <Field name={t('Mapare TVA pentru cotă ' + row.pct + '%',
+                            'VAT mapping for rate ' + row.pct + '%')}
+                            note={t('Finance alege explicit maparea contabilă. Se păstrează în bon și în istoric.',
+                                    'Finance explicitly selects the accounting mapping. The choice is retained in the receipt and audit history.')}>
+                            <select required value={taxes[row.pct]?.rateId || ''}
+                              onChange={(e) => updateTax(row.pct, 'rateId', e.target.value)}>
+                              <option value="">{t('Alege maparea activă', 'Choose active mapping')}</option>
                               {rates(row.pct).map((m: Any) => (
                                 <option key={m.id} value={m.id}>
-                                  {label(m)}
+                                  {m.code} · {t(m.nameRo, m.nameEn)}
                                 </option>
                               ))}
                             </select>
                           </Field>
-                        </div>
+                        ) : (
+                          <p className="vat-mapping issue blocking" role="alert">
+                            {t('Sunt mai multe mapări TVA active pentru această cotă. Finance trebuie să aleagă maparea corectă.',
+                               'Multiple VAT mappings exist for this rate. Finance must select the correct accounting mapping.')}
+                          </p>
+                        )
                       )}
                       {!row.rateId &&
                         (compare(row.base || '0', '0') !== 0 ||
@@ -1355,8 +1359,8 @@ export default function ReceiptModal({
               <h3>{t('Plată și alocare contabilă', 'Payment and accounting allocation')}</h3>
               <p className="small muted">
                 {t(
-                  'Plata personală și cardul companiei se decontează separat. Metoda primului bon se aplică întregului decont.',
-                  'Personal and company-card payments require separate reports. The first receipt sets the payment method for this report.',
+                  'Metoda de plată și cardul sunt stabilite în antet. Centrul de cost al fiecărui bon se poate modifica separat.',
+                  'Payment method and card are set in the report header. Each receipt can have a different cost centre.',
                 )}
               </p>
               <div className="form-grid">
@@ -1397,10 +1401,11 @@ export default function ReceiptModal({
                     )}
                   </>
                 )}
-                {states.costCenter !== 'NOT_APPLICABLE' && (
-                  <Field name={t('Centru de cost', 'Cost centre')}>
+                <Field name={t('Centru de cost al bonului', 'Receipt cost centre')}
+                  note={t('Propus din alocarea angajatului. Poți modifica doar acest bon; antetul și celelalte cheltuieli nu se schimbă.',
+                          'Prefilled from the employee allocation. Changing it affects only this receipt, not the header or other expenses.')}>
                     <select
-                      required={states.costCenter === 'REQUIRED'}
+                      required
                       value={d.costCenter}
                       onChange={(e) => set('costCenter', e.target.value)}
                     >
@@ -1412,7 +1417,6 @@ export default function ReceiptModal({
                       ))}
                     </select>
                   </Field>
-                )}
                 {states.project !== 'NOT_APPLICABLE' && (
                   <Field
                     name={

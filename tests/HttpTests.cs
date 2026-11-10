@@ -109,6 +109,21 @@ public sealed class Factory : WebApplicationFactory<Program>
             Assert.True(result.Succeeded, string.Join(",", result.Errors.Select(e => e.Code)));
             await um.AddToRoleAsync(u, role);
         }
+        var manager = (await um.FindByNameAsync("manager"))!;
+        foreach (var code in new[] { "TEST-ALLOC", "CC" })
+            db.CostCenterOwners.Add(new()
+            {
+                CostCenterCode = code,
+                ManagerId = manager.Id,
+                UpdatedBy = "test-fixture",
+            });
+        foreach (var name in new[] { "alice", "bob" })
+        {
+            var employee = (await um.FindByNameAsync(name))!;
+            employee.CostCenter = "TEST-ALLOC";
+            Assert.True((await um.UpdateAsync(employee)).Succeeded);
+        }
+        await db.SaveChangesAsync();
     }
 }
 

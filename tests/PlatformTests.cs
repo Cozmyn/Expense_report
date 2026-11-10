@@ -48,7 +48,8 @@ public class PlatformTests
                 Assert.Null(f.Confidence);
             }
         );
-        Assert.False(first.Fields.ContainsKey("hasCompanyCui"));
+        Assert.Equal("RO", first.Fields["country"].Value);
+        Assert.Equal("false", first.Fields["hasCompanyCui"].Value);
         Assert.Equal(2, result.Pages.Count);
     }
 
@@ -241,8 +242,12 @@ public class PlatformTests
                 Json = "{\"requireReapprovalOnPersonalIncrease\":false}",
             }
         );
+        var employee = await db.Users.SingleAsync(u => u.UserName == "alice");
+        var owner = await db.Users.SingleAsync(u => u.UserName == "manager");
         var r = new Report
         {
+            EmployeeId = employee.Id,
+            ManagerId = owner.Id,
             State = States.Finance,
             ApprovedPersonal = 50,
             Lines =

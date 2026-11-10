@@ -31,8 +31,8 @@ export function VehicleSettings({ t, run, refresh }: Any) {
     run(load);
   }, []);
   return (
-    <details>
-      <summary>{t('Deductibilitate auto', 'Vehicle deductibility')}</summary>
+    <section>
+      <h4>{t('Deductibilitate auto', 'Vehicle deductibility')}</h4>
       <p>
         {t(
           'Implicit 50% pentru cheltuielile auto, indiferent de metoda de plată. O versiune nouă păstrează istoricul și cere reverificarea Finance a calculelor afectate.',
@@ -136,7 +136,7 @@ export function VehicleSettings({ t, run, refresh }: Any) {
           );
         })
       )}
-    </details>
+    </section>
   );
 }
 
@@ -189,8 +189,8 @@ function TraceLines({ lines, t, onSource }: Any) {
               )}
             </div>
             <p>{d.description}</p>
-            <details>
-              <summary>{t('Sursă și mapare', 'Source & mapping')}</summary>
+            <section>
+              <h4>{t('Sursă și mapare', 'Source & mapping')}</h4>
               <dl className="posting-facts">
                 <dt>{t('Document original', 'Original document')}</dt>
                 <dd>
@@ -224,7 +224,7 @@ function TraceLines({ lines, t, onSource }: Any) {
                   {t('Vezi documentul sursă', 'View source document')}
                 </button>
               )}
-            </details>
+            </section>
           </article>
         );
       })}
@@ -374,10 +374,10 @@ export function PostingPreview({ report, detail, t, run, finance, refresh, busy,
             </section>
           )}
           {data.rows.length > 0 && (
-            <details>
-              <summary>
+            <section>
+              <h4>
                 {t('Fișierul Import — toate cele 24 de coloane', 'Import file — all 24 columns')}
-              </summary>
+              </h4>
               <div className="table-wrap">
                 <table>
                   <thead>
@@ -398,7 +398,7 @@ export function PostingPreview({ report, detail, t, run, finance, refresh, busy,
                   </tbody>
                 </table>
               </div>
-            </details>
+            </section>
           )}
           {finance &&
             !data.frozen &&
@@ -441,8 +441,8 @@ export function PostingPreview({ report, detail, t, run, finance, refresh, busy,
               </section>
             )}
           {data.reviews?.length > 0 && (
-            <details>
-              <summary>{t('Istoric verificări contabile', 'Posting review history')}</summary>
+            <section>
+              <h4>{t('Istoric verificări contabile', 'Posting review history')}</h4>
               {data.reviews.map((r: Any) => (
                 <p key={r.id}>
                   {new Date(r.at).toLocaleString()} · {r.actor} ·{' '}
@@ -450,7 +450,7 @@ export function PostingPreview({ report, detail, t, run, finance, refresh, busy,
                   {r.reason}
                 </p>
               ))}
-            </details>
+            </section>
           )}
         </>
       )}
@@ -651,10 +651,10 @@ export function PostingDashboard({ t, run, open }: Any) {
               </section>
             ))}
           </div>
-          <details>
-            <summary>
+          <section>
+            <h4>
               {t('Deconturi în verificare', 'Reports awaiting review')} ({data.exceptions.length})
-            </summary>
+            </h4>
             {data.exceptions.map((r: Any) => (
               <p key={r.id}>
                 <button className="text-button" onClick={() => open(r.id)}>
@@ -666,7 +666,7 @@ export function PostingDashboard({ t, run, open }: Any) {
                   : t('În verificare Finance', 'Under Finance review')}
               </p>
             ))}
-          </details>
+          </section>
         </>
       )}
       {selected && (

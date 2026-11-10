@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Decont;
 
-public record BundleRequest(long Version, string Name, long Size, string Mime, string Hash, string? Reason = null);
+public record BundleRequest(long Version, string Name, long Size, string Mime, string Hash, string? Reason = null, string ReceiptMode = "Single");
 
 public record UploadGrant(
     Guid Report,
@@ -16,7 +16,8 @@ public record UploadGrant(
     long Size,
     string Mime,
     string Hash,
-    DateTime Expires
+    DateTime Expires,
+    string ReceiptMode = "Single"
 );
 
 public record BundleComplete(long Version, string Token, string? Reason = null);
@@ -102,6 +103,12 @@ public static class DocumentIntake
                                 "Numele și amprenta sunt obligatorii.",
                                 "Name and fingerprint are required."
                             );
+                            Guard.Require(
+                                input.ReceiptMode is "Single" or "Multiple",
+                                "receipt_mode",
+                                "Selectează un singur bon sau mai multe bonuri.",
+                                "Choose one receipt or multiple receipts."
+                            );
                             var name = Path.GetFileName(input.Name);
                             Guard.Require(
                                 name.Length is > 0 and <= 240
@@ -136,7 +143,8 @@ public static class DocumentIntake
                                 input.Size,
                                 mime,
                                 input.Hash.ToUpperInvariant(),
-                                DateTime.UtcNow.AddMinutes(15)
+                                DateTime.UtcNow.AddMinutes(15),
+                                input.ReceiptMode
                             );
                             var token = Protector(c).Protect(Serialization.Write(grant));
                             return new
@@ -195,7 +203,8 @@ public static class DocumentIntake
                                 source.Size,
                                 source.Mime,
                                 source.Hash,
-                                DateTime.UtcNow.AddMinutes(15)
+                                DateTime.UtcNow.AddMinutes(15),
+                                source.ReceiptMode
                             );
                             return new { token = Protector(c).Protect(Serialization.Write(grant)), report.Version };
                         }

@@ -265,6 +265,7 @@ public static class ReceiptFiles
                         Scan = grant == null ? "Pending" : "AwaitingCompletion",
                         UploadedBy = Reports.Actor(c.User),
                         Capture = capture,
+                        ReceiptMode = capture ? grant?.ReceiptMode ?? "Auto" : "Auto",
                         ReportId = id,
                         Name = Path.GetFileName(file.FileName),
                         Mime = mime,

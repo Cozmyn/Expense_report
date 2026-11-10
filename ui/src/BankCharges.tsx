@@ -57,8 +57,8 @@ export default function BankCharges({ t, run, masters, refresh }: Any) {
       await refresh();
     });
   return (
-    <details className="panel">
-      <summary>{t('Principal, comisioane și adaos FX', 'Principal, fees & FX markup')}</summary>
+    <section className="panel">
+      <h4>{t('Principal, comisioane și adaos FX', 'Principal, fees & FX markup')}</h4>
       <p>
         {t(
           'Separă costurile extrasului înainte de alocare. Principalul se folosește la FX; comisioanele și adaosul devin cheltuieli RON distincte, legate de extras.',
@@ -235,6 +235,6 @@ export default function BankCharges({ t, run, masters, refresh }: Any) {
           )}
         </div>
       ))}
-    </details>
+    </section>
   );
 }

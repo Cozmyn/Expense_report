@@ -408,19 +408,31 @@ export function MasterPage({ t, run, refresh }: Any) {
 }
 export function UsersPage({ t, run }: Any) {
   const [users, U] = useState<Any[]>([]),
+    [costCentres, CC] = useState<Any[]>([]),
     [form, F] = useState<Any>({
       username: '',
       name: '',
       email: '',
       worker: '',
+      costCenter: '',
       managerId: '',
+      approvalMode: 'CostCenter',
+      fixedApproverId: '',
       active: true,
       roles: ['Employee'],
       password: '',
       reason: '',
     }),
     [id, I] = useState('');
-  const load = () => api('/admin/users').then(U);
+  const load = async () => {
+    const [users, masters] = await Promise.all([
+      api('/admin/users'), api('/configuration/masters'),
+    ]);
+    U(users);
+    const day = new Date().toISOString().slice(0, 10);
+    CC(masters.filter((m: Any) =>
+      m.kind === 'costCenters' && m.active && m.from <= day && (!m.to || m.to >= day)));
+  };
   useEffect(() => {
     run(load);
   }, []);
@@ -433,8 +445,8 @@ export function UsersPage({ t, run }: Any) {
           <h1>{t('Utilizatori și acces', 'Users & access')}</h1>
           <p>
             {t(
-              'Conturi administrate intern, roluri și rutare către manager.',
-              'Internally managed accounts, roles and manager routing.',
+              'Centrele de cost se atribuie fiecărui angajat. Managerul care aprobă decontul se stabilește automat din proprietarul centrului de cost dominant.',
+              'Assign each employee a cost centre. The approval manager is chosen automatically from the owner of the highest-total cost centre.',
             )}
           </p>
         </div>
@@ -473,7 +485,19 @@ export function UsersPage({ t, run }: Any) {
                 />
               </Field>
             ))}
-            <Field name={t('Manager', 'Manager')}>
+            <Field name={t('Centru de cost implicit al angajatului', 'Employee default cost centre')}
+              note={t('Se precompletează în antet și în fiecare bon nou; fiecare câmp poate fi modificat independent.',
+                      'Prefilled in the report header and each new receipt; both can be changed independently.')}>
+              <select value={form.costCenter || ''} onChange={(e) => set('costCenter', e.target.value)}>
+                <option value="">{t('Fără centru atribuit', 'No cost centre assigned')}</option>
+                {costCentres.map((m: Any) => (
+                  <option key={m.id} value={m.code}>{m.code} · {t(m.nameRo, m.nameEn)}</option>
+                ))}
+              </select>
+            </Field>
+            <Field name={t('Manager organizațional (nu stabilește aprobatorul)', 'Organisational manager (not the approver)')}
+              note={t('Aprobarea este rutată exclusiv după centrele de cost ale bonurilor.',
+                      'Approval is routed exclusively from receipt cost centre ownership.')}>
               <select
                 value={form.managerId || ''}
                 onChange={(e) => set('managerId', e.target.value)}
@@ -488,6 +512,27 @@ export function UsersPage({ t, run }: Any) {
                   ))}
               </select>
             </Field>
+            <Field name={t('Regula de aprobare', 'Approval rule')}
+              note={t('Implicit, aprobatorul este managerul centrului cu suma cea mai mare. Doar excepțiile nominalizate folosesc un manager fix.',
+                      'Normally approval follows the highest-total cost centre. A named fixed manager is an explicit exception.')}>
+              <select value={form.approvalMode || 'CostCenter'}
+                onChange={(e) => F({ ...form, approvalMode: e.target.value, fixedApproverId: '' })}>
+                <option value="CostCenter">{t('În funcție de centrul de cost', 'By cost centre')}</option>
+                <option value="Fixed">{t('Manager fix (excepție)', 'Named manager (exception)')}</option>
+              </select>
+            </Field>
+            {form.approvalMode === 'Fixed' && (
+              <Field name={t('Aprobator fix', 'Fixed approver')}
+                note={t('Managerul trebuie să fie activ și diferit de angajat.',
+                        'The manager must be active and must not be the employee.')}>
+                <select required value={form.fixedApproverId || ''}
+                  onChange={(e) => set('fixedApproverId', e.target.value)}>
+                  <option value="">{t('Alege managerul responsabil', 'Choose responsible manager')}</option>
+                  {users.filter((u) => u.active && u.roles.includes('Manager') && u.id !== id)
+                    .map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </Field>
+            )}
             <Field name={t('Parolă temporară', 'Temporary password')}>
               <input
                 type="password"
@@ -578,7 +623,10 @@ export function UsersPage({ t, run }: Any) {
                       name: '',
                       email: '',
                       worker: '',
+                      costCenter: '',
                       managerId: '',
+                      approvalMode: 'CostCenter',
+                      fixedApproverId: '',
                       active: true,
                       roles: ['Employee'],
                       password: '',
@@ -607,7 +655,9 @@ export function UsersPage({ t, run }: Any) {
                   {u.name} {u.active ? '' : '· ' + t('Dezactivat', 'Disabled')}
                 </strong>
                 <small>
-                  {u.userName} · {u.email}
+                  {u.userName} · {u.email} · {t('Centru de cost', 'Cost centre')}: {u.costCenter || '—'} · {u.approvalMode === 'Fixed'
+                    ? t('Aprobator fix', 'Fixed approver') + ': ' + (users.find((m) => m.id === u.fixedApproverId)?.name || '—')
+                    : t('Aprobare după centru', 'Cost-centre approval')}
                 </small>
               </span>
               <span>{u.roles.join(' · ')}</span>
@@ -652,6 +702,9 @@ export function CardsPage({ t, masters, label, run, open }: Any) {
       </div>
       <section className="panel">
         <h2>{t('Import extras CSV', 'Import CSV statement')}</h2>
+        <a href="/api/finance/transactions/template" className="text-button">
+          {t('Descarcă exemplu extras CSV', 'Download example bank statement CSV')}
+        </a>
         <Field name={t('Card', 'Card')}>
           <select value={card} onChange={(e) => C(e.target.value)}>
             <option value="">{t('Selectează', 'Select')}</option>

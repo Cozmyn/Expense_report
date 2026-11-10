@@ -8,9 +8,18 @@ export default function EmployeeImport({ t, run, refresh }: any) {
   return (
     <section className="panel">
       <h2>{t('Import angajați CSV / XLSX', 'Import employees CSV / XLSX')}</h2>
-      <a className="text-button" href="/api/admin/employee-import/template">
-        {t('Descarcă șablonul', 'Download template')}
-      </a>
+      <div className="import-template-actions">
+        <a className="text-button" href="/api/admin/employee-import/template/employees">
+          {t('Exemplu angajați CSV', 'Employee CSV example')}
+        </a>
+        <a className="text-button" href="/api/admin/employee-import/template/managers">
+          {t('Exemplu manageri CSV', 'Manager CSV example')}
+        </a>
+      </div>
+      <p className="small muted">{t(
+        'Importă mai întâi managerii și centrele de cost, apoi angajații. Înlocuiește valorile fictive din exemple.',
+        'Import managers and cost centres first, then employees. Replace illustrative example values.'
+      )}</p>
       <Field name={t('Fișier angajați', 'Employee file')}>
         <input
           type="file"
@@ -45,7 +54,11 @@ export default function EmployeeImport({ t, run, refresh }: any) {
                   <th>{t('Nume', 'Name')}</th>
                   <th>Email</th>
                   <th>Worker</th>
-                  <th>Manager</th>
+                  <th>{t('Rol', 'Role')}</th>
+                  <th>{t('Centru de cost', 'Cost centre')}</th>
+                  <th>{t('Mod aprobare', 'Approval mode')}</th>
+                  <th>{t('Manager fix', 'Fixed approver')}</th>
+                  <th>{t('Manager organizațional', 'Organisational manager')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -55,7 +68,11 @@ export default function EmployeeImport({ t, run, refresh }: any) {
                     <td>{r.name}</td>
                     <td>{r.email}</td>
                     <td>{r.worker}</td>
-                    <td>{r.managerUsername}</td>
+                    <td>{r.role || 'Employee'}</td>
+                    <td>{r.costCenter || '—'}</td>
+                    <td>{r.approvalMode || 'CostCenter'}</td>
+                    <td>{r.fixedApproverUsername || '—'}</td>
+                    <td>{r.managerUsername || '—'}</td>
                   </tr>
                 ))}
               </tbody>

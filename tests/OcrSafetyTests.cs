@@ -36,6 +36,18 @@ public class OcrSafetyTests
         Assert.Equal("121.00", c.Fields["amount"].Value);
     }
 
+    [Fact]
+    public void ManuallySelectedTaxableBaseAndPaidVatRemainSourceBoundSuggestions()
+    {
+        Assert.True(OcrFieldSelection.Supported("taxBase:21"));
+        Assert.True(OcrFieldSelection.Supported("taxVat:11"));
+        Assert.False(OcrFieldSelection.Supported("unknown:rate"));
+        Assert.Equal("100.00", OcrFieldSelection.Extract("taxBase:21", "100.00"));
+        Assert.Equal("21.00", OcrFieldSelection.Extract("taxVat:21", "21,00"));
+        Assert.Null(OcrFieldSelection.Extract("taxVat:21", "fără sumă"));
+        Assert.Null(OcrFieldSelection.Extract("notAllowed", "100.00"));
+    }
+
     [Theory]
     [InlineData("1.234,56")]
     [InlineData("1,234.56")]

@@ -30,6 +30,7 @@ public class Db(DbContextOptions<Db> options) : IdentityDbContext<User>(options)
     public DbSet<SchemaRelease> SchemaReleases => Set<SchemaRelease>();
     public DbSet<ReportAttachment> ReportAttachments => Set<ReportAttachment>();
     public DbSet<Report> Reports => Set<Report>();
+    public DbSet<CostCenterOwner> CostCenterOwners => Set<CostCenterOwner>();
     public DbSet<Line> Lines => Set<Line>();
     public DbSet<Evidence> Evidence => Set<Evidence>();
     public DbSet<Snapshot> Snapshots => Set<Snapshot>();
@@ -211,6 +212,11 @@ public class Db(DbContextOptions<Db> options) : IdentityDbContext<User>(options)
             .HasOne<Report>()
             .WithMany()
             .HasForeignKey(x => x.ReportId)
+            .OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CostCenterOwner>().HasKey(o => o.CostCenterCode);
+        b.Entity<CostCenterOwner>()
+            .HasOne<User>().WithMany()
+            .HasForeignKey(o => o.ManagerId)
             .OnDelete(DeleteBehavior.Restrict);
         b.Entity<Report>()
             .HasMany(r => r.Attachments)

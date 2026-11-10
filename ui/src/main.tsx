@@ -20,8 +20,8 @@ import {
   FinanceRouting,
 } from './PlatformPages';
 import CapturePanel from './CapturePanel';
+import ReceiptAuditReview from './ReceiptAuditReview';
 import ExpenseModal, { newReceipt } from './ReceiptModal';
-import ReportAttachments from './ReportAttachments';
 import { Field } from './Fields';
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -844,12 +844,14 @@ function ReportDetail({
     [reason, Reason] = useState(''),
     [selectedDoc, SD] = useState<Any | null>(null);
   const [headerPayment, HP] = useState(r.payment || r.lines[0]?.data.payment || 'Personal'),
-    [headerCard, HC] = useState(r.cardId || r.lines[0]?.data.cardId || '');
+    [headerCard, HC] = useState(r.cardId || r.lines[0]?.data.cardId || ''),
+    [headerCostCenter, HCC] = useState(r.costCenter || '');
   useEffect(() => {
     Purpose(r.purpose);
     HP(r.payment || r.lines[0]?.data.payment || 'Personal');
     HC(r.cardId || r.lines[0]?.data.cardId || '');
-  }, [r.id, r.purpose, r.payment, r.cardId]);
+    HCC(r.costCenter || '');
+  }, [r.id, r.purpose, r.payment, r.cardId, r.costCenter]);
   const own =
     me.roles.includes('Employee') &&
     r.employeeId === me.id &&
@@ -983,7 +985,14 @@ function ReportDetail({
         </span>
       </div>
       <section className="panel compact">
-        <h2>{t('Date generale', 'Report header')}</h2>
+        <h2>{t('1. Datele decontului', '1. Report details')}</h2>
+        <p className="small muted">
+          {detail.approvalRouting?.routingMode === 'Fixed'
+            ? t('Centrul de cost implicit se propune în antet și pe fiecare bon, separat. Pentru acest angajat, aprobatorul este o persoană fixă configurată de Admin.',
+                'Cost centre defaults are shown independently in the header and each receipt. This employee has an Admin-configured fixed approver.')
+            : t('Centrul de cost implicit se propune aici și pe fiecare bon, separat. Aprobatorul se calculează din centrul cu cel mai mare total în RON.',
+                'The default cost centre is prefilled here and on each receipt independently. Approval follows the cost centre with the highest RON total.')}
+        </p>
         <div className="form-grid">
           <Field name={t('Nume angajat', 'Employee name')}>
             <input
@@ -993,6 +1002,24 @@ function ReportDetail({
                 t('Nedisponibil în istoricul acestui decont', 'Not recorded for this report')
               }
             />
+          </Field>
+          <Field name={t('Manager de aprobare (calculat automat)', 'Approval manager (calculated automatically)')}
+            note={detail.approvalRouting?.routingMode === 'Fixed'
+              ? t('Excepție aprobată în Admin: manager fix pentru acest angajat.',
+                  'Admin-configured exception: this employee has a named approver.')
+              : t('Determinarea se face pe totalurile în RON ale bonurilor grupate după centru de cost.',
+                  'Determined from RON totals of receipts grouped by cost centre.')}>
+            <input readOnly value={
+              (own || r.state === 'DRAFT' || r.state === 'REJECTED')
+                ? (detail.approvalRouting?.ready
+                    ? detail.approvalRouting.managerName
+                      + (detail.approvalRouting.routingMode === 'Fixed'
+                        ? ' · ' + t('manager fix', 'fixed approver')
+                        : ' · ' + detail.approvalRouting.dominantCostCenter)
+                    : t('Responsabil neconfigurat — vezi mesajul de mai jos',
+                        'Owner not configured — see details below'))
+                : detail.managerName || t('Manager neconfigurat', 'No manager assigned')
+            } />
           </Field>
           <Field name="LantID">
             <input readOnly value={r.employeeWorker || t('Neconfigurat', 'Not configured')} />
@@ -1012,14 +1039,42 @@ function ReportDetail({
         </div>
         <p className="small muted">
           {t(
-            'Date preluate din profil la crearea decontului. Bonurile se adaugă separat mai jos.',
-            'Profile details captured when the report was created. Add individual receipts below.',
+            'Angajatul și departamentul provin din profil. Managerul de aprobare se determină din proprietarii centrelor de cost, nu din managerul organizațional.',
+            'Employee and department come from the profile. Approval uses cost centre ownership, not the organisational manager.',
           )}
         </p>
+        {!detail.approvalRouting?.ready && (own || r.state === 'DRAFT') && (
+          <p className="issue warning" role="status">
+            {t(detail.approvalRouting?.messageRo || 'Configurează responsabilul centrului de cost.',
+               detail.approvalRouting?.messageEn || 'Configure the cost centre owner.')}
+          </p>
+        )}
+        {detail.approvalRouting?.costCenters?.length > 1 && (
+          <div className="cost-centre-breakdown" aria-label={t('Totaluri pe centre de cost', 'Totals by cost centre')}>
+            <strong>{t('Repartizarea cheltuielilor', 'Allocation by cost centre')}</strong>
+            {detail.approvalRouting.costCenters.map((center: Any) => (
+              <span key={center.code}>
+                {center.code || '—'}: {money(center.totalRon)} RON
+                {center.managerName ? ' · ' + center.managerName : ''}
+              </span>
+            ))}
+          </div>
+        )}
       </section>
       {editable && (
         <section className="panel compact">
           <div className="form-grid">
+            <Field name={t('Centru de cost al decontului', 'Report cost centre')}
+              note={t('Se propune din alocarea angajatului și poate fi schimbat. Modificarea antetului NU rescrie centrele de cost ale bonurilor.',
+                      'Prefilled from the employee assignment and editable. Changing the header does NOT overwrite receipt cost centres.')}>
+              <select value={headerCostCenter} onChange={(e) => HCC(e.target.value)}>
+                <option value="">{t('Selectează centrul de cost', 'Select cost centre')}</option>
+                {masters.filter((m: Any) => m.kind === 'costCenters' && m.active
+                    && m.from <= today() && (!m.to || m.to >= today())).map((m: Any) => (
+                  <option key={m.id} value={m.code}>{label(m)}</option>
+                ))}
+              </select>
+            </Field>
             <Field name={t('Metoda de plată a decontului', 'Report payment method')}>
               <select
                 disabled={r.lines.length > 0}
@@ -1084,7 +1139,8 @@ function ReportDetail({
                 (headerPayment === 'CompanyCard' && !headerCard) ||
                 (purpose === r.purpose &&
                   headerPayment === r.payment &&
-                  (headerCard || null) === (r.cardId || null))
+                  (headerCard || null) === (r.cardId || null) &&
+                  headerCostCenter === (r.costCenter || ''))
               }
               onClick={() =>
                 change(
@@ -1094,6 +1150,7 @@ function ReportDetail({
                     purpose,
                     payment: headerPayment,
                     cardId: headerPayment === 'CompanyCard' ? headerCard : null,
+                    costCenter: headerCostCenter,
                   },
                   'PATCH',
                 )
@@ -1127,8 +1184,13 @@ function ReportDetail({
           refresh={refresh}
           reason={reason}
           edit={Editing}
+          editing={editing}
           masters={masters}
         />
+      )}
+      {tab === 'expenses' && (
+        <ReceiptAuditReview report={r} detail={detail} masters={masters} t={t}
+          editable={editable} finance={finance} onEdit={Editing} />
       )}
       {tab === 'expenses' && (
         <div className="detail-grid">
@@ -1221,10 +1283,10 @@ function ReportDetail({
                             : t('În verificare', 'Scan pending')}
                       </span>
                       {e.ocr && (
-                        <details>
-                          <summary>OCR · {t('Verificare manuală', 'Manual verification')}</summary>
+                        <section>
+                          <h4>OCR · {t('Verificare manuală', 'Manual verification')}</h4>
                           <pre className="ocr-text">{JSON.parse(e.ocr).text}</pre>
-                        </details>
+                        </section>
                       )}
                       {editable && (
                         <button
@@ -1258,50 +1320,10 @@ function ReportDetail({
                       >
                         {t('Arhivează', 'Archive')}
                       </button>
-                      <div className="receipt-upload">
-                        <Field
-                          name={t(
-                            'Fișiere pentru bonul ' + l.position,
-                            'Files for receipt ' + l.position,
-                          )}
-                        >
-                          <input
-                            type="file"
-                            multiple
-                            accept=".pdf,.jpg,.jpeg,.png,.heic,.heif"
-                            onChange={(e) => {
-                              const files = Array.from(e.target.files || []);
-                              e.target.value = '';
-                              if (files.length)
-                                run(async () => {
-                                  let currentVersion = r.version;
-                                  try {
-                                    for (const file of files) {
-                                      const form = new FormData();
-                                      form.append('file', file);
-                                      form.append('version', String(currentVersion));
-                                      form.append('reason', reason);
-                                      const saved = await api(
-                                        `/reports/${r.id}/lines/${l.id}/evidence`,
-                                        'POST',
-                                        form,
-                                      );
-                                      currentVersion = saved.version;
-                                    }
-                                  } finally {
-                                    await refresh();
-                                  }
-                                });
-                            }}
-                          />
-                        </Field>
-                        <small>
-                          {t(
-                            'Selectează fișierul bonului sau folosește fișierul comun de la final.',
-                            'Browse receipt files or use the combined file at the end.',
-                          )}
-                        </small>
-                      </div>
+                      <p className="small muted">{t(
+                        'Pentru documente folosește încărcarea unică de mai sus.',
+                        'Upload documents using the single upload section above.',
+                      )}</p>
                     </>
                   )}
                   {finance && editable && (
@@ -1441,17 +1463,6 @@ function ReportDetail({
         </div>
       )}
       <Comments detail={detail} t={t} run={run} refresh={refresh} allowed={decision || finance} />
-      {tab === 'expenses' && (
-        <ReportAttachments
-          report={r}
-          editable={editable}
-          busy={busy}
-          reason={reason}
-          t={t}
-          run={run}
-          refresh={refresh}
-        />
-      )}
       {tab === 'history' && <RevisionComparison detail={detail} t={t} run={run} />}{' '}
       {tab === 'history' && <ReportJobs report={r} t={t} run={run} />}{' '}
       {tab === 'history' && (
@@ -1588,6 +1599,8 @@ function ReportDetail({
           reportCardId={
             r.cardId || r.lines.find((l: Any) => l.id !== editing.id)?.data.cardId || null
           }
+          reportCostCenter={r.costCenter || ''}
+          employeeCostCenter={detail.employeeCostCenter || ''}
           finance={finance}
           draftStorageKey={
             editing.sourceGroupId ? 'ocr-draft:' + editing.sourceGroupId : 'receipt-draft:' + r.id
@@ -1597,6 +1610,7 @@ function ReportDetail({
           t={t}
           busy={busy}
           onClose={() => Editing(null)}
+          onSourceSelected={refresh}
           saveDraft={
             editing.sourceGroupId && !editing.id
               ? async (data: Any) => {

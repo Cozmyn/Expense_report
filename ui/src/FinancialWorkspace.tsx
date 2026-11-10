@@ -251,11 +251,11 @@ function FinancialLine({ row, report, t, run, refresh, editable }: Any) {
         </>
       )}
       <CalculationVersions report={report} line={row} t={t} run={run} />
-      <details>
-        <summary>
+      <section>
+        <h4>
           {t('Istoric calcul și FX', 'Calculation & FX history')} (
           {row.calculations.length + row.decisions.length})
-        </summary>
+        </h4>
         {row.decisions.map((d: Any) => (
           <p key={d.id}>
             {new Date(d.at).toLocaleString()} · {d.actor} · {money(d.finalRon)} RON · {d.reason}
@@ -269,7 +269,7 @@ function FinancialLine({ row, report, t, run, refresh, editable }: Any) {
         {!row.calculations.length && !row.decisions.length && (
           <p>{t('Încă nu există confirmări Finance.', 'No Finance confirmations yet.')}</p>
         )}
-      </details>
+      </section>
     </article>
   );
 }
@@ -292,10 +292,10 @@ export function CurrencySettings({ t, run, refresh = async () => {} }: Any) {
   }, []);
   const set = (key: string, value: any) => F({ ...form, [key]: value });
   return (
-    <details>
-      <summary>
+    <section>
+      <h4>
         {t('Administrare monede și rotunjire', 'Currency & rounding administration')}
-      </summary>
+      </h4>
       <p>
         {t(
           'Versiunile sunt păstrate în istoric. Data de valabilitate controlează politica de calcul; noul curs estimativ se aplică la completările următoare, fără a rescrie estimările aprobate. Toleranța maximă este 2 RON.',
@@ -410,6 +410,6 @@ export function CurrencySettings({ t, run, refresh = async () => {} }: Any) {
           </div>
         ))}
       </div>
-    </details>
+    </section>
   );
 }

@@ -80,9 +80,14 @@ export function ConfigurationImport({ kind, t, run, refresh }: Any) {
           'Review all rows before confirmation. Imports are applied entirely or not at all.',
         )}
       </p>
-      <a href="/api/configuration/import/template" className="text-button">
-        {t('Descarcă șablonul CSV', 'Download CSV template')}
+      <a href={'/api/configuration/import/template/' + encodeURIComponent(kind)}
+        className="text-button">
+        {t('Exemplu CSV pentru nomenclatorul ales', 'CSV example for selected master')}
       </a>
+      <p className="small muted">{t(
+        'Exemplele conțin anteturi și valori fictive. Nu importa numere complete de card sau parole.',
+        'Examples include headers and illustrative values. Never import full card numbers or passwords.'
+      )}</p>
       <Field name={t('Fișier import', 'Import file')}>
         <input
           type="file"
@@ -153,9 +158,70 @@ export function ConfigurationImport({ kind, t, run, refresh }: Any) {
     </section>
   );
 }
+
+function CostCenterOwnerImport({ t, run, refresh }: Any) {
+  const [preview, Preview] = useState<Any | null>(null);
+  const [reason, Reason] = useState('');
+  return (
+    <section className="cost-centre-owner-import" aria-label={t('Import responsabil manager', 'Manager owner import')}>
+      <h3>{t('Importă responsabilii centrelor de cost', 'Import cost-centre owners')}</h3>
+      <p className="small muted">{t(
+        'Folosește coduri de centre de cost existente și username-uri de manageri activi. Importul este verificat integral înainte de confirmare.',
+        'Use existing cost centre codes and active manager usernames. The entire import is validated before confirmation.'
+      )}</p>
+      <a className="text-button" href="/api/admin/cost-center-owners/template">
+        {t('Descarcă exemplul CSV cu antet', 'Download sample CSV with headers')}
+      </a>
+      <Field name={t('Fișier responsabili CSV / XLSX', 'Owners CSV / XLSX file')}>
+        <input type="file" accept=".csv,.xlsx" onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          run(async () => {
+            const form = new FormData();
+            form.append('file', file);
+            Preview(await api('/admin/cost-center-owners/import/preview', 'POST', form));
+          });
+        }} />
+      </Field>
+      {preview && (
+        <>
+          <p role="status">{preview.count} {t('rânduri valide', 'valid rows')} · {preview.errors.length} {t('erori', 'errors')}</p>
+          {preview.errors.map((e: Any) =>
+            <p key={e.row} role="alert" className="issue blocking">{t('Rând', 'Row')} {e.row}: {e.message}</p>)}
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>{t('Centru de cost', 'Cost centre')}</th><th>{t('Manager responsabil', 'Responsible manager')}</th></tr></thead>
+              <tbody>{preview.rows.map((r: Any) =>
+                <tr key={r.costCenterCode}><td>{r.costCenterCode}</td><td>{r.managerUsername}</td></tr>)}</tbody>
+            </table>
+          </div>
+          <Field name={t('Motiv import', 'Import reason')}>
+            <input value={reason} onChange={(e) => Reason(e.target.value)} minLength={3} />
+          </Field>
+          <button className="primary" type="button"
+            disabled={!preview.count || preview.errors.length !== 0 || reason.trim().length < 3}
+            onClick={() => run(async () => {
+              await api('/admin/cost-center-owners/import/confirm', 'POST', {
+                rows: preview.rows, reason,
+              });
+              Preview(null);
+              Reason('');
+              await refresh();
+            })}>
+            {t('Confirmă importul responsabililor', 'Confirm owner import')}
+          </button>
+        </>
+      )}
+    </section>
+  );
+}
 export function Assignments({ t, run }: Any) {
   const [rows, R] = useState<Any[]>([]),
     [users, U] = useState<Any[]>([]),
+    [costCentres, CC] = useState<Any[]>([]),
+    [owners, Owners] = useState<Any[]>([]),
+    [chosenOwners, ChooseOwners] = useState<Record<string, string>>({}),
+    [ownerReason, OwnerReason] = useState(''),
     [form, F] = useState<Any>({
       userId: '',
       managerId: '',
@@ -167,8 +233,17 @@ export function Assignments({ t, run }: Any) {
     }),
     [end, E] = useState(new Date().toISOString().slice(0, 10));
   const load = async () => {
-    R(await api('/admin/assignments'));
-    U(await api('/admin/users'));
+    const [assignments, users, owners, masters] = await Promise.all([
+      api('/admin/assignments'), api('/admin/users'),
+      api('/admin/cost-center-owners'), api('/configuration/masters'),
+    ]);
+    R(assignments);
+    U(users);
+    Owners(owners);
+    const today = new Date().toISOString().slice(0, 10);
+    CC(masters.filter((m: Any) =>
+      m.kind === 'costCenters' && m.active && m.from <= today && (!m.to || m.to >= today))
+      .sort((a: Any, b: Any) => a.code.localeCompare(b.code)));
   };
   useEffect(() => {
     run(load);
@@ -176,8 +251,13 @@ export function Assignments({ t, run }: Any) {
   return (
     <section className="panel">
       <h1>
-        {t('Alocări organizaționale cu valabilitate', 'Effective-dated organization assignments')}
+        {t('Alocări și responsabili pe centre de cost', 'Assignments and cost-centre owners')}
       </h1>
+      <p className="small muted">{t(
+        'Responsabilul de aprobare se alege din proprietarul centrului de cost, nu din managerul organizațional. Pentru mai multe centre se însumează cheltuielile în RON pentru fiecare centru.',
+        'Approval follows the cost centre owner, not the organisational manager. Multiple receipt amounts are summed in RON by cost centre.'
+      )}</p>
+      <h2>{t('Alocări organizaționale (independente de aprobare)', 'Organisation assignments (not approval routing)')}</h2>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -189,7 +269,7 @@ export function Assignments({ t, run }: Any) {
       >
         <div className="form-grid">
           {['userId', 'managerId'].map((k) => (
-            <Field key={k} name={k === 'userId' ? t('Angajat', 'Employee') : 'Manager'}>
+            <Field key={k} name={k === 'userId' ? t('Angajat', 'Employee') : t('Manager organizațional', 'Organisational manager')}>
               <select
                 required
                 value={form[k]}
@@ -241,6 +321,62 @@ export function Assignments({ t, run }: Any) {
         </div>
         <button className="primary">{t('Creează alocarea', 'Create assignment')}</button>
       </form>
+      <CostCenterOwnerImport t={t} run={run} refresh={load} />
+      <section className="cost-centre-ownership" aria-label={t('Manageri responsabili de centrele de cost', 'Cost centre owner managers')}>
+        <h2>{t('Responsabili pentru aprobarea deconturilor', 'Expense approval owners')}</h2>
+        <p className="small muted">{t(
+          'Fiecare centru de cost trebuie să aibă un manager activ cu rol Manager. Salvează modificările cu motiv; deconturile aflate în aprobare vor fi rerutate când responsabilul se schimbă.',
+          'Every cost centre requires an active Manager owner. Record a reason when assigning one; pending approvals are rerouted when ownership changes.'
+        )}</p>
+        <Field name={t('Motivul modificării responsabilului', 'Reason for changing owner')}>
+          <input type="text" value={ownerReason} required
+            onChange={(e) => OwnerReason(e.target.value)} />
+        </Field>
+        <div className="cost-centre-owner-list">
+          {costCentres.map((centre: Any) => {
+            const saved = owners.find((o: Any) => o.costCenterCode === centre.code);
+            const selected = chosenOwners[centre.code] ?? saved?.managerId ?? '';
+            return (
+              <div className="cost-centre-owner-row" key={centre.id}>
+                <div>
+                  <strong>{centre.code}</strong>
+                  <p className="small muted">{t(centre.nameRo, centre.nameEn)}</p>
+                </div>
+                <Field name={t('Manager responsabil', 'Responsible manager')}>
+                  <select value={selected}
+                    aria-label={t('Manager pentru ', 'Manager for ') + centre.code}
+                    onChange={(e) => ChooseOwners((old) => ({ ...old, [centre.code]: e.target.value }))}>
+                    <option value="">{t('Alege managerul', 'Choose owner')}</option>
+                    {users.filter((u) => u.active && u.roles.includes('Manager'))
+                      .map((u) => (<option key={u.id} value={u.id}>{u.name}</option>))}
+                  </select>
+                </Field>
+                <button type="button" className="secondary"
+                  disabled={!selected || ownerReason.trim().length < 3 || selected === saved?.managerId}
+                  onClick={() => run(async () => {
+                    await api('/admin/cost-center-owners/' + encodeURIComponent(centre.code), 'PUT', {
+                      costCenterCode: centre.code,
+                      managerId: selected,
+                      reason: ownerReason,
+                    });
+                    await load();
+                    ChooseOwners((old) => {
+                      const next = { ...old };
+                      delete next[centre.code];
+                      return next;
+                    });
+                  })}>
+                  {t('Salvează responsabilul', 'Save owner')}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        {!costCentres.length && <p className="issue warning">{t(
+          'Nu există centre de cost active. Configurează întâi nomenclatorul.',
+          'There are no active cost centres. Configure the master list first.'
+        )}</p>}
+      </section>
       <Field name={t('Data închiderii unei alocări', 'Assignment end date')}>
         <input type="date" value={end} onChange={(e) => E(e.target.value)} />
       </Field>
@@ -288,16 +424,13 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
       exception: '',
       sort: 'age',
     }),
-    [loaded, L] = useState(false),
-    [showFilters, ShowFilters] = useState(false);
+    [loaded, L] = useState(false);
   useEffect(() => {
     run(async () => {
       R(await api('/finance/queue'));
       const saved = await api('/preferences/finance-filters');
       if (saved.sort) {
         F(saved);
-        if (Object.entries(saved).some(([key, value]) => key !== 'sort' && !!value))
-          ShowFilters(true);
       }
       L(true);
     });
@@ -367,11 +500,11 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
           <span>{t('Gata pentru ERP', 'Ready for ERP')}{filter.ready ? ' ✓' : ''}</span>
         </button>
       </div>
-      <details className="finance-advanced-filters" open={showFilters} onToggle={(event) => ShowFilters(event.currentTarget.open)}>
-        <summary>
+      <section className="finance-filters">
+        <h4>
           {t('Caută și filtrează deconturile', 'Search and filter reports')}
           {activeFilters > 0 ? ' · ' + activeFilters : ''}
-        </summary>
+        </h4>
       <div className="form-grid">
         {['q', 'employee', 'manager', 'supplier', 'age'].map((k) => (
           <Field
@@ -459,7 +592,7 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
           {t('Șterge filtrele active', 'Clear active filters')}
         </button>
       </div>
-      </details>
+      </section>
       <p>
         {shown.length} {t('deconturi', 'reports')}
       </p>
@@ -605,14 +738,14 @@ export function Reporting({ t, run, open }: Any) {
           </tbody>
         </table>
       </div>
-      <details>
-        <summary>{t('Detalii bonuri', 'Receipt details')}</summary>
+      <section>
+        <h4>{t('Detalii bonuri', 'Receipt details')}</h4>
         {scoped.map((r) => (
           <button className="simple-row row-button" key={r.lineId} onClick={() => open(r.reportId)}>
             {r.number} · {r.employee} · {r.date} · {r.amount} {r.currency}
           </button>
         ))}
-      </details>
+      </section>
     </section>
   );
 }
@@ -817,11 +950,11 @@ export function AuditSearch({ t, run }: Any) {
                 <td>{a.entity}</td>
                 <td>
                   <p>{a.reason}</p>
-                  <details>
-                    <summary>{t('Înainte / după', 'Before / after')}</summary>
+                  <section>
+                    <h4>{t('Înainte / după', 'Before / after')}</h4>
                     <pre className="ocr-text">{a.before || '—'}</pre>
                     <pre className="ocr-text">{a.after || '—'}</pre>
-                  </details>
+                  </section>
                 </td>
               </tr>
             ))}
@@ -872,60 +1005,43 @@ export function FinanceDashboard({ t, run, openQueue }: Any) {
 
 export function FinanceRouting({ report, t, run, refresh, reason }: Any) {
   const [users, U] = useState<Any[]>([]),
-    [employee, E] = useState(report.employeeId),
-    [manager, M] = useState(report.managerId);
+    [employee, E] = useState(report.employeeId);
   useEffect(() => {
     run(async () => U(await api('/directory')));
   }, []);
   return (
     <section className="panel">
-      <h3>{t('Corecție angajat / manager', 'Correct employee / manager')}</h3>
-      <p>
-        {t(
-          'O modificare a angajatului sau managerului cere o nouă aprobare. Worker rămâne codul angajatului ales, nu al titularului cardului.',
-          'Changing the employee or manager requires a new approval. Worker remains the selected employee code, not the card owner.',
-        )}
-      </p>
+      <h3>{t('Corectează angajatul decontului', 'Correct report employee')}</h3>
+      <p>{t(
+        'Finance poate corecta angajatul. Managerul de aprobare NU poate fi selectat manual: este proprietarul centrului de cost cu cea mai mare valoare cumulată a cheltuielilor.',
+        'Finance can correct the employee. Approval manager cannot be chosen manually: it is the owner of the cost centre with the highest combined expense value.'
+      )}</p>
       <div className="form-grid">
-        {[
-          ['Employee', employee, E],
-          ['Manager', manager, M],
-        ].map(([role, value, set]: any) => (
-          <Field
-            key={role}
-            name={role === 'Employee' ? t('Angajat', 'Employee') : t('Manager', 'Manager')}
-          >
-            <select value={value} onChange={(e) => set(e.target.value)}>
-              {users
-                .filter((u) => u.roles.includes(role))
-                .map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} · {u.worker}
-                  </option>
-                ))}
-            </select>
-          </Field>
-        ))}
+        <Field name={t('Angajat', 'Employee')}>
+          <select value={employee} onChange={(e) => E(e.target.value)}>
+            {users.filter((u) => u.roles.includes('Employee')).map((u) => (
+              <option key={u.id} value={u.id}>{u.name} · {u.worker}</option>
+            ))}
+          </select>
+        </Field>
+        <Field name={t('Managerul atribuit anterior', 'Previously assigned approver')}
+          note={t('Managerul va fi recalculat automat pe baza centrelor de cost ale bonurilor.',
+                  'The approver will be recalculated automatically from receipt cost centres.')}>
+          <input readOnly value={
+            users.find((u) => u.id === report.managerId)?.name ||
+            t('Nedisponibil', 'Unavailable')
+          } />
+        </Field>
       </div>
-      <button
-        className="secondary"
-        disabled={
-          reason.trim().length < 3 ||
-          (employee === report.employeeId && manager === report.managerId)
-        }
-        onClick={() =>
-          run(async () => {
-            await api('/finance/reports/' + report.id + '/routing', 'POST', {
-              version: report.version,
-              employeeId: employee,
-              managerId: manager,
-              reason,
-            });
-            await refresh();
-          })
-        }
-      >
-        {t('Salvează și cere reaprobare', 'Save & request reapproval')}
+      <button className="secondary"
+        disabled={reason.trim().length < 3 || employee === report.employeeId}
+        onClick={() => run(async () => {
+          await api('/finance/reports/' + report.id + '/routing', 'POST', {
+            version: report.version, employeeId: employee, managerId: null, reason,
+          });
+          await refresh();
+        })}>
+        {t('Corectează angajatul și cere reaprobare', 'Correct employee & request reapproval')}
       </button>
     </section>
   );

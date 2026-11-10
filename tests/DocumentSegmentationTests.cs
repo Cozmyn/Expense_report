@@ -85,4 +85,69 @@ public class DocumentSegmentationTests
         Assert.Equal(21m, group.Taxes[0].Vat);
         Assert.Equal(2, group.TaxAlternatives!.Count);
     }
+
+    [Theory]
+    [InlineData("RO35898037")]
+    [InlineData("RO 35898037")]
+    public void CompanyIdentifierWithOrWithoutSpaceEnablesVatBranch(string marker)
+    {
+        var result = ReceiptParser.Parse(
+            [new(1, "BON FISCAL\nBUCURESTI\nCUI: 12345678\nCUI CLIENT " + marker
+                + "\n11.11.2026\nTVA 21% 100.00 21.00\nTOTAL DE PLATA 121.00 RON")],
+            null
+        );
+        var receipt = Assert.Single(result.Candidates);
+        Assert.Equal("RO", receipt.Fields["country"].Value);
+        Assert.Equal("true", receipt.Fields["hasCompanyCui"].Value);
+        Assert.Equal("121.00", receipt.Fields["amount"].Value);
+        Assert.Single(receipt.Taxes);
+        Assert.Equal(100m, receipt.Taxes[0].Base);
+        Assert.Equal(21m, receipt.Taxes[0].Vat);
+    }
+
+    [Fact]
+    public void DomesticReceiptWithoutCompanyCuiUsesGrossOnlyBranch()
+    {
+        var receipt = Assert.Single(ReceiptParser.Parse(
+            [new(1, "BON FISCAL\nBUCURESTI\n10.11.2026\nTOTAL 89.40 RON")],
+            null
+        ).Candidates);
+        Assert.Equal("RO", receipt.Fields["country"].Value);
+        Assert.Equal("false", receipt.Fields["hasCompanyCui"].Value);
+        Assert.Equal("89.40", receipt.Fields["amount"].Value);
+        Assert.Empty(receipt.Taxes);
+    }
+
+    [Fact]
+    public void ForeignSupplierCountryIsOnlySuggestedWithExplicitAddressClue()
+    {
+        var german = Assert.Single(ReceiptParser.Parse(
+            [new(1, "Hotel Example\nBerlin, Germany\nINVOICE NO G-22\nTOTAL 55.00 EUR")],
+            null
+        ).Candidates);
+        Assert.Equal("DE", german.Fields["country"].Value);
+        Assert.Null(german.Fields.GetValueOrDefault("hasCompanyCui")?.Value);
+
+        var unknown = Assert.Single(ReceiptParser.Parse(
+            [new(1, "Example Hotel\nINVOICE NO U-22\nTOTAL 55.00 EUR")],
+            null
+        ).Candidates);
+        Assert.False(unknown.Fields.ContainsKey("country"));
+    }
+
+
+    [Theory]
+    [InlineData("SUMA DE PLATA: 123,45 RON")]
+    [InlineData("SUMA ACHITATA 123,45 RON")]
+    [InlineData("VALOARE TOTALA 123,45 RON")]
+    public void RomanianPaidTotalLabelsAreRecognisedWithoutGuessing(string total)
+    {
+        var parsed = ReceiptParser.Parse(
+            [new(1, "BON FISCAL\nBUCURESTI\n10.11.2026\n" + total)],
+            null
+        );
+        var receipt = Assert.Single(parsed.Candidates);
+        Assert.Equal("123.45", receipt.Fields["amount"].Value);
+    }
+
 }

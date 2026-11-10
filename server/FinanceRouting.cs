@@ -3,7 +3,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Decont;
 
-public record RoutingInput(long Version, string EmployeeId, string ManagerId, string Reason);
+// Kept for legacy clients; ManagerId is never authoritative.
+public record RoutingInput(long Version, string EmployeeId, string? ManagerId, string Reason);
 
 public static class FinanceRouting
 {
@@ -54,37 +55,31 @@ public static class FinanceRouting
                             svc.Edit(r, c.User, i.Reason);
                             Guard.Reason(i.Reason);
                             var employee = await users.FindByIdAsync(i.EmployeeId);
-                            var manager = await users.FindByIdAsync(i.ManagerId);
                             Guard.Require(
                                 employee != null
-                                    && await PlatformFeatures.Active(
-                                        db,
-                                        employee,
-                                        DateOnly.FromDateTime(DateTime.UtcNow)
-                                    )
+                                    && await PlatformFeatures.Active(db, employee,
+                                        DateOnly.FromDateTime(DateTime.UtcNow))
                                     && await users.IsInRoleAsync(employee, "Employee"),
-                                "employee",
-                                "Selectează un angajat activ.",
-                                "Select an active employee."
+                                "employee", "Selectează un angajat activ.", "Select an active employee."
                             );
+                            var previous = new { r.EmployeeId, r.ManagerId, r.CostCenter };
+                            r.EmployeeId = employee!.Id;
+                            r.EmployeeName = employee.Name;
+                            r.EmployeeWorker = employee.Worker;
+                            var defaultCostCenter = await svc.EmployeeCostCenter(r);
+                            // Preserve a previously validated report allocation if
+                            // the corrected employee has no active default yet.
+                            if (!string.IsNullOrWhiteSpace(defaultCostCenter))
+                                r.CostCenter = defaultCostCenter;
+                            var route = await CostCenterRouting.Preview(db, r);
+                            Guard.Require(route.Ready, route.ErrorCode ?? "approval_route",
+                                route.MessageRo ?? "Lipsește managerul centrului de cost.",
+                                route.MessageEn ?? "Cost centre manager is missing.");
                             Guard.Require(
-                                manager != null
-                                    && manager.Active
-                                    && manager.Id != employee!.Id
-                                    && await users.IsInRoleAsync(manager, "Manager"),
-                                "manager",
-                                "Selectează un manager activ, diferit de angajat.",
-                                "Select an active manager different from the employee."
+                                previous.EmployeeId != r.EmployeeId || previous.ManagerId != route.ManagerId,
+                                "unchanged", "Alocarea nu s-a modificat.", "Routing did not change."
                             );
-                            Guard.Require(
-                                r.EmployeeId != i.EmployeeId || r.ManagerId != i.ManagerId,
-                                "unchanged",
-                                "Alocarea nu s-a modificat.",
-                                "Routing did not change."
-                            );
-                            var before = new { r.EmployeeId, r.ManagerId };
-                            r.EmployeeId = i.EmployeeId;
-                            r.ManagerId = i.ManagerId;
+                            r.ManagerId = route.ManagerId!;
                             svc.Snapshot(r, c.User);
                             r.State = States.Reapproval;
                             Reports.Touch(r);
@@ -93,8 +88,8 @@ public static class FinanceRouting
                                 id,
                                 "Report",
                                 "ReportRoutingCorrected",
-                                before,
-                                new { r.EmployeeId, r.ManagerId },
+                                previous,
+                                new { r.EmployeeId, r.ManagerId, r.CostCenter, route.DominantCostCenter },
                                 i.Reason
                             );
                             await svc.Notify(r, r.ManagerId, "ReapprovalRequired");

@@ -16,6 +16,15 @@ Backend ASP.NET Core 10 + Identity; PostgreSQL pentru implementare, SQLite numai
 
 Romanian is the default application language. The English switch changes labels without changing financial data or rules. The backend uses application-managed credentials and permissions. The repository includes the source, tests and container configuration. GitHub Actions builds the frontend and publishes application artifacts; no public production deployment or production credentials are included.
 
+## Șabloane de import / Import template examples
+
+[Descarcă exemplele CSV pentru angajați, manageri, centre de cost, responsabili, carduri și bancă](docs/IMPORT-TEMPLATES-RO-EN.md).
+Downloadable CSV examples also appear directly in the corresponding Admin and Finance menus.
+
+## Ghidul nou de decontare / New receipt intake guide
+
+**RO/EN:** [Decont simplificat — încărcare unică, OCR asistat, TVA și verificare](docs/UNIFIED-RECEIPT-FLOW.md). Fluxul este în lucru în PR #15; până la integrarea și verificarea completă, versiunea stabilă rămâne cea de pe ramura `main`.
+
 ## Bonuri fiscale / Receipt workflow
 
 Platformă internă, fără pagină de vânzare sau sloganuri. Un decont conține până la 50 de bonuri/documente, fiecare cu propriul tip de cheltuială, dată, descriere, monedă, sumă și alocare contabilă.

@@ -98,6 +98,9 @@ test('Reversible reset, statement charges and independent Finance policy approva
     cc = 'CC-' + tag;
   await master('expenseTypes', cat, {});
   await master('costCenters', cc, { erpCode: cc });
+  await mutate(admin, '/admin/cost-center-owners/' + encodeURIComponent(cc), {
+    costCenterCode: cc, managerId: manager.id, reason: 'Synthetic ownership for Finance tests',
+  }, 'PUT');
   const card = await master('cards', 'CARD-' + tag, {
     lastFour: '1234',
     issuer: 'Synthetic bank',
@@ -242,11 +245,11 @@ test('Reversible reset, statement charges and independent Finance policy approva
     .getByLabel('Motiv verificare', { exact: true })
     .fill('Confirm principal without double booking fees');
   await fxRow.getByRole('button', { name: 'Confirmă suma din bancă', exact: true }).click();
-  await expect(fxRow.locator('summary').filter({ hasText: 'Istoric calcul și FX' })).toContainText(
+  await expect(fxRow.locator('h4').filter({ hasText: 'Istoric calcul și FX' })).toContainText(
     '(1)',
   );
   await fxRow.getByRole('button', { name: 'Confirmă baza și totalul', exact: true }).click();
-  await expect(fxRow.locator('summary').filter({ hasText: 'Istoric calcul și FX' })).toContainText(
+  await expect(fxRow.locator('h4').filter({ hasText: 'Istoric calcul și FX' })).toContainText(
     '(2)',
   );
   report = await detail();

@@ -94,6 +94,7 @@ public class DocumentIntakeTests
             var source = await db.ReportAttachments.SingleAsync();
             Assert.Equal("AwaitingCompletion", source.Scan);
             Assert.True(source.Capture);
+            Assert.Equal("Single", source.ReceiptMode);
             Assert.Equal(Convert.ToHexString(SHA256.HashData(Png)), source.Hash);
             Assert.False(await db.Jobs.AnyAsync(j => j.Kind == "ScanReport"));
         }

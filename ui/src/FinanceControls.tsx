@@ -30,8 +30,8 @@ export function TaxPolicyPanel({ t, run, me, masters }: Any) {
   }, []);
   const set = (key: string, value: any) => F({ ...form, [key]: value });
   return (
-    <details>
-      <summary>{t('Politici TVA și aprobare', 'VAT policies & approval')}</summary>
+    <section>
+      <h4>{t('Politici TVA și aprobare', 'VAT policies & approval')}</h4>
       <p>
         {t(
           'Ciorna nu schimbă calculele. Alt utilizator Finance trebuie să o aprobe. Cursurile pe bon nu cer o nouă aprobare de manager.',
@@ -235,7 +235,7 @@ export function TaxPolicyPanel({ t, run, me, masters }: Any) {
           </div>
         );
       })}
-    </details>
+    </section>
   );
 }
 export function ResetPanel({ report, t, run, refresh, editable }: Any) {
@@ -249,8 +249,8 @@ export function ResetPanel({ report, t, run, refresh, editable }: Any) {
   const body = { version: report.version, confirmation, reason };
   const valid = confirmation === report.number && reason.trim().length >= 3;
   return (
-    <details className="panel">
-      <summary>{t('Golire și restaurare', 'Reset & restore')}</summary>
+    <section className="panel">
+      <h4>{t('Golire și restaurare', 'Reset & restore')}</h4>
       <p>
         {t(
           'Golirea arhivează bonurile și păstrează fișierele și istoricul. Restaurarea este disponibilă doar când decontul este încă gol.',
@@ -300,7 +300,7 @@ export function ResetPanel({ report, t, run, refresh, editable }: Any) {
           )}
         </div>
       ))}
-    </details>
+    </section>
   );
 }
 export function CalculationVersions({ report, line, t, run }: Any) {
@@ -319,8 +319,8 @@ export function CalculationVersions({ report, line, t, run }: Any) {
     'original.vatTreatment': ['Tratament TVA', 'VAT treatment'],
   };
   return (
-    <details>
-      <summary>{t('Compară versiunile calculate', 'Compare calculated versions')}</summary>
+    <section>
+      <h4>{t('Compară versiunile calculate', 'Compare calculated versions')}</h4>
       {data.versions.map((v: Any) => (
         <article className="expense" key={v.id}>
           <strong>
@@ -376,7 +376,7 @@ export function CalculationVersions({ report, line, t, run }: Any) {
         </div>
       )}
       {!data.total && <p>{t('Nicio versiune acceptată.', 'No accepted version.')}</p>}
-    </details>
+    </section>
   );
 }
 export function FinanceAcceptancePanel({ t, run, masters }: Any) {
@@ -399,8 +399,8 @@ export function FinanceAcceptancePanel({ t, run, masters }: Any) {
     run(load);
   }, []);
   return (
-    <details>
-      <summary>{t('Acceptanță Finance și ERP', 'Finance & ERP acceptance')}</summary>
+    <section>
+      <h4>{t('Acceptanță Finance și ERP', 'Finance & ERP acceptance')}</h4>
       <p>
         {t(
           'Confirmă doar verificări efectuate efectiv pe documente și în ERP. Testele automate nu înlocuiesc această acceptanță. Modificarea configurării impune o nouă verificare.',
@@ -485,6 +485,6 @@ export function FinanceAcceptancePanel({ t, run, masters }: Any) {
           )}
         </p>
       )}
-    </details>
+    </section>
   );
 }

@@ -67,14 +67,14 @@ export function FinanceQueue({ t, run }: Any) {
       {!vendors.some((v) => v.state === 'Pending') && (
         <p className="muted">{t('Nicio solicitare în așteptare.', 'No pending requests.')}</p>
       )}
-      <details>
-        <summary>{t('Istoric conturi furnizori ERP', 'Supplier ERP account history')}</summary>
+      <section>
+        <h4>{t('Istoric conturi furnizori ERP', 'Supplier ERP account history')}</h4>
         {accountHistory.map((a) => (
           <p key={a.id}>
             CUI {a.cui} · {a.account} · {a.from} → {a.to || '∞'}
           </p>
         ))}
-      </details>
+      </section>
     </section>
   );
 }

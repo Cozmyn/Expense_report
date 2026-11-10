@@ -129,12 +129,35 @@ public static class SpreadsheetImports
                             var index = Array.IndexOf(rows[0], k);
                             return index >= 0 && index < rows[row].Length ? rows[row][index] : fallback;
                         }
+                        var json = Get("json", "{}");
+                        if (kind == "costCenters" && Array.IndexOf(rows[0], "erpCode") >= 0)
+                            json = Serialization.Write(new { erpCode = Get("erpCode") });
+                        if (kind == "cards" && Array.IndexOf(rows[0], "lastFour") >= 0)
+                        {
+                            var cardData = new Dictionary<string, string>
+                            {
+                                ["lastFour"] = Get("lastFour"),
+                                ["issuer"] = Get("issuer"),
+                                ["currency"] = Get("currency", "RON"),
+                            };
+                            var ownerUsername = Get("ownerUsername");
+                            if (ownerUsername != "")
+                            {
+                                var owner = await db.Users.SingleOrDefaultAsync(u =>
+                                    u.NormalizedUserName == ownerUsername.Trim().ToUpperInvariant());
+                                Guard.Require(owner != null, "owner",
+                                    "Titularul cardului nu există: " + ownerUsername,
+                                    "Card owner does not exist: " + ownerUsername);
+                                cardData["ownerId"] = owner!.Id;
+                            }
+                            json = Serialization.Write(cardData);
+                        }
                         var i = new MasterInput(
                             kind,
                             Get("code"),
                             Get("nameRo"),
                             Get("nameEn", Get("nameRo")),
-                            Get("json", "{}"),
+                            json,
                             DateOnly.Parse(Get("from")),
                             Get("to") == "" ? null : DateOnly.Parse(Get("to")),
                             Get("active", "true").ToLowerInvariant() != "false",
@@ -194,15 +217,14 @@ public static class SpreadsheetImports
                     }
                 )
         );
-        config.MapGet(
-            "/template",
-            () =>
-                Results.File(
-                    Encoding.UTF8.GetBytes("code,nameRo,nameEn,from,to,active,json\r\n"),
-                    "text/csv",
-                    "master-template.csv"
-                )
-        );
+        config.MapGet("/template", () => ImportExamples.Download("generic"));
+        config.MapGet("/template/{kind}", (string kind) =>
+            Admin.Kinds.Contains(kind)
+                ? ImportExamples.Download(kind)
+                : Results.NotFound());
+        api.MapGet("/finance/transactions/template",
+            () => ImportExamples.Download("bank-statement"))
+            .RequireAuthorization(p => p.RequireRole("Finance"));
         api.MapPost(
                 "/finance/transactions/file",
                 async (HttpContext c) =>

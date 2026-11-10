@@ -122,12 +122,47 @@ public class Reports(Db db, Posting? posting = null)
             EmployeeName = user.Name,
             EmployeeWorker = user.Worker,
             DepartmentCode = assignment?.OrganizationCode ?? "",
-            ManagerId = assignment?.ManagerId ?? user.ManagerId ?? "",
             Purpose = purpose.Trim(),
         };
+        r.CostCenter = await EmployeeCostCenter(r);
+        var initialRoute = await CostCenterRouting.Preview(db, r);
+        r.ManagerId = initialRoute.Ready ? initialRoute.ManagerId! : "";
         db.Reports.Add(r);
         Log(u, r.Id, "Report", "Created", after: new { r.Number, r.Purpose });
         return r;
+    }
+
+    /// <summary>Current active employee allocation, independent of report/line overrides.</summary>
+    public async Task<string> EmployeeCostCenter(Report report)
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var employee = await db.Users.FindAsync(report.EmployeeId);
+        if (!string.IsNullOrWhiteSpace(employee?.CostCenter))
+        {
+            var entries = await db.Masters.Where(m => m.Kind == "costCenters"
+                && m.Code == employee.CostCenter).ToListAsync();
+            return entries.Any(m => Rules.Effective(m, today)) ? employee.CostCenter : "";
+        }
+        // Read-only compatibility for existing employees until their account is assigned.
+        return DocumentAssistance.Defaults(await db.Masters.ToListAsync(), report, today).CostCenter ?? "";
+    }
+
+    public async Task<bool> RefreshApprovalManager(Report r, ClaimsPrincipal u, string? reason = null)
+    {
+        var route = await CostCenterRouting.Preview(db, r);
+        // Historical Finance records may predate the owner migration.
+        // Do not silently erase an existing approver before Admin configures
+        // the mandatory owner. Submission/approval remain blocked by validation.
+        if (!route.Ready) return false;
+        var target = route.ManagerId!;
+        if (r.ManagerId == target) return false;
+        var previous = r.ManagerId;
+        r.ManagerId = target;
+        Log(u, r.Id, "Report", "ApprovalManagerRecalculated",
+            new { managerId = previous },
+            new { managerId = r.ManagerId, route.DominantCostCenter, route.TotalRon },
+            reason);
+        return true;
     }
 
     public async Task ConfigureHeader(Report r, string payment, Guid? card)
@@ -164,6 +199,25 @@ public class Reports(Db db, Posting? posting = null)
         );
         r.Payment = payment;
         r.CardId = card;
+    }
+
+    public async Task ConfigureCostCenter(Report r, string code)
+    {
+        var value = (code ?? "").Trim();
+        if (value != "")
+        {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var masters = await db.Masters.Where(m => m.Kind == "costCenters" && m.Code == value).ToListAsync();
+            Guard.Require(
+                masters.Any(m => Rules.Effective(m, today)),
+                "cost_center",
+                "Selectează un centru de cost activ.",
+                "Select an active cost centre."
+            );
+        }
+        // The header is a suggested/default allocation, NOT a bulk edit.
+        // Each expense keeps its own independently editable cost centre.
+        r.CostCenter = value;
     }
 
     public async Task Apply(Line l, ExpenseData input)
@@ -254,6 +308,7 @@ public class Reports(Db db, Posting? posting = null)
                 r.EmployeeName,
                 r.EmployeeWorker,
                 r.DepartmentCode,
+                r.CostCenter,
                 r.Payment,
                 r.CardId,
                 r.ManagerId,
@@ -317,6 +372,12 @@ public class Reports(Db db, Posting? posting = null)
     {
         var masters = await db.Masters.ToListAsync();
         var problems = Rules.Validate(r, masters, erp, await db.SupplierAccounts.ToListAsync());
+        if (r.State is not (States.Posted or States.Closed))
+        {
+            var route = await CostCenterRouting.Preview(db, r);
+            if (!route.Ready)
+                problems.Add(new(route.ErrorCode!, route.MessageRo!, route.MessageEn!));
+        }
         foreach (var l in r.Lines.Where(l => !l.Archived && DateOnly.TryParse(l.Data().Date, out _)))
         {
             var defaults = Rules.VatIssues(l, masters);
@@ -455,6 +516,13 @@ public class Reports(Db db, Posting? posting = null)
             "Cannot submit this report.",
             403
         );
+        // Route at submission from line-level allocations, not the employee
+        // manager or the header centre when actual expenses exist.
+        var route = await CostCenterRouting.Preview(db, r);
+        Guard.Require(route.Ready, route.ErrorCode ?? "approval_route",
+            route.MessageRo ?? "Lipsește managerul centrului de cost.",
+            route.MessageEn ?? "Cost centre approval owner is missing.");
+        await RefreshApprovalManager(r, u);
         var issues = await Validate(r);
         Guard.Require(
             !issues.Any(p => p.Blocking),
@@ -559,6 +627,12 @@ public class Reports(Db db, Posting? posting = null)
                     Serialization.Write(issues),
                     Serialization.Write(issues)
                 );
+                var route = await CostCenterRouting.Preview(db, r);
+                Guard.Require(route.Ready && route.ManagerId == r.ManagerId,
+                    "approval_route_changed",
+                    "Managerul responsabil s-a schimbat sau alocarea este incompletă. Actualizează aprobarea prin Admin.",
+                    "The responsible manager has changed or allocation is incomplete. Ask Admin to refresh the approval route.",
+                    409);
             }
             if (action == "reject")
                 Guard.Reason(reason);
@@ -677,6 +751,7 @@ public class Reports(Db db, Posting? posting = null)
 
     public async Task Reapproval(Report r, ClaimsPrincipal u)
     {
+        var managerChanged = await RefreshApprovalManager(r, u);
         var amountIncreased = Rules.Personal(r) > r.ApprovedPersonal;
         var approved = await db.Snapshots.SingleOrDefaultAsync(s => s.ReportId == r.Id && s.Revision == r.Revision);
         if (approved != null)
@@ -707,16 +782,21 @@ public class Reports(Db db, Posting? posting = null)
             }
             amountIncreased = Rules.Money(current) > Rules.Money(baseline);
         }
-        if (u.IsInRole("Finance") && States.FinanceEdit(r.State) && amountIncreased)
+        if (u.IsInRole("Finance") && States.FinanceEdit(r.State) && (amountIncreased || managerChanged))
         {
             var policies = await db.Masters.Where(m => m.Kind == "policies" && m.Code == "workflow").ToListAsync();
             var policy = policies.FirstOrDefault(m => Rules.Effective(m, DateOnly.FromDateTime(DateTime.UtcNow)));
             if (
-                policy != null
+                !managerChanged && policy != null
                 && Rules.Data(policy).TryGetProperty("requireReapprovalOnPersonalIncrease", out var flag)
                 && !flag.GetBoolean()
             )
                 return;
+            Guard.Require(
+                !string.IsNullOrWhiteSpace(r.ManagerId),
+                "approval_route", "Configurează proprietarii centrelor de cost înainte de modificare.",
+                "Configure cost centre owners before changing the approval route."
+            );
             Snapshot(r, u);
             r.State = States.Reapproval;
             await Notify(r, r.ManagerId, "ReapprovalRequired");

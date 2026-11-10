@@ -257,9 +257,18 @@ public static class ReceiptParser
                     .Select(m => m)
                     .ToList();
                 var cui = cuiMatches.Select(m => Rules.Cui(m.Groups[2].Value)).Distinct().ToList();
-                var company = Rules.Cui(companyCui);
-                if (company != "" && cui.Contains(company))
-                    Put("hasCompanyCui", "true", cuiMatches.First(m => Rules.Cui(m.Groups[2].Value) == company).Value);
+                // The local company identifier is RO35898037 until Finance configures
+                // a different tenant CUI. OCR text may omit the "CUI:" label.
+                var company = Rules.Cui(string.IsNullOrWhiteSpace(companyCui) ? "RO35898037" : companyCui);
+                var printedCompany = Regex.Match(
+                    text,
+                    @"(?i)\bRO\s*" + Regex.Escape(company) + @"\b"
+                );
+                var hasCompanyCui = printedCompany.Success || (company != "" && cui.Contains(company));
+                if (hasCompanyCui)
+                    Put("hasCompanyCui", "true", printedCompany.Success
+                        ? printedCompany.Value
+                        : cuiMatches.First(m => Rules.Cui(m.Groups[2].Value) == company).Value);
                 var supplier =
                     cui.FirstOrDefault(x => x != company && Rules.ValidCui(x)) ?? cui.FirstOrDefault(x => x != company);
                 if (supplier != null && !Rules.ValidCui(supplier))
@@ -271,7 +280,46 @@ public static class ReceiptParser
                     Put("cui", supplier, cuiMatches.First(m => Rules.Cui(m.Groups[2].Value) == supplier).Value);
                     Put("country", "RO", cuiMatches.First(m => Rules.Cui(m.Groups[2].Value) == supplier).Value);
                 }
-                if (company != "" && !cui.Contains(company) && cui.Count > 0)
+                // Country inference uses explicit supplier-address clues, not a
+                // generic guess from document language or invoice currency.
+                var supplierBlock = string.Join(" ", lines.Take(12));
+                var countryClues = new (string Code, string Pattern)[]
+                {
+                    ("DE", @"(?i)\b(?:GERMANY|DEUTSCHLAND|GERMANIA|BERLIN|HAMBURG|MÜNCHEN|MUNICH)\b"),
+                    ("FR", @"(?i)\b(?:FRANCE|FRANȚA|FRANTA|PARIS|LYON)\b"),
+                    ("IT", @"(?i)\b(?:ITALY|ITALIA|MILANO|MILAN|ROMA|ROME)\b"),
+                    ("ES", @"(?i)\b(?:SPAIN|ESPANA|ESPAÑA|SPANIA|MADRID|BARCELONA)\b"),
+                    ("AT", @"(?i)\b(?:AUSTRIA|ÖSTERREICH|VIENNA|WIEN|VIENA)\b"),
+                    ("HU", @"(?i)\b(?:HUNGARY|UNGARIA|MAGYARORSZÁG|BUDAPEST)\b"),
+                    ("GB", @"(?i)\b(?:UNITED KINGDOM|GREAT BRITAIN|LONDON|REGATUL UNIT)\b"),
+                    ("US", @"(?i)\b(?:UNITED STATES|USA|NEW YORK|SAN FRANCISCO)\b"),
+                    ("NL", @"(?i)\b(?:NETHERLANDS|OLANDA|AMSTERDAM)\b"),
+                    ("BE", @"(?i)\b(?:BELGIUM|BELGIA|BRUSSELS|BRUXELLES)\b"),
+                    ("CH", @"(?i)\b(?:SWITZERLAND|ELVEȚIA|ELVETIA|SCHWEIZ|ZÜRICH|ZURICH)\b"),
+                    ("BG", @"(?i)\b(?:BULGARIA|SOFIA)\b"),
+                    ("GR", @"(?i)\b(?:GREECE|GRECIA|ATHENS|ATENA)\b"),
+                    ("PL", @"(?i)\b(?:POLAND|POLONIA|WARSZAWA|WARSAW)\b"),
+                };
+                var foreign = countryClues
+                    .Select(c => (c.Code, Evidence: Regex.Match(supplierBlock, c.Pattern)))
+                    .FirstOrDefault(c => c.Evidence.Success);
+                if (foreign.Evidence != null && foreign.Evidence.Success)
+                {
+                    Put("country", foreign.Code, foreign.Evidence.Value);
+                    if (hasCompanyCui)
+                        warnings.Add("CUI-ul companiei apare într-un document de furnizor străin. Verifică țara. / Company CUI appears on a foreign document; verify supplier country.");
+                }
+                else if (hasCompanyCui || cui.Count > 0 || Regex.IsMatch(supplierBlock, @"(?i)\b(?:ROMANIA|ROMÂNIA|BUCUREȘTI|BUCURESTI|CLUJ-NAPOCA|TIMIȘOARA|TIMISOARA|IAȘI|IASI)\b"))
+                {
+                    if (!fields.ContainsKey("country"))
+                        Put("country", "RO", "Romania / CUI RO");
+                    if (!hasCompanyCui)
+                    {
+                        Put("hasCompanyCui", "false", "RO35898037 not detected");
+                        warnings.Add("CUI-ul companiei RO35898037 nu a fost detectat; confirmă pe document. / Company CUI RO35898037 was not detected; confirm against the source.");
+                    }
+                }
+                if (company != "" && !hasCompanyCui && cui.Count > 0)
                     warnings.Add(
                         "CUI-ul companiei nu a fost detectat; confirmă pe original. / Company VAT ID was not detected; check the original."
                     );
@@ -318,7 +366,7 @@ public static class ReceiptParser
                 var totalLine = lines.LastOrDefault(l =>
                     Regex.IsMatch(
                         l,
-                        @"(?i)\b(?:TOTAL\s*(?:DE\s*PLAT[ĂA]|GENERAL|AMOUNT|DUE|DE\s*ACHITAT)?|AMOUNT\s+DUE|GRAND\s+TOTAL)\b"
+                        @"(?i)\b(?:TOTAL\s*(?:DE\s*PLAT[ĂA]|GENERAL|AMOUNT|DUE|DE\s*ACHITAT|ACHITAT)?|SUMA(?:\s+TOTAL[ĂA])?\s+(?:DE\s+)?(?:PLAT[ĂA]|ACHITAT[ĂA])|VALOARE(?:A)?\s+TOTAL[ĂA]|AMOUNT\s+DUE|GRAND\s+TOTAL)\b"
                     ) && !Regex.IsMatch(l, @"(?i)SUBTOTAL|SUB-TOTAL|TOTAL\s*(?:TVA|TAX|VAT|BAZ[ĂA])")
                 );
                 if (totalLine != null)

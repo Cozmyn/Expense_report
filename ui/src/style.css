@@ -2403,3 +2403,313 @@ textarea {
   }
   .session-expired-banner button { width: 100%; }
 }
+
+
+/* Unified receipt intake — visible context, readable labels and recoverable OCR. */
+.field .field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+.field .field-label-row > label {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+}
+.receipt-mode-picker {
+  border: 0;
+  padding: 0;
+  margin: 16px 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+.receipt-mode-picker legend {
+  grid-column: 1 / -1;
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 10px;
+  color: var(--text);
+}
+.receipt-mode {
+  display: grid;
+  grid-template-columns: 26px minmax(0,1fr);
+  grid-template-rows: auto auto;
+  align-content: center;
+  gap: 3px 10px;
+  cursor: pointer;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--surface);
+  min-height: 86px;
+  transition: border-color .12s ease, background-color .12s ease;
+}
+.receipt-mode:hover,
+.receipt-mode.active {
+  border-color: #08725e;
+  background: #edf7f2;
+}
+.receipt-mode input[type="radio"] {
+  grid-row: 1 / 3;
+  align-self: center;
+  min-width: 20px;
+  min-height: 20px;
+  accent-color: #075e50;
+}
+.receipt-mode strong { font-size: 14px; color: var(--text); }
+.receipt-mode span { font-size: 12px; line-height: 1.5; color: var(--muted); }
+.receipt-upload > span { font-weight: 650; }
+.receipt-upload input[type="file"] {
+  border: 2px dashed #08725e;
+  background: #f2faf6;
+  width: 100%;
+  padding: 15px;
+  min-height: 60px;
+  border-radius: 10px;
+}
+.receipt-group-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+  padding: 2px;
+}
+.receipt-group-switcher button { min-height: 42px; }
+.ocr-group-tools {
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.ocr-group-tools > h4 { margin: 0 0 10px; }
+.ocr-inline-info, .ocr-field-more, .ocr-transcript, .ocr-evidence {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.ocr-field-more h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+.ocr-field-more blockquote { margin: 6px 0; }
+.ocr-transcript .ocr-text { max-height: 240px; overflow: auto; }
+.ocr-scan-action {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid #08725e;
+  border-radius: 8px;
+  background: #edf7f2;
+  color: #075e50;
+  font-weight: 650;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ocr-scan-panel {
+  margin: 12px 0;
+  padding: 14px;
+  border: 2px solid #08725e;
+  border-radius: 10px;
+  background: #f2faf6;
+}
+.ocr-scan-panel h4 { margin: 0 0 8px; }
+.ocr-scan-panel .actions { margin-top: 12px; }
+.quick-help > h4, .finance-advanced-filters > h4 {
+  margin: 0 0 9px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+}
+.finance-advanced-filters { padding: 14px; }
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.receipt-mode:focus-within {
+  outline: 3px solid var(--focus, #1d4ed8);
+  outline-offset: 2px;
+}
+@media (max-width: 760px) {
+  .receipt-mode-picker { grid-template-columns: 1fr; }
+  .receipt-mode { min-height: 75px; }
+  .ocr-scan-action { width: auto; max-width: 100%; }
+  .receipt-group-switcher { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 8px; }
+}
+
+/* Explicit employee allocation, report/receipt overrides and manager ownership. */
+.cost-centre-ownership {
+  margin: 22px 0;
+  padding: 18px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 12px;
+}
+.cost-centre-ownership h2 { margin-top: 0; }
+.cost-centre-owner-list { display: grid; gap: 10px; margin-top: 18px; }
+.cost-centre-owner-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(200px, 1.4fr) auto;
+  align-items: end;
+  gap: 14px;
+  border-top: 1px solid var(--border);
+  padding: 12px 0;
+}
+.cost-centre-owner-row p { margin: 3px 0; }
+.cost-centre-owner-row .field { margin: 0; }
+.cost-centre-owner-row .secondary { min-height: 42px; }
+.cost-centre-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.cost-centre-breakdown > span {
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: var(--surface-soft, var(--surface));
+  border: 1px solid var(--border);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 760px) {
+  .cost-centre-owner-row { grid-template-columns: 1fr; align-items: stretch; }
+  .cost-centre-owner-row .secondary { width: 100%; }
+  .cost-centre-ownership { padding: 12px; }
+}
+
+/* Manager and Finance shared OCR verification; remains read-only for approvers. */
+.import-template-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin: 10px 0;
+}
+.cost-centre-owner-import {
+  margin: 20px 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 16px;
+}
+.cost-centre-owner-import .field { margin-top: 12px; }
+.receipt-audit-review { margin-top: 16px; }
+.receipt-audit-review .section-heading { align-items: flex-start; }
+.receipt-review-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 20px;
+}
+.receipt-review-selector button {
+  min-height: 44px;
+  white-space: normal;
+  text-align: left;
+}
+.receipt-review-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 1.25fr) minmax(280px, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+.receipt-review-source {
+  min-width: 0;
+  position: sticky;
+  top: 12px;
+}
+.receipt-review-fields { min-width: 0; }
+.receipt-review-fields h3 { margin: 0 0 8px; }
+.receipt-review-fields p { margin-top: 8px; }
+.receipt-review-summary {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  margin: 12px 0;
+}
+.receipt-review-field-list {
+  display: grid;
+  gap: 8px;
+  max-height: 550px;
+  overflow-y: auto;
+}
+.receipt-review-field {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  line-height: 1.45;
+  cursor: pointer;
+}
+.receipt-review-field:hover:not(:disabled),
+.receipt-review-field:focus-visible { border-color: #075e50; }
+.receipt-review-field:disabled { opacity: 1; cursor: default; }
+.receipt-review-field > strong { font-size: 14px; }
+.receipt-review-field > span { font-size: 12px; overflow-wrap: anywhere; }
+.receipt-review-field .match { color: #065f46; font-weight: 700; }
+.receipt-review-field .needs-review { color: #a54505; font-weight: 700; }
+.receipt-review-fields > .primary { margin-top: 16px; }
+@media (max-width: 850px) {
+  .receipt-review-grid { grid-template-columns: 1fr; }
+  .receipt-review-source { position: static; }
+  .receipt-review-selector { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; }
+  .cost-centre-owner-import { padding: 12px; }
+}
+
+/* Mobile OCR review modal touch targets: no side-scrolling, no overlapping
+   footer and no hidden Cancel button when the page is long. */
+@media (max-width: 760px) {
+  .modal-overlay:has(.receipt-modal) {
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 0;
+  }
+  .receipt-modal,
+  .receipt-modal:has(.with-original) {
+    width: 100%;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    padding: 16px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+  }
+  .receipt-editor-layout,
+  .receipt-editor-layout.with-original,
+  .receipt-editor-layout form,
+  .receipt-original {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .receipt-modal .modal-footer {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    gap: 10px;
+    padding: 16px 0 max(24px, env(safe-area-inset-bottom));
+    margin-top: 20px;
+  }
+  .receipt-modal .modal-footer button {
+    width: 100%;
+    min-height: 48px;
+  }
+}

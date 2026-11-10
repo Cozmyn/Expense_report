@@ -1,0 +1,2 @@
+username,name,email,worker,managerUsername,active,costCenter,role,approvalMode,fixedApproverUsername
+manager.existent,Manager Exemplu,manager@example.invalid,MGR001,,true,CC100,Manager,CostCenter,

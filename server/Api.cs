@@ -15,6 +15,7 @@ public static class Api
             r.EmployeeName,
             r.EmployeeWorker,
             r.DepartmentCode,
+            r.CostCenter,
             r.Payment,
             r.CardId,
             r.ManagerId,
@@ -106,9 +107,17 @@ public static class Api
             {
                 var report = await svc.Get(id, c.User);
                 Guard.Require(DateOnly.TryParse(date, out var day), "date", "Data este invalidă.", "Invalid date.");
-                return DocumentAssistance.Defaults(await db.Masters.ToListAsync(), report, day);
+                var defaults = DocumentAssistance.Defaults(await db.Masters.ToListAsync(), report, day);
+                var employeeCostCenter = await svc.EmployeeCostCenter(report);
+                return defaults with
+                {
+                    CostCenter = employeeCostCenter == "" ? defaults.CostCenter : employeeCostCenter,
+                    Source = employeeCostCenter == "" ? defaults.Source : "EmployeeAssignment"
+                };
             }
         );
+        CostCenterRouting.Map(api);
+        CostCenterOwnerImports.Map(api);
         DocumentStatus.Map(api);
         DocumentIntake.Map(api);
         DocumentEvents.Map(api);
@@ -176,6 +185,10 @@ public static class Api
                     new
                     {
                         report = View(r),
+                        managerName = await db.Users.Where(u => u.Id == r.ManagerId)
+                            .Select(u => u.Name).FirstOrDefaultAsync(),
+                        employeeCostCenter = await svc.EmployeeCostCenter(r),
+                        approvalRouting = await CostCenterRouting.Preview(db, r),
                         sourceGroups = await db
                             .DocumentGroups.Where(g => g.ExpenseId != null && lineIds.Contains(g.ExpenseId.Value))
                             .Select(g => new
@@ -183,6 +196,9 @@ public static class Api
                                 g.Id,
                                 g.BundleId,
                                 g.ExpenseId,
+                                g.State,
+                                g.VerifiedAt,
+                                g.VerifiedBy,
                                 g.Regions,
                                 g.Fields,
                                 g.Taxes,
@@ -223,11 +239,15 @@ public static class Api
                             r.Purpose,
                             r.Payment,
                             r.CardId,
+                            r.CostCenter,
                         };
                         if (i.Payment != null)
                             await svc.ConfigureHeader(r, i.Payment, i.CardId);
+                        if (i.CostCenter != null)
+                            await svc.ConfigureCostCenter(r, i.CostCenter);
                         r.Purpose = i.Purpose.Trim();
                         Reports.Touch(r);
+                        await svc.Reapproval(r, c.User);
                         svc.Log(
                             c.User,
                             id,
@@ -239,6 +259,7 @@ public static class Api
                                 r.Purpose,
                                 r.Payment,
                                 r.CardId,
+                                r.CostCenter,
                             },
                             i.Reason
                         );
@@ -422,6 +443,7 @@ public static class Api
                         }
                         Reports.Touch(r);
                         svc.Log(c.User, id, lineId.ToString(), "LineArchived", before: l.Json, reason: i.Reason);
+                        await svc.Reapproval(r, c.User);
                         return View(r);
                     }
                 )
@@ -652,7 +674,7 @@ public static class Api
 
 public record CreateReport(string Purpose);
 
-public record ReportEdit(long Version, string Purpose, string? Reason, string? Payment = null, Guid? CardId = null);
+public record ReportEdit(long Version, string Purpose, string? Reason, string? Payment = null, Guid? CardId = null, string? CostCenter = null);
 
 public record LineEdit(
     long Version,

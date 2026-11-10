@@ -113,19 +113,55 @@ public static class OcrReviews
                 PageCount = result.Pages.Max(p => p.Number),
             };
             db.DocumentReviews.Add(review);
-            foreach (var c in suggested.Candidates)
+            // A single-receipt upload is represented by one review group even if
+            // its PDF has several pages or parsing did not identify a total.
+            // Keep the unmodified extraction and review evidence for audit.
+            var receiptMode = await db.ReportAttachments.Where(a => a.Id == document)
+                .Select(a => a.ReceiptMode).SingleAsync();
+            if (receiptMode == "Single")
             {
-                db.DocumentGroups.Add(
-                    new()
-                    {
-                        BundleId = document,
-                        SourceKey = c.Id.ToString(),
-                        Regions = Serialization.Write(c.Regions ?? c.Pages.Select(p => new SourceRegion(p)).ToList()),
-                        Fields = Serialization.Write(c.Fields),
-                        Taxes = Serialization.Write(c.Taxes),
-                        Warnings = Serialization.Write(c.Warnings),
-                    }
-                );
+                var parsed = suggested.Candidates
+                    .OrderByDescending(c => c.Fields.Count(f => !string.IsNullOrWhiteSpace(f.Value.Value)))
+                    .ThenBy(c => c.Pages.Min())
+                    .ToList();
+                var fields = new Dictionary<string, OcrField>();
+                foreach (var candidate in parsed)
+                foreach (var field in candidate.Fields)
+                    if (!fields.TryGetValue(field.Key, out var existing)
+                        || (string.IsNullOrWhiteSpace(existing.Value) && !string.IsNullOrWhiteSpace(field.Value.Value)))
+                        fields[field.Key] = field.Value;
+                var taxes = parsed.SelectMany(c => c.Taxes).ToList();
+                var warnings = parsed.SelectMany(c => c.Warnings).Distinct().ToList();
+                if (parsed.Count > 1)
+                    warnings.Add("Mai multe secțiuni detectate într-un document ales ca bon unic; verifică suma și TVA-ul. / Multiple document sections were detected; verify total and VAT.");
+                if (parsed.Count == 0)
+                    warnings.Add("Nu au fost identificate câmpuri. Selectează valorile din document sau completează manual. / No fields identified. Select values from the document or enter them manually.");
+                db.DocumentGroups.Add(new()
+                {
+                    BundleId = document,
+                    SourceKey = "single:" + document.ToString("N"),
+                    Regions = Serialization.Write(result.Pages.Select(p => new SourceRegion(p.Number)).Distinct().ToList()),
+                    Fields = Serialization.Write(fields),
+                    Taxes = Serialization.Write(taxes),
+                    Warnings = Serialization.Write(warnings),
+                });
+            }
+            else
+            {
+                foreach (var c in suggested.Candidates)
+                {
+                    db.DocumentGroups.Add(
+                        new()
+                        {
+                            BundleId = document,
+                            SourceKey = c.Id.ToString(),
+                            Regions = Serialization.Write(c.Regions ?? c.Pages.Select(p => new SourceRegion(p)).ToList()),
+                            Fields = Serialization.Write(c.Fields),
+                            Taxes = Serialization.Write(c.Taxes),
+                            Warnings = Serialization.Write(c.Warnings),
+                        }
+                    );
+                }
             }
         }
         else if (editable)
@@ -261,7 +297,9 @@ public static class OcrReviews
                     groupingReason = original
                         .Candidates.FirstOrDefault(c => c.Id.ToString() == g.SourceKey)
                         ?.GroupingReason
-                        ?? "Human regrouping; review source history",
+                        ?? (g.SourceKey.StartsWith("single:")
+                            ? "Single receipt chosen by employee"
+                            : "Human regrouping; review source history"),
                     boundaryConfidence = original
                         .Candidates.FirstOrDefault(c => c.Id.ToString() == g.SourceKey)
                         ?.BoundaryConfidence,
@@ -428,11 +466,15 @@ public static class OcrReviews
         };
         var masterList = await db.Masters.ToListAsync();
         var issues = Rules.Validate(check, masterList);
+        // OCR confirmation is a RECEIPT check. The manager is selected from the
+        // final cost-centre totals only when the report is submitted. Do not
+        // prevent recording valid evidence while the owner route is pending.
+        var receiptIssues = issues.Where(p => p.Blocking && p.Code != "manager").ToList();
         Guard.Require(
-            !issues.Any(p => p.Blocking),
+            receiptIssues.Count == 0,
             "ocr_validation",
-            Serialization.Write(issues),
-            Serialization.Write(issues)
+            Serialization.Write(receiptIssues),
+            Serialization.Write(receiptIssues)
         );
         var before = new
         {

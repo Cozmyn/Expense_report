@@ -17,18 +17,25 @@ public static class OcrFieldSelection
         "supplier", "cui", "invoice", "date", "currency", "amount", "description"
     ];
 
+    public static bool Supported(string field) =>
+        Fields.Contains(field) || Regex.IsMatch(field, @"\Atax(?:Base|Vat):\d{1,2}(?:\.\d+)?\z");
+
     public static string? Extract(string field, string evidence)
     {
         var text = evidence.Trim();
-        if (text.Length is 0 or > 1000 || !Fields.Contains(field))
+        if (text.Length is 0 or > 1000 || !Supported(field))
             return null;
-        if (field == "amount")
+        if (field == "amount" || field.StartsWith("taxBase:") || field.StartsWith("taxVat:"))
         {
             var numbers = Regex.Matches(
                 text, @"(?<!\d)[-+]?\d+(?:[ .,]\d{3})*[.,]\d{2}(?!\d)"
             );
             var last = numbers.Cast<System.Text.RegularExpressions.Match>().LastOrDefault();
-            var value = last == null ? null : ReceiptParser.Number(last.Value);
+            var value = last == null
+                ? Regex.IsMatch(text, @"\A[-+]?\d+\z")
+                    ? ReceiptParser.Number(text)
+                    : null
+                : ReceiptParser.Number(last.Value);
             return value?.ToString("0.00", CultureInfo.InvariantCulture);
         }
         if (field == "date")
@@ -72,7 +79,7 @@ public static class OcrFieldSelection
                         var report = await svc.Version(id, input.Version, context.User);
                         svc.Edit(report, context.User, input.Reason);
                         Guard.Require(
-                            Fields.Contains(input.Field),
+                            Supported(input.Field),
                             "ocr_field",
                             "Selectează un câmp permis.",
                             "Select a supported field."
@@ -85,12 +92,19 @@ public static class OcrFieldSelection
                         );
                         var review = await db.DocumentReviews.SingleAsync(r => r.Id == document && r.ReportId == id);
                         var item = await db.DocumentGroups.SingleAsync(g => g.Id == group && g.BundleId == document);
+                        var unverified = item.State == "ReviewRequired" && item.ExpenseId == null;
+                        var financeCorrection = context.User.IsInRole("Finance")
+                            && States.FinanceEdit(report.State)
+                            && item.State == "Verified"
+                            && item.ExpenseId != null
+                            && report.Lines.Any(l => l.Id == item.ExpenseId && !l.Archived);
                         Guard.Require(
-                            item.State == "ReviewRequired" && item.ExpenseId == null,
+                            unverified || financeCorrection,
                             "ocr_group_state",
-                            "Poți selecta câmpuri doar înainte de confirmarea bonului.",
-                            "Source fields can only be selected before the receipt is verified."
+                            "Bonul verificat poate fi corectat în OCR doar de Finance în etapa de verificare.",
+                            "Only Finance can correct verified OCR during financial review."
                         );
+                        if (financeCorrection) Guard.Reason(input.Reason);
                         OcrReviews.ValidateRegions([input.Region], review.PageCount);
                         Guard.Require(
                             OcrReviews.Regions(item).Any(parent =>
@@ -115,7 +129,8 @@ public static class OcrFieldSelection
                         var before = item.Fields;
                         var fields = Serialization.Read<Dictionary<string, OcrField>>(item.Fields);
                         fields[input.Field] = new OcrField(
-                            value, input.Region.Page, raw, "ReviewRequired", null,
+                            value, input.Region.Page, raw,
+                            financeCorrection ? "FinanceCorrected" : "ReviewRequired", null,
                             new SourceBox(input.Region.X, input.Region.Y, input.Region.Width, input.Region.Height),
                             raw, "HumanSelected"
                         );
@@ -125,11 +140,11 @@ public static class OcrFieldSelection
                             db, id, document, "OcrSourceSelected",
                             Reports.Actor(context.User),
                             group + "|" + report.Version + "|" + input.Field,
-                            new { group, input.Field, input.Region }
+                            new { group, input.Field, input.Region, financeCorrection }
                         );
                         svc.Log(
                             context.User, id, document.ToString(), "OcrSourceSelected", before,
-                            new { item.Id, input.Field, input.Region }, input.Reason
+                            new { item.Id, input.Field, input.Region, financeCorrection }, input.Reason
                         );
                         return Api.View(report);
                     }

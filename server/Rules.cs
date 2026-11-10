@@ -141,6 +141,9 @@ public static class Rules
         )
             fields[core] = "REQUIRED";
         fields["cardId"] = d.Payment == "CompanyCard" ? "REQUIRED" : "NOT_APPLICABLE";
+        // Routing requires an allocation for every receipt, regardless of
+        // other configurable form field rules.
+        fields["costCenter"] = "REQUIRED";
         return fields;
     }
 
