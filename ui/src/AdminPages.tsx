@@ -408,11 +408,13 @@ export function MasterPage({ t, run, refresh }: Any) {
 }
 export function UsersPage({ t, run }: Any) {
   const [users, U] = useState<Any[]>([]),
+    [costCentres, CC] = useState<Any[]>([]),
     [form, F] = useState<Any>({
       username: '',
       name: '',
       email: '',
       worker: '',
+      costCenter: '',
       managerId: '',
       active: true,
       roles: ['Employee'],
@@ -420,7 +422,15 @@ export function UsersPage({ t, run }: Any) {
       reason: '',
     }),
     [id, I] = useState('');
-  const load = () => api('/admin/users').then(U);
+  const load = async () => {
+    const [users, masters] = await Promise.all([
+      api('/admin/users'), api('/configuration/masters'),
+    ]);
+    U(users);
+    const day = new Date().toISOString().slice(0, 10);
+    CC(masters.filter((m: Any) =>
+      m.kind === 'costCenters' && m.active && m.from <= day && (!m.to || m.to >= day)));
+  };
   useEffect(() => {
     run(load);
   }, []);
@@ -433,8 +443,8 @@ export function UsersPage({ t, run }: Any) {
           <h1>{t('Utilizatori și acces', 'Users & access')}</h1>
           <p>
             {t(
-              'Conturi administrate intern, roluri și rutare către manager.',
-              'Internally managed accounts, roles and manager routing.',
+              'Centrele de cost se atribuie fiecărui angajat. Managerul care aprobă decontul se stabilește automat din proprietarul centrului de cost dominant.',
+              'Assign each employee a cost centre. The approval manager is chosen automatically from the owner of the highest-total cost centre.',
             )}
           </p>
         </div>
@@ -473,7 +483,19 @@ export function UsersPage({ t, run }: Any) {
                 />
               </Field>
             ))}
-            <Field name={t('Manager', 'Manager')}>
+            <Field name={t('Centru de cost implicit al angajatului', 'Employee default cost centre')}
+              note={t('Se precompletează în antet și în fiecare bon nou; fiecare câmp poate fi modificat independent.',
+                      'Prefilled in the report header and each new receipt; both can be changed independently.')}>
+              <select value={form.costCenter || ''} onChange={(e) => set('costCenter', e.target.value)}>
+                <option value="">{t('Fără centru atribuit', 'No cost centre assigned')}</option>
+                {costCentres.map((m: Any) => (
+                  <option key={m.id} value={m.code}>{m.code} · {t(m.nameRo, m.nameEn)}</option>
+                ))}
+              </select>
+            </Field>
+            <Field name={t('Manager organizațional (nu stabilește aprobatorul)', 'Organisational manager (not the approver)')}
+              note={t('Aprobarea este rutată exclusiv după centrele de cost ale bonurilor.',
+                      'Approval is routed exclusively from receipt cost centre ownership.')}>
               <select
                 value={form.managerId || ''}
                 onChange={(e) => set('managerId', e.target.value)}
@@ -578,6 +600,7 @@ export function UsersPage({ t, run }: Any) {
                       name: '',
                       email: '',
                       worker: '',
+                      costCenter: '',
                       managerId: '',
                       active: true,
                       roles: ['Employee'],
@@ -607,7 +630,7 @@ export function UsersPage({ t, run }: Any) {
                   {u.name} {u.active ? '' : '· ' + t('Dezactivat', 'Disabled')}
                 </strong>
                 <small>
-                  {u.userName} · {u.email}
+                  {u.userName} · {u.email} · {t('Centru de cost', 'Cost centre')}: {u.costCenter || '—'}
                 </small>
               </span>
               <span>{u.roles.join(' · ')}</span>
