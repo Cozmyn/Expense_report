@@ -7,6 +7,8 @@ public class User : IdentityUser
 {
     public string Name { get; set; } = "";
     public string Worker { get; set; } = "";
+    // Employee default, editable by Admin; expense allocations remain independent.
+    public string CostCenter { get; set; } = "";
     public string? ManagerId { get; set; }
     public bool Active { get; set; } = true;
     public bool ChangePassword { get; set; } = true;
