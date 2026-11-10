@@ -46,6 +46,8 @@ public static class SchemaUpgrades
                 ("ReportAttachments", "ReceiptMode", "TEXT NOT NULL DEFAULT 'Auto'"),
                 ("Reports", "CostCenter", "TEXT NOT NULL DEFAULT ''"),
                 ("AspNetUsers", "CostCenter", "TEXT NOT NULL DEFAULT ''"),
+                ("AspNetUsers", "ApprovalMode", "TEXT NOT NULL DEFAULT 'CostCenter'"),
+                ("AspNetUsers", "FixedApproverId", "TEXT NULL"),
                 ("Reports", "EmployeeName", "TEXT NOT NULL DEFAULT ''"),
                 ("Reports", "EmployeeWorker", "TEXT NOT NULL DEFAULT ''"),
                 ("Reports", "DepartmentCode", "TEXT NOT NULL DEFAULT ''"),
@@ -231,6 +233,11 @@ public static class SchemaUpgrades
         if (!await db.SchemaReleases.AnyAsync(x => x.Id == 10))
         {
             db.SchemaReleases.Add(new() { Id = 10, Name = "Unified receipt intake and report-level cost centre" });
+            await db.SaveChangesAsync();
+        }
+        if (!await db.SchemaReleases.AnyAsync(x => x.Id == 12))
+        {
+            db.SchemaReleases.Add(new() { Id = 12, Name = "Explicit fixed-approver exceptions for specified employees" });
             await db.SaveChangesAsync();
         }
         if (!await db.SchemaReleases.AnyAsync(x => x.Id == 11))
