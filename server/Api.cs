@@ -110,6 +110,7 @@ public static class Api
                 return DocumentAssistance.Defaults(await db.Masters.ToListAsync(), report, day);
             }
         );
+        CostCenterRouting.Map(api);
         DocumentStatus.Map(api);
         DocumentIntake.Map(api);
         DocumentEvents.Map(api);
