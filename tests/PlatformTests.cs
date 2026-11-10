@@ -242,8 +242,12 @@ public class PlatformTests
                 Json = "{\"requireReapprovalOnPersonalIncrease\":false}",
             }
         );
+        var employee = await db.Users.SingleAsync(u => u.UserName == "alice");
+        var owner = await db.Users.SingleAsync(u => u.UserName == "manager");
         var r = new Report
         {
+            EmployeeId = employee.Id,
+            ManagerId = owner.Id,
             State = States.Finance,
             ApprovedPersonal = 50,
             Lines =
