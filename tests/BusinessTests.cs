@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using ClosedXML.Excel;
 using Decont;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -121,6 +122,10 @@ public class BusinessTests
         report.State = States.Finance;
         report.ApprovedPersonal = 90;
         db.Users.Add(user);
+        db.Users.Add(new User { Id = "manager", UserName = "manager", Name = "Test manager" });
+        db.Roles.Add(new IdentityRole { Id = "manager-role", Name = "Manager", NormalizedName = "MANAGER" });
+        db.UserRoles.Add(new IdentityUserRole<string> { UserId = "manager", RoleId = "manager-role" });
+        db.CostCenterOwners.Add(new CostCenterOwner { CostCenterCode = "CC", ManagerId = "manager" });
         db.Reports.Add(report);
         await db.SaveChangesAsync();
         await new Reports(db).Reapproval(report, Principal("finance", "Finance"));
