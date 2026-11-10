@@ -23,7 +23,7 @@ Downloadable CSV examples also appear directly in the corresponding Admin and Fi
 
 ## Ghidul nou de decontare / New receipt intake guide
 
-**RO/EN:** [Decont simplificat — încărcare unică, OCR asistat, TVA și verificare](docs/UNIFIED-RECEIPT-FLOW.md). Fluxul este în lucru în PR #15; până la integrarea și verificarea completă, versiunea stabilă rămâne cea de pe ramura `main`.
+**RO/EN:** [Decont simplificat — încărcare unică, OCR asistat, TVA și verificare](docs/UNIFIED-RECEIPT-FLOW.md). Fluxul este integrat în `main` prin [PR #15](https://github.com/Cozmyn/Expense_report/pull/15). Integrarea codului nu înlocuiește verificarea datelor proprii, a migrărilor și acceptanța Finance/ERP înainte de utilizare în producție.
 
 ## Bonuri fiscale / Receipt workflow
 
