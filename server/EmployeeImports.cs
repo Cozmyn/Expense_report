@@ -11,7 +11,10 @@ public record EmployeeRow(
     string Worker,
     string? ManagerUsername,
     bool Active,
-    string? CostCenter = null
+    string? CostCenter = null,
+    string Role = "Employee",
+    string ApprovalMode = "CostCenter",
+    string? FixedApproverUsername = null
 );
 
 public record EmployeeBatch(List<EmployeeRow> Rows, string Reason, string TemporaryPassword);
@@ -52,6 +55,22 @@ public static class EmployeeImports
                 "Employee cost centre must exist and be active."
             );
         }
+        Guard.Require(row.Role is "Employee" or "Manager",
+            "role", "Importă numai angajați sau manageri.", "Import only employees or managers.");
+        Guard.Require(row.ApprovalMode is "CostCenter" or "Fixed",
+            "approval_mode", "Mod de aprobare invalid.", "Invalid approval mode.");
+        if (row.ApprovalMode == "Fixed")
+        {
+            Guard.Require(!string.IsNullOrWhiteSpace(row.FixedApproverUsername)
+                && !row.FixedApproverUsername.Equals(row.Username, StringComparison.OrdinalIgnoreCase),
+                "fixed_approver", "Excepția necesită un alt utilizator, manager activ.",
+                "Fixed approval requires a different active Manager.");
+            var fixedManager = await users.FindByNameAsync(row.FixedApproverUsername!);
+            Guard.Require(fixedManager != null && fixedManager.Active
+                && await users.IsInRoleAsync(fixedManager, "Manager"),
+                "fixed_approver", "Managerul fix trebuie să existe și să fie activ.",
+                "Fixed approver must already exist and be active.");
+        }
         if (!string.IsNullOrWhiteSpace(row.ManagerUsername))
         {
             var manager = await users.FindByNameAsync(row.ManagerUsername);
@@ -67,15 +86,11 @@ public static class EmployeeImports
     public static void Map(RouteGroupBuilder api)
     {
         var admin = api.MapGroup("/admin/employee-import").RequireAuthorization(p => p.RequireRole("Admin"));
-        admin.MapGet(
-            "/template",
-            () =>
-                Results.File(
-                    Encoding.UTF8.GetBytes("username,name,email,worker,managerUsername,active,costCenter\r\n"),
-                    "text/csv",
-                    "employee-template.csv"
-                )
-        );
+        admin.MapGet("/template", () => ImportExamples.Download("employees"));
+        admin.MapGet("/template/{kind}", (string kind) =>
+            kind is "employees" or "managers"
+                ? ImportExamples.Download(kind)
+                : Results.NotFound());
         admin.MapPost(
             "/preview",
             async (HttpContext c, UserManager<User> users, Db db) =>
@@ -100,7 +115,10 @@ public static class EmployeeImports
                             Get("worker"),
                             Get("managerUsername"),
                             Get("active") != "false",
-                            Get("costCenter")
+                            Get("costCenter"),
+                            Get("role", "Employee"),
+                            Get("approvalMode", "CostCenter"),
+                            Get("fixedApproverUsername")
                         );
                         await Validate(row, users, valid, db);
                         valid.Add(row);
@@ -152,6 +170,9 @@ public static class EmployeeImports
                             var manager = string.IsNullOrEmpty(row.ManagerUsername)
                                 ? null
                                 : await users.FindByNameAsync(row.ManagerUsername);
+                            var fixedApprover = row.ApprovalMode == "Fixed"
+                                ? await users.FindByNameAsync(row.FixedApproverUsername!)
+                                : null;
                             var user = new User
                             {
                                 UserName = row.Username,
@@ -159,6 +180,8 @@ public static class EmployeeImports
                                 Email = row.Email,
                                 Worker = row.Worker,
                                 CostCenter = (row.CostCenter ?? "").Trim(),
+                                ApprovalMode = row.ApprovalMode,
+                                FixedApproverId = fixedApprover?.Id,
                                 ManagerId = manager?.Id,
                                 Active = row.Active,
                                 ChangePassword = true,
@@ -171,12 +194,12 @@ public static class EmployeeImports
                                 "Importul nu respectă politica conturilor.",
                                 "Import violates account policy."
                             );
-                            result = await users.AddToRoleAsync(user, "Employee");
+                            result = await users.AddToRoleAsync(user, row.Role);
                             Guard.Require(
                                 result.Succeeded,
                                 "identity",
-                                "Rolul Employee lipsește.",
-                                "Employee role is unavailable."
+                                "Rolul de import lipsește.",
+                                "Import role is unavailable."
                             );
                             svc.Log(
                                 c.User,
@@ -189,6 +212,9 @@ public static class EmployeeImports
                                     row.Name,
                                     row.Worker,
                                     row.CostCenter,
+                                    row.Role,
+                                    row.ApprovalMode,
+                                    fixedApproverId = fixedApprover?.Id,
                                     managerId = manager?.Id,
                                 },
                                 reason: input.Reason
