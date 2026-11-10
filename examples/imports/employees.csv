@@ -1,0 +1,3 @@
+username,name,email,worker,managerUsername,active,costCenter,role,approvalMode,fixedApproverUsername
+ana.popescu,Ana Popescu,ana.popescu@example.invalid,EMP001,manager.existent,true,CC100,Employee,CostCenter,
+director.example,Director Exemplu,director@example.invalid,EMP002,,true,CC200,Employee,Fixed,manager.existent
