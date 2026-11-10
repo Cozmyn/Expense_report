@@ -986,8 +986,8 @@ function ReportDetail({
       <section className="panel compact">
         <h2>{t('1. Datele decontului', '1. Report details')}</h2>
         <p className="small muted">
-          {t('Completezi aceste informații o singură dată. Managerul este atribuit automat, iar centrul de cost poate fi schimbat aici pentru toate bonurile.',
-             'Enter these details once. The manager is assigned automatically; you can change the cost centre here for every receipt.')}
+          {t('Centrul de cost al angajatului se precompletează aici. Fiecare bon are separat propriul centru de cost, care poate fi diferit. Managerul se alege automat după centrul cu cea mai mare sumă cumulată.',
+             'The employee cost centre is prefilled here. Each receipt has its own editable cost centre. The approval manager is chosen from the centre with the largest combined amount.')}
         </p>
         <div className="form-grid">
           <Field name={t('Nume angajat', 'Employee name')}>
@@ -999,8 +999,17 @@ function ReportDetail({
               }
             />
           </Field>
-          <Field name={t('Manager desemnat automat', 'Automatically assigned manager')}>
-            <input readOnly value={detail.managerName || (r.managerId ? t('Manager atribuit', 'Manager assigned') : t('Lipsește managerul — contactează administratorul', 'Manager missing — contact administrator'))} />
+          <Field name={t('Manager de aprobare (calculat automat)', 'Approval manager (calculated automatically)')}
+            note={t('Determinarea se face pe totalurile în RON ale bonurilor grupate după centru de cost.',
+                    'Determined from RON totals of receipts grouped by cost centre.')}>
+            <input readOnly value={
+              (own || r.state === 'DRAFT' || r.state === 'REJECTED')
+                ? (detail.approvalRouting?.ready
+                    ? detail.approvalRouting.managerName + ' · ' + detail.approvalRouting.dominantCostCenter
+                    : t('Responsabil neconfigurat — vezi mesajul de mai jos',
+                        'Owner not configured — see details below'))
+                : detail.managerName || t('Manager neconfigurat', 'No manager assigned')
+            } />
           </Field>
           <Field name="LantID">
             <input readOnly value={r.employeeWorker || t('Neconfigurat', 'Not configured')} />
@@ -1020,17 +1029,34 @@ function ReportDetail({
         </div>
         <p className="small muted">
           {t(
-            'Date preluate din profil la crearea decontului. Bonurile se adaugă separat mai jos.',
-            'Profile details captured when the report was created. Add individual receipts below.',
+            'Angajatul și departamentul provin din profil. Managerul de aprobare se determină din proprietarii centrelor de cost, nu din managerul organizațional.',
+            'Employee and department come from the profile. Approval uses cost centre ownership, not the organisational manager.',
           )}
         </p>
+        {!detail.approvalRouting?.ready && (own || r.state === 'DRAFT') && (
+          <p className="issue warning" role="status">
+            {t(detail.approvalRouting?.messageRo || 'Configurează responsabilul centrului de cost.',
+               detail.approvalRouting?.messageEn || 'Configure the cost centre owner.')}
+          </p>
+        )}
+        {detail.approvalRouting?.costCenters?.length > 1 && (
+          <div className="cost-centre-breakdown" aria-label={t('Totaluri pe centre de cost', 'Totals by cost centre')}>
+            <strong>{t('Repartizarea cheltuielilor', 'Allocation by cost centre')}</strong>
+            {detail.approvalRouting.costCenters.map((center: Any) => (
+              <span key={center.code}>
+                {center.code || '—'}: {money(center.totalRon)} RON
+                {center.managerName ? ' · ' + center.managerName : ''}
+              </span>
+            ))}
+          </div>
+        )}
       </section>
       {editable && (
         <section className="panel compact">
           <div className="form-grid">
             <Field name={t('Centru de cost al decontului', 'Report cost centre')}
-              note={t('Se aplică automat tuturor bonurilor; poți modifica alegerea aici.',
-                      'Automatically applies to every receipt; change it here.')}>
+              note={t('Se propune din alocarea angajatului și poate fi schimbat. Modificarea antetului NU rescrie centrele de cost ale bonurilor.',
+                      'Prefilled from the employee assignment and editable. Changing the header does NOT overwrite receipt cost centres.')}>
               <select value={headerCostCenter} onChange={(e) => HCC(e.target.value)}>
                 <option value="">{t('Selectează centrul de cost', 'Select cost centre')}</option>
                 {masters.filter((m: Any) => m.kind === 'costCenters' && m.active
@@ -1560,6 +1586,7 @@ function ReportDetail({
             r.cardId || r.lines.find((l: Any) => l.id !== editing.id)?.data.cardId || null
           }
           reportCostCenter={r.costCenter || ''}
+          employeeCostCenter={detail.employeeCostCenter || ''}
           finance={finance}
           draftStorageKey={
             editing.sourceGroupId ? 'ocr-draft:' + editing.sourceGroupId : 'receipt-draft:' + r.id
