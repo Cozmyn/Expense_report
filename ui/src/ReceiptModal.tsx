@@ -36,6 +36,7 @@ export default function ReceiptModal({
   reportPayment,
   reportCardId,
   reportCostCenter,
+  employeeCostCenter,
   finance,
   draftStorageKey,
   masters,
@@ -49,7 +50,11 @@ export default function ReceiptModal({
 }: Any) {
   const [d, D] = useState<Any>({
     ...expense.data,
-    costCenter: reportCostCenter || expense.data.costCenter,
+    // Existing expense keeps its allocation; each NEW receipt defaults to the
+    // employee's database assignment, independently from the header choice.
+    costCenter: expense.id
+      ? (expense.data.costCenter || '')
+      : (employeeCostCenter || expense.data.costCenter || reportCostCenter || ''),
     hasCompanyCui:
       expense.data.hasCompanyCui ??
       (expense.data.documentType === 'InvoiceWithCui'
@@ -1324,8 +1329,8 @@ export default function ReceiptModal({
               <h3>{t('Plată și alocare contabilă', 'Payment and accounting allocation')}</h3>
               <p className="small muted">
                 {t(
-                  'Plata și centrul de cost sunt stabilite o singură dată în decont. Aici verifici doar datele bonului.',
-                  'Payment and cost centre are set once in the report. Here you only review receipt details.',
+                  'Metoda de plată și cardul sunt stabilite în antet. Centrul de cost al fiecărui bon se poate modifica separat.',
+                  'Payment method and card are set in the report header. Each receipt can have a different cost centre.',
                 )}
               </p>
               <div className="form-grid">
@@ -1366,10 +1371,11 @@ export default function ReceiptModal({
                     )}
                   </>
                 )}
-                {states.costCenter !== 'NOT_APPLICABLE' && !reportCostCenter && (
-                  <Field name={t('Centru de cost', 'Cost centre')}>
+                <Field name={t('Centru de cost al bonului', 'Receipt cost centre')}
+                  note={t('Propus din alocarea angajatului. Poți modifica doar acest bon; antetul și celelalte cheltuieli nu se schimbă.',
+                          'Prefilled from the employee allocation. Changing it affects only this receipt, not the header or other expenses.')}>
                     <select
-                      required={states.costCenter === 'REQUIRED'}
+                      required
                       value={d.costCenter}
                       onChange={(e) => set('costCenter', e.target.value)}
                     >
@@ -1381,7 +1387,6 @@ export default function ReceiptModal({
                       ))}
                     </select>
                   </Field>
-                )}
                 {states.project !== 'NOT_APPLICABLE' && (
                   <Field
                     name={
