@@ -34,6 +34,21 @@ public static class Admin
             "Account or password policy failed: " + string.Join(", ", result.Errors.Select(e => e.Code))
         );
 
+    private static async Task<string> EmployeeCostCenter(string? code, Db db)
+    {
+        var value = (code ?? "").Trim();
+        if (value == "") return "";
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var entries = await db.Masters.Where(m => m.Kind == "costCenters" && m.Code == value).ToListAsync();
+        Guard.Require(
+            entries.Any(m => Rules.Effective(m, today)),
+            "cost_center",
+            "Alege un centru de cost activ pentru angajat.",
+            "Select an active cost centre for the employee."
+        );
+        return value;
+    }
+
     public static void Map(RouteGroupBuilder api)
     {
         var admin = api.MapGroup("/admin").RequireAuthorization(p => p.RequireRole("Admin"));
@@ -52,6 +67,7 @@ public static class Admin
                             u.Name,
                             u.Email,
                             u.Worker,
+                            u.CostCenter,
                             u.ManagerId,
                             u.Active,
                             u.ChangePassword,
@@ -85,6 +101,7 @@ public static class Admin
                             Name = i.Name,
                             Email = i.Email,
                             Worker = i.Worker,
+                            CostCenter = await EmployeeCostCenter(i.CostCenter, db),
                             ManagerId = i.ManagerId,
                             Active = i.Active,
                         };
@@ -101,6 +118,7 @@ public static class Admin
                                 u.Name,
                                 u.Email,
                                 u.Worker,
+                                u.CostCenter,
                                 u.ManagerId,
                                 i.Roles,
                             }
@@ -141,6 +159,7 @@ public static class Admin
                             u.Name,
                             u.Email,
                             u.Worker,
+                            u.CostCenter,
                             u.ManagerId,
                             u.Active,
                             roles = await um.GetRolesAsync(u),
@@ -148,6 +167,8 @@ public static class Admin
                         u.Name = i.Name;
                         u.Email = i.Email;
                         u.Worker = i.Worker;
+                        if (i.CostCenter != null)
+                            u.CostCenter = await EmployeeCostCenter(i.CostCenter, db);
                         u.ManagerId = i.ManagerId;
                         u.Active = i.Active;
                         Identity(await um.UpdateAsync(u));
@@ -166,6 +187,7 @@ public static class Admin
                                 u.Name,
                                 u.Email,
                                 u.Worker,
+                                u.CostCenter,
                                 u.ManagerId,
                                 u.Active,
                                 i.Roles,
@@ -435,7 +457,8 @@ public record UserInput(
     bool Active,
     string[] Roles,
     string? Password,
-    string? Reason
+    string? Reason,
+    string? CostCenter = null
 );
 
 public record ResetInput(string Password, string Reason);
