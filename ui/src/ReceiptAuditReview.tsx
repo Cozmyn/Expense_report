@@ -18,9 +18,9 @@ const regionOf = (field: Any): Region | null =>
  * Financial edits continue exclusively through the authorised receipt editor.
  */
 export default function ReceiptAuditReview({
-  report, detail, t, editable, finance, onEdit,
+  report, detail, masters, t, editable, finance, onEdit,
 }: {
-  report: Any; detail: Any; t: (ro: string, en: string) => string;
+  report: Any; detail: Any; masters: Any[]; t: (ro: string, en: string) => string;
   editable: boolean; finance: boolean; onEdit: (line: Any) => void;
 }) {
   const [selectedId, Selected] = useState<string | null>(null);
@@ -33,7 +33,14 @@ export default function ReceiptAuditReview({
   const attachment = report.attachments?.find((a: Any) => a.id === group?.bundleId)
     || current.evidence?.find((e: Any) => e.scan === 'Clean');
   const ocrFields = readJson(group?.fields, {});
+  const ocrTaxes: Any[] = readJson(group?.taxes, []);
   const sourceRegions: Region[] = readJson(group?.regions, []);
+  const savedTaxRows = (current.data?.taxes || []).map((tax: Any) => {
+    const master = masters.find((m) => m.id === tax.rateId);
+    const rate = Number(readJson(master?.json, {})?.rate ?? 0);
+    return { rate, base: Number(tax.base), vat: Number(tax.vat) };
+  });
+  const savedTax = (rate: number) => savedTaxRows.find((row: Any) => row.rate === rate);
   const evidenceFields = Object.entries(ocrFields) as [string, Any][];
   const ordered = [
     ...fieldsInOrder.filter((key) => ocrFields[key]),
@@ -45,9 +52,16 @@ export default function ReceiptAuditReview({
     if (key === 'amount') return Number(ocr) === Number(receipt);
     return ocr !== '' && ocr === receipt;
   };
-  const matched: Region[] = ordered.filter(isMatch)
-    .map((key) => regionOf(ocrFields[key]))
-    .filter((region): region is Region => region != null);
+  const matched: Region[] = [
+    ...ordered.filter(isMatch)
+      .map((key) => regionOf(ocrFields[key]))
+      .filter((region): region is Region => region != null),
+    ...ocrTaxes.filter((tax: Any) => {
+      const saved = savedTax(Number(tax.rate));
+      return saved && saved.base === Number(tax.base) && saved.vat === Number(tax.vat)
+        && tax.box && tax.page;
+    }).map((tax: Any) => ({ page: tax.page, ...tax.box })),
+  ];
   const mismatches = ordered.filter((key) => !isMatch(key));
   const document = attachment ? {
     ...attachment,
@@ -154,6 +168,42 @@ export default function ReceiptAuditReview({
               {t('OCR nu a identificat câmpuri structurate; datele trebuie comparate manual cu originalul.',
                  'OCR identified no structured fields. Compare saved data manually with the original.')}
             </div>
+          )}
+          {(savedTaxRows.length > 0 || ocrTaxes.length > 0) && (
+            <section className="receipt-review-tax">
+              <h4>{t('Verificarea bazei și TVA', 'Tax base and VAT reconciliation')}</h4>
+              <p className="small muted">{t(
+                'Compară baza și TVA-ul efectiv cu propunerile OCR. Suma bonului trebuie să corespundă valorilor de pe document.',
+                'Compare taxable base and actual VAT with OCR proposals. The gross amount must match the original document.'
+              )}</p>
+              <div className="table-wrap">
+                <table>
+                  <thead><tr>
+                    <th>{t('Cotă', 'Rate')}</th>
+                    <th>{t('Bază salvată', 'Saved base')}</th>
+                    <th>{t('TVA salvat', 'Saved VAT')}</th>
+                    <th>{t('Propunere OCR', 'OCR proposal')}</th>
+                  </tr></thead>
+                  <tbody>
+                    {Array.from(new Set([
+                      ...savedTaxRows.map((v: Any) => v.rate),
+                      ...ocrTaxes.map((v: Any) => Number(v.rate)),
+                    ])).sort((a, b) => a - b).map((rate) => {
+                      const saved = savedTax(rate);
+                      const original = ocrTaxes.find((v: Any) => Number(v.rate) === rate);
+                      return <tr key={rate}>
+                        <td>{rate}%</td>
+                        <td>{saved?.base ?? '—'}</td>
+                        <td>{saved?.vat ?? '—'}</td>
+                        <td>{original
+                          ? String(original.base) + ' + ' + String(original.vat)
+                          : t('Nu a fost citit', 'Not recognised')}</td>
+                      </tr>;
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
           )}
           {editable && (
             <button type="button" className="primary"
