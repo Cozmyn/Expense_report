@@ -33,6 +33,8 @@ export function ManagerNextActions({
             <small>
               {report.number} · {report.employeeName || t('Angajat', 'Employee')} ·{' '}
               {report.ageDays || 0} {t('zile', 'days')}
+              {' · '}{report.lines?.length || 0} {t('bonuri', 'receipts')}
+              {' · '}{Number(report.total || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} RON
             </small>
           </span>
           <span className="manager-action-open">
