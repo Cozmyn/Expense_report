@@ -86,6 +86,22 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     cc = 'CC-' + suffix;
   await master('expenseTypes', cat, {});
   await master('costCenters', cc, { erpCode: cc });
+  // The mobile fixture tests a supplier already registered in the internal master.
+  // The desktop fixture independently tests the unregistered-supplier confirmation flow.
+  const matchingSupplier = ((await (await admin.get('/api/configuration/masters')).json()) as any[])
+    .find((m: any) => m.kind === 'suppliers' && m.code === '18546294' && m.active);
+  if (suffix === 'mobile' && !matchingSupplier)
+    await mutation(admin, '/api/configuration/masters', {
+      kind: 'suppliers',
+      code: '18546294',
+      nameRo: 'Synthetic CI supplier',
+      nameEn: 'Synthetic CI supplier',
+      json: '{}',
+      from: '2020-01-01',
+      to: null,
+      active: true,
+      reason: 'CI registered supplier lookup fixture',
+    });
   await mutation(admin, '/api/admin/cost-center-owners/' + encodeURIComponent(cc), {
     costCenterCode: cc, managerId: manager.id, reason: 'CI manager ownership',
   }, 'PUT');
@@ -295,6 +311,8 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   });
   expect(sharedFile.ok(), await sharedFile.text()).toBeTruthy();
   await page.reload();
+  // A fresh login session starts on the dashboard; reopen the actual report.
+  await page.getByRole('button', { name: new RegExp('^Client visit ' + suffix + '(?:\\s|$)') }).first().click();
   await expect(page.getByRole('button', { name: 'Trimite la aprobare' })).toBeEnabled({
     timeout: 90000,
   });
@@ -495,10 +513,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     .poll(() => pp.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(pp.viewportSize()!.width);
   await postingNav('Configurare Finance');
-  const vehicle = pp
-    .locator('section')
-    .filter({ has: pp.locator('h4').filter({ hasText: 'Deductibilitate auto' }) })
-    .first();
+  const vehicle = pp.getByRole('heading', { name: 'Deductibilitate auto', exact: true }).locator('..');
   await expect(vehicle.locator('h4').first()).toBeVisible();
   await expect(vehicle.getByLabel('Procent deductibil auto', { exact: true })).toHaveValue('50');
   await vehicle.getByLabel('Procent deductibil auto', { exact: true }).fill('75');
@@ -510,6 +525,8 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     .fill('Synthetic future vehicle policy');
   await vehicle.getByRole('button', { name: 'Salvează procentul auto', exact: true }).click();
   await expect(vehicle.locator('.simple-row').first()).toContainText(/75(?:[,.]0+)?%/);
+  const vehiclePolicies = await (await fin.get('/api/finance/vehicle-deductibility')).json();
+  expect(vehiclePolicies.versions.some((v: any) => JSON.parse(v.json).percentage === 75 && v.from === '2027-02-01')).toBeTruthy();
   await pp.screenshot({ path: info.outputPath('pdf04-vehicle-percentage.png'), fullPage: true });
   await postingContext.close();
   const accounting = await fin.get('/api/reports/' + report.id + '/accounting-details');
@@ -614,7 +631,16 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     await dialog
       .getByLabel('Descriere / justificare', { exact: true })
       .fill('Confirmed OCR page ' + (n + 1));
-    await save();
+    const verifiedBefore = (await (await employee.get('/api/reports/' + ocrReport.id)).json()).report.lines.length;
+    const confirmed = dialog.getByRole('checkbox', { name: /Am verificat gruparea paginilor/ });
+    if (await confirmed.count()) await confirmed.check();
+    await dialog.getByRole('button', { name: 'Salvează bonul', exact: true }).click();
+    // The uploader opens the next unverified OCR group automatically. Confirm that
+    // the receipt was persisted rather than requiring an intermediate closed dialog.
+    await expect.poll(async () =>
+      ((await (await employee.get('/api/reports/' + ocrReport.id)).json()).report.lines.length),
+    ).toBe(verifiedBefore + 1);
+    if (n === 1) await expect(dialog).not.toBeVisible();
   }
   const captured = (await (await employee.get('/api/reports/' + ocrReport.id)).json()).report;
   expect(captured.lines).toHaveLength(2);
@@ -727,6 +753,10 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
       fullPage: true,
     });
   }
+  // OCR screenshots inspect the suggestions without committing an expense.
+  // Close that genuine review dialog through its Cancel action before visiting the profile.
+  await dialog.getByRole('button', { name: 'Anulează', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
   // Self-service profile and password change must work on desktop and mobile.
   await page.getByRole('button', { name: 'Profilul meu', exact: true }).last().click();
   await expect(page.getByRole('heading', { name: 'Profilul meu', exact: true })).toBeVisible();

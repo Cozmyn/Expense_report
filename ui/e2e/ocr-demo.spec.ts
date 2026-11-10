@@ -118,6 +118,11 @@ test('PDF02 recorded source-to-expense walkthrough', async ({ browser }, info) =
     cc = 'DEMO-CC-' + tag;
   await master('expenseTypes', category, { ocrKeywords: ['motorina'] });
   await master('costCenters', cc, { erpCode: cc });
+  await mutate(admin, '/admin/cost-center-owners/' + encodeURIComponent(cc), {
+    costCenterCode: cc,
+    managerId: manager.id,
+    reason: 'Assign actual approver for PDF02 end-to-end scenario',
+  }, 'PUT');
   await master('accounting', category, { mainAccount: 'DEMO-GL', localAccount: 'DEMO-LOCAL' });
   const configured = await (await admin.get('/api/configuration/masters')).json();
   for (const rate of [0, 11, 21])
