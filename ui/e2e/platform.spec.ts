@@ -753,6 +753,10 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
       fullPage: true,
     });
   }
+  // OCR screenshots inspect the suggestions without committing an expense.
+  // Close that genuine review dialog through its Cancel action before visiting the profile.
+  await dialog.getByRole('button', { name: 'Anulează', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
   // Self-service profile and password change must work on desktop and mobile.
   await page.getByRole('button', { name: 'Profilul meu', exact: true }).last().click();
   await expect(page.getByRole('heading', { name: 'Profilul meu', exact: true })).toBeVisible();
