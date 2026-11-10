@@ -461,6 +461,7 @@ public class PlatformHttpTests
                 EmployeeId = alice.Id,
                 ManagerId = manager.Id,
                 State = States.Finance,
+                CostCenter = "TEST-ALLOC",
                 Purpose = "Employee correction",
             };
             db.Reports.Add(r);
@@ -471,7 +472,9 @@ public class PlatformHttpTests
         }
         var aliceClient = await Login(f, "alice");
         Key(aliceClient);
-        var input = new RoutingInput(1, employeeId, managerId, "Wrong expense employee");
+        // A caller's proposed approver is ignored. Only DB cost-centre owners
+        // can select the approver.
+        var input = new RoutingInput(1, employeeId, "untrusted-manager", "Wrong expense employee");
         Assert.Equal(
             HttpStatusCode.Forbidden,
             (await aliceClient.PostAsJsonAsync($"/api/finance/reports/{id}/routing", input)).StatusCode
@@ -487,6 +490,7 @@ public class PlatformHttpTests
             var db = scope.ServiceProvider.GetRequiredService<Db>();
             var report = await db.Reports.FindAsync(id);
             Assert.Equal(employeeId, report!.EmployeeId);
+            Assert.Equal(managerId, report.ManagerId);
             Assert.Equal(States.Reapproval, report.State);
             Assert.Equal(1, report.Revision);
             Assert.Single(await db.Snapshots.ToListAsync());
