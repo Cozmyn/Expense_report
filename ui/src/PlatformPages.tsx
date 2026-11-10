@@ -942,60 +942,43 @@ export function FinanceDashboard({ t, run, openQueue }: Any) {
 
 export function FinanceRouting({ report, t, run, refresh, reason }: Any) {
   const [users, U] = useState<Any[]>([]),
-    [employee, E] = useState(report.employeeId),
-    [manager, M] = useState(report.managerId);
+    [employee, E] = useState(report.employeeId);
   useEffect(() => {
     run(async () => U(await api('/directory')));
   }, []);
   return (
     <section className="panel">
-      <h3>{t('Corecție angajat / manager', 'Correct employee / manager')}</h3>
-      <p>
-        {t(
-          'O modificare a angajatului sau managerului cere o nouă aprobare. Worker rămâne codul angajatului ales, nu al titularului cardului.',
-          'Changing the employee or manager requires a new approval. Worker remains the selected employee code, not the card owner.',
-        )}
-      </p>
+      <h3>{t('Corectează angajatul decontului', 'Correct report employee')}</h3>
+      <p>{t(
+        'Finance poate corecta angajatul. Managerul de aprobare NU poate fi selectat manual: este proprietarul centrului de cost cu cea mai mare valoare cumulată a cheltuielilor.',
+        'Finance can correct the employee. Approval manager cannot be chosen manually: it is the owner of the cost centre with the highest combined expense value.'
+      )}</p>
       <div className="form-grid">
-        {[
-          ['Employee', employee, E],
-          ['Manager', manager, M],
-        ].map(([role, value, set]: any) => (
-          <Field
-            key={role}
-            name={role === 'Employee' ? t('Angajat', 'Employee') : t('Manager', 'Manager')}
-          >
-            <select value={value} onChange={(e) => set(e.target.value)}>
-              {users
-                .filter((u) => u.roles.includes(role))
-                .map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} · {u.worker}
-                  </option>
-                ))}
-            </select>
-          </Field>
-        ))}
+        <Field name={t('Angajat', 'Employee')}>
+          <select value={employee} onChange={(e) => E(e.target.value)}>
+            {users.filter((u) => u.roles.includes('Employee')).map((u) => (
+              <option key={u.id} value={u.id}>{u.name} · {u.worker}</option>
+            ))}
+          </select>
+        </Field>
+        <Field name={t('Managerul atribuit anterior', 'Previously assigned approver')}
+          note={t('Managerul va fi recalculat automat pe baza centrelor de cost ale bonurilor.',
+                  'The approver will be recalculated automatically from receipt cost centres.')}>
+          <input readOnly value={
+            users.find((u) => u.id === report.managerId)?.name ||
+            t('Nedisponibil', 'Unavailable')
+          } />
+        </Field>
       </div>
-      <button
-        className="secondary"
-        disabled={
-          reason.trim().length < 3 ||
-          (employee === report.employeeId && manager === report.managerId)
-        }
-        onClick={() =>
-          run(async () => {
-            await api('/finance/reports/' + report.id + '/routing', 'POST', {
-              version: report.version,
-              employeeId: employee,
-              managerId: manager,
-              reason,
-            });
-            await refresh();
-          })
-        }
-      >
-        {t('Salvează și cere reaprobare', 'Save & request reapproval')}
+      <button className="secondary"
+        disabled={reason.trim().length < 3 || employee === report.employeeId}
+        onClick={() => run(async () => {
+          await api('/finance/reports/' + report.id + '/routing', 'POST', {
+            version: report.version, employeeId: employee, managerId: null, reason,
+          });
+          await refresh();
+        })}>
+        {t('Corectează angajatul și cere reaprobare', 'Correct employee & request reapproval')}
       </button>
     </section>
   );
