@@ -1189,7 +1189,7 @@ function ReportDetail({
         />
       )}
       {tab === 'expenses' && (
-        <ReceiptAuditReview report={r} detail={detail} t={t}
+        <ReceiptAuditReview report={r} detail={detail} masters={masters} t={t}
           editable={editable} finance={finance} onEdit={Editing} />
       )}
       {tab === 'expenses' && (
