@@ -26,7 +26,8 @@ public record ApprovalRouting(
     List<CostCenterTotal> CostCenters,
     string? ErrorCode,
     string? MessageRo,
-    string? MessageEn
+    string? MessageEn,
+    string RoutingMode = "CostCenter"
 )
 {
     public bool Ready => ErrorCode == null;
@@ -53,6 +54,31 @@ public static class CostCenterRouting
                 .OrderBy(g => g.Code, StringComparer.Ordinal)
                 .ToList();
 
+        // Exceptional employees have a named, validated approver. The rule
+        // overrides only approval routing, not individual cost-centre accounting.
+        var employee = await db.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Id == report.EmployeeId);
+        if (employee?.ApprovalMode == "Fixed")
+        {
+            var fixedId = employee.FixedApproverId;
+            var fixedManager = string.IsNullOrWhiteSpace(fixedId) ? null
+                : await db.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Id == fixedId && u.Active);
+            var hasRole = fixedManager != null && await db.UserRoles.Join(
+                db.Roles, ur => ur.RoleId, role => role.Id,
+                (ur, role) => new { ur.UserId, role.Name })
+                .AnyAsync(x => x.UserId == fixedManager.Id && x.Name == "Manager");
+            if (!hasRole || fixedId == report.EmployeeId)
+                return new(null, null, null, 0m, [], "fixed_approver_invalid",
+                    "Aprobatorul nominalizat este lipsă, inactiv, fără rol Manager sau coincide cu angajatul. Corectează excepția în Admin.",
+                    "The named approver is missing, inactive, lacks the Manager role or is the employee. Update the exception in Admin.",
+                    "Fixed");
+            var breakdown = groups.Select(g => new CostCenterTotal(g.Code, g.Total, null, null)).ToList();
+            return new(fixedManager!.Id, fixedManager.Name, null,
+                Rules.Money(groups.Sum(x => x.Total)), breakdown, null, null, null, "Fixed");
+        }
+        if (employee?.ApprovalMode is not (null or "" or "CostCenter"))
+            return new(null, null, null, 0m, [], "approval_mode_invalid",
+                "Modul de aprobare al utilizatorului este invalid. Contactează Admin.",
+                "The employee approval mode is invalid. Contact Admin.");
         if (groups.Count == 0)
             return new(null, null, null, 0m, [],
                 "cost_center_missing",
