@@ -58,8 +58,8 @@ public static class ImportExamples
                   "{\"rate\":21,\"salesTaxGroup\":\"VDOM\",\"itemTaxGroup\":\"G21\"}"]]
             ),
             ["bank-statement"] = (
-                ["date", "merchant", "amount", "currency", "reference"],
-                [["2026-11-01", "Comerciant exemplu", "-125.50", "RON", "TXN001"]]
+                ["reference", "date", "merchant", "amount", "currency", "settledRon"],
+                [["TXN001", "2026-11-01", "Comerciant exemplu", "-125.50", "RON", "-125.50"]]
             ),
             ["generic"] = (
                 ["code", "nameRo", "nameEn", "from", "to", "active", "json"],
