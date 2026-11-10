@@ -98,6 +98,9 @@ test('Reversible reset, statement charges and independent Finance policy approva
     cc = 'CC-' + tag;
   await master('expenseTypes', cat, {});
   await master('costCenters', cc, { erpCode: cc });
+  await mutate(admin, '/admin/cost-center-owners/' + encodeURIComponent(cc), {
+    costCenterCode: cc, managerId: manager.id, reason: 'Synthetic ownership for Finance tests',
+  }, 'PUT');
   const card = await master('cards', 'CARD-' + tag, {
     lastFour: '1234',
     issuer: 'Synthetic bank',
