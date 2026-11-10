@@ -466,11 +466,15 @@ public static class OcrReviews
         };
         var masterList = await db.Masters.ToListAsync();
         var issues = Rules.Validate(check, masterList);
+        // OCR confirmation is a RECEIPT check. The manager is selected from the
+        // final cost-centre totals only when the report is submitted. Do not
+        // prevent recording valid evidence while the owner route is pending.
+        var receiptIssues = issues.Where(p => p.Blocking && p.Code != "manager").ToList();
         Guard.Require(
-            !issues.Any(p => p.Blocking),
+            receiptIssues.Count == 0,
             "ocr_validation",
-            Serialization.Write(issues),
-            Serialization.Write(issues)
+            Serialization.Write(receiptIssues),
+            Serialization.Write(receiptIssues)
         );
         var before = new
         {
