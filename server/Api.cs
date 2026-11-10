@@ -107,7 +107,13 @@ public static class Api
             {
                 var report = await svc.Get(id, c.User);
                 Guard.Require(DateOnly.TryParse(date, out var day), "date", "Data este invalidă.", "Invalid date.");
-                return DocumentAssistance.Defaults(await db.Masters.ToListAsync(), report, day);
+                var defaults = DocumentAssistance.Defaults(await db.Masters.ToListAsync(), report, day);
+                var employeeCostCenter = await svc.EmployeeCostCenter(report);
+                return defaults with
+                {
+                    CostCenter = employeeCostCenter == "" ? defaults.CostCenter : employeeCostCenter,
+                    Source = employeeCostCenter == "" ? defaults.Source : "EmployeeAssignment"
+                };
             }
         );
         CostCenterRouting.Map(api);
@@ -180,6 +186,8 @@ public static class Api
                         report = View(r),
                         managerName = await db.Users.Where(u => u.Id == r.ManagerId)
                             .Select(u => u.Name).FirstOrDefaultAsync(),
+                        employeeCostCenter = await svc.EmployeeCostCenter(r),
+                        approvalRouting = await CostCenterRouting.Preview(db, r),
                         sourceGroups = await db
                             .DocumentGroups.Where(g => g.ExpenseId != null && lineIds.Contains(g.ExpenseId.Value))
                             .Select(g => new
@@ -235,6 +243,7 @@ public static class Api
                             await svc.ConfigureCostCenter(r, i.CostCenter);
                         r.Purpose = i.Purpose.Trim();
                         Reports.Touch(r);
+                        await svc.Reapproval(r, c.User);
                         svc.Log(
                             c.User,
                             id,
@@ -430,6 +439,7 @@ public static class Api
                         }
                         Reports.Touch(r);
                         svc.Log(c.User, id, lineId.ToString(), "LineArchived", before: l.Json, reason: i.Reason);
+                        await svc.Reapproval(r, c.User);
                         return View(r);
                     }
                 )
