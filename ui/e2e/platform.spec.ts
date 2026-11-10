@@ -198,11 +198,12 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     await expect(dialog.getByLabel('Metoda de plată', { exact: true })).toHaveCount(0);
     await dialog.getByLabel('Tip cheltuială', { exact: true }).selectOption(cat);
   };
-  const save = async () => {
+  const save = async (expectClosed = true) => {
     const confirmed = dialog.getByRole('checkbox', { name: /Am verificat gruparea paginilor/ });
     if (await confirmed.count()) await confirmed.check();
     await dialog.getByRole('button', { name: 'Salvează bonul', exact: true }).click();
-    await expect(dialog).not.toBeVisible();
+    // A multi-receipt PDF intentionally opens the next OCR draft automatically.
+    if (expectClosed) await expect(dialog).not.toBeVisible();
   };
   await begin();
   const dismissedDialogs: string[] = [];
@@ -497,10 +498,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     .poll(() => pp.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(pp.viewportSize()!.width);
   await postingNav('Configurare Finance');
-  const vehicle = pp
-    .locator('section')
-    .filter({ has: pp.locator('h4').filter({ hasText: 'Deductibilitate auto' }) })
-    .first();
+  const vehicle = pp.getByRole('region', { name: 'Deductibilitate auto', exact: true });
   await expect(vehicle.locator('h4').first()).toBeVisible();
   await expect(vehicle.getByLabel('Procent deductibil auto', { exact: true })).toHaveValue('50');
   await vehicle.getByLabel('Procent deductibil auto', { exact: true }).fill('75');
@@ -616,7 +614,9 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     await dialog
       .getByLabel('Descriere / justificare', { exact: true })
       .fill('Confirmed OCR page ' + (n + 1));
-    await save();
+    // First save transitions directly into the second review; only the last
+    // save should close the editor.
+    await save(n === 1);
   }
   const captured = (await (await employee.get('/api/reports/' + ocrReport.id)).json()).report;
   expect(captured.lines).toHaveLength(2);
