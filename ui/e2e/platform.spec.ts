@@ -324,6 +324,10 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     await mp.goto('/');
     await mp.getByRole('button', { name: 'Aprobări', exact: true }).click();
     await mp.getByRole('button', { name: report.purpose }).click();
+    const managerEvidence = mp.getByRole('region', { name: 'Verificare bonuri și OCR' });
+    await expect(managerEvidence).toBeVisible();
+    await expect(managerEvidence.getByText('câmpuri OCR identice cu cele salvate')).toBeVisible();
+    await expect(managerEvidence.getByRole('button', { name: 'Corectează bonul și câmpurile OCR' })).toHaveCount(0);
     await expect(mp.getByRole('button', { name: 'Aprobă revizia', exact: true })).toBeVisible();
     await shot(mp, '05-manager-review');
     await ctx.close();
@@ -363,6 +367,9 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   if (await financeMenu.isVisible()) await financeMenu.click();
   await financePage.getByRole('button', { name: 'Finance', exact: true }).click();
   await financePage.getByRole('button', { name: report.purpose }).click();
+  const financeEvidence = financePage.getByRole('region', { name: 'Verificare bonuri și OCR' });
+  await expect(financeEvidence).toBeVisible();
+  await expect(financeEvidence.getByRole('button', { name: 'Corectează bonul și câmpurile OCR' })).toBeVisible();
   await financePage.getByRole('button', { name: 'Calcul și FX', exact: true }).click();
   await expect(
     financePage.getByRole('heading', { name: 'Calcul și curs valutar', exact: true }),
