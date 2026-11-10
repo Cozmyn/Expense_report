@@ -66,7 +66,11 @@ public static class FinanceRouting
                             r.EmployeeId = employee!.Id;
                             r.EmployeeName = employee.Name;
                             r.EmployeeWorker = employee.Worker;
-                            r.CostCenter = await svc.EmployeeCostCenter(r);
+                            var defaultCostCenter = await svc.EmployeeCostCenter(r);
+                            // Preserve a previously validated report allocation if
+                            // the corrected employee has no active default yet.
+                            if (!string.IsNullOrWhiteSpace(defaultCostCenter))
+                                r.CostCenter = defaultCostCenter;
                             var route = await CostCenterRouting.Preview(db, r);
                             Guard.Require(route.Ready, route.ErrorCode ?? "approval_route",
                                 route.MessageRo ?? "Lipsește managerul centrului de cost.",
