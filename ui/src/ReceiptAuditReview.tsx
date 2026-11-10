@@ -26,7 +26,6 @@ export default function ReceiptAuditReview({
   const [selectedId, Selected] = useState<string | null>(null);
   const [focused, Focus] = useState<Region | null>(null);
   const [focusToken, Token] = useState(0);
-  const [showRaw, Raw] = useState(false);
   const lines: Any[] = report.lines || [];
   if (!lines.length) return null;
   const current = lines.find((l) => l.id === selectedId) || lines[0];
@@ -62,7 +61,6 @@ export default function ReceiptAuditReview({
     Selected(line.id);
     Focus(null);
     Token((n) => n + 1);
-    Raw(false);
   };
 
   return (
@@ -155,16 +153,6 @@ export default function ReceiptAuditReview({
             <div className="issue warning">
               {t('OCR nu a identificat câmpuri structurate; datele trebuie comparate manual cu originalul.',
                  'OCR identified no structured fields. Compare saved data manually with the original.')}
-            </div>
-          )}
-          {group && (
-            <div className="receipt-review-actions">
-              <button type="button" className="secondary" onClick={() => Raw((old) => !old)}
-                aria-expanded={showRaw}>
-                {showRaw ? t('Ascunde sursele OCR', 'Hide OCR evidence')
-                         : t('Vezi sursele OCR', 'Show OCR evidence')}
-              </button>
-              {showRaw && <pre className="ocr-text">{JSON.stringify(ocrFields, null, 2)}</pre>}
             </div>
           )}
           {editable && (
