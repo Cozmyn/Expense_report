@@ -110,15 +110,6 @@ public sealed class Factory : WebApplicationFactory<Program>
             await um.AddToRoleAsync(u, role);
         }
         var manager = (await um.FindByNameAsync("manager"))!;
-        db.Masters.Add(new Master
-        {
-            Kind = "costCenters",
-            Code = "TEST-ALLOC",
-            NameRo = "Alocare implicită teste",
-            NameEn = "Test employee default allocation",
-            From = new(2020, 1, 1),
-            Json = "{\"erpCode\":\"TEST-ALLOC\"}",
-        });
         foreach (var code in new[] { "TEST-ALLOC", "CC" })
             db.CostCenterOwners.Add(new()
             {
