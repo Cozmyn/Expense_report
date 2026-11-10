@@ -10,14 +10,15 @@ public record EmployeeRow(
     string Email,
     string Worker,
     string? ManagerUsername,
-    bool Active
+    bool Active,
+    string? CostCenter = null
 );
 
 public record EmployeeBatch(List<EmployeeRow> Rows, string Reason, string TemporaryPassword);
 
 public static class EmployeeImports
 {
-    public static async Task Validate(EmployeeRow row, UserManager<User> users, List<EmployeeRow> prior)
+    public static async Task Validate(EmployeeRow row, UserManager<User> users, List<EmployeeRow> prior, Db? db = null)
     {
         Guard.Require(
             row.Username.Length is >= 3 and <= 100
@@ -39,6 +40,18 @@ public static class EmployeeImports
             "Utilizator sau email duplicat.",
             "Duplicate username or email."
         );
+        if (!string.IsNullOrWhiteSpace(row.CostCenter) && db != null)
+        {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var options = await db.Masters.Where(m => m.Kind == "costCenters" && m.Code == row.CostCenter.Trim())
+                .ToListAsync();
+            Guard.Require(
+                options.Any(m => Rules.Effective(m, today)),
+                "cost_center",
+                "Centrul de cost al angajatului trebuie să existe și să fie activ.",
+                "Employee cost centre must exist and be active."
+            );
+        }
         if (!string.IsNullOrWhiteSpace(row.ManagerUsername))
         {
             var manager = await users.FindByNameAsync(row.ManagerUsername);
@@ -58,14 +71,14 @@ public static class EmployeeImports
             "/template",
             () =>
                 Results.File(
-                    Encoding.UTF8.GetBytes("username,name,email,worker,managerUsername,active\r\n"),
+                    Encoding.UTF8.GetBytes("username,name,email,worker,managerUsername,active,costCenter\r\n"),
                     "text/csv",
                     "employee-template.csv"
                 )
         );
         admin.MapPost(
             "/preview",
-            async (HttpContext c, UserManager<User> users) =>
+            async (HttpContext c, UserManager<User> users, Db db) =>
             {
                 var (rows, hash) = await SpreadsheetImports.Upload(c);
                 Guard.Require(rows.Count > 1, "rows", "Import gol.", "Empty import.");
@@ -86,9 +99,10 @@ public static class EmployeeImports
                             Get("email"),
                             Get("worker"),
                             Get("managerUsername"),
-                            Get("active") != "false"
+                            Get("active") != "false",
+                            Get("costCenter")
                         );
-                        await Validate(row, users, valid);
+                        await Validate(row, users, valid, db);
                         valid.Add(row);
                     }
                     catch (DomainException ex)
@@ -129,7 +143,7 @@ public static class EmployeeImports
                         List<EmployeeRow> prior = [];
                         foreach (var row in input.Rows)
                         {
-                            await Validate(row, users, prior);
+                            await Validate(row, users, prior, db);
                             prior.Add(row);
                         }
                         List<object> created = [];
@@ -144,6 +158,7 @@ public static class EmployeeImports
                                 Name = row.Name,
                                 Email = row.Email,
                                 Worker = row.Worker,
+                                CostCenter = (row.CostCenter ?? "").Trim(),
                                 ManagerId = manager?.Id,
                                 Active = row.Active,
                                 ChangePassword = true,
@@ -173,6 +188,7 @@ public static class EmployeeImports
                                     row.Username,
                                     row.Name,
                                     row.Worker,
+                                    row.CostCenter,
                                     managerId = manager?.Id,
                                 },
                                 reason: input.Reason
