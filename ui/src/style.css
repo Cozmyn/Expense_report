@@ -2540,3 +2540,49 @@ textarea:focus-visible,
   .ocr-scan-action { width: auto; max-width: 100%; }
   .receipt-group-switcher { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 8px; }
 }
+
+/* Explicit employee allocation, report/receipt overrides and manager ownership. */
+.cost-centre-ownership {
+  margin: 22px 0;
+  padding: 18px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 12px;
+}
+.cost-centre-ownership h2 { margin-top: 0; }
+.cost-centre-owner-list { display: grid; gap: 10px; margin-top: 18px; }
+.cost-centre-owner-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(200px, 1.4fr) auto;
+  align-items: end;
+  gap: 14px;
+  border-top: 1px solid var(--border);
+  padding: 12px 0;
+}
+.cost-centre-owner-row p { margin: 3px 0; }
+.cost-centre-owner-row .field { margin: 0; }
+.cost-centre-owner-row .secondary { min-height: 42px; }
+.cost-centre-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.cost-centre-breakdown > span {
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: var(--surface-soft, var(--surface));
+  border: 1px solid var(--border);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 760px) {
+  .cost-centre-owner-row { grid-template-columns: 1fr; align-items: stretch; }
+  .cost-centre-owner-row .secondary { width: 100%; }
+  .cost-centre-ownership { padding: 12px; }
+}
