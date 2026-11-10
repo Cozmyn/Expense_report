@@ -987,8 +987,11 @@ function ReportDetail({
       <section className="panel compact">
         <h2>{t('1. Datele decontului', '1. Report details')}</h2>
         <p className="small muted">
-          {t('Centrul de cost al angajatului se precompletează aici. Fiecare bon are separat propriul centru de cost, care poate fi diferit. Managerul se alege automat după centrul cu cea mai mare sumă cumulată.',
-             'The employee cost centre is prefilled here. Each receipt has its own editable cost centre. The approval manager is chosen from the centre with the largest combined amount.')}
+          {detail.approvalRouting?.routingMode === 'Fixed'
+            ? t('Centrul de cost implicit se propune în antet și pe fiecare bon, separat. Pentru acest angajat, aprobatorul este o persoană fixă configurată de Admin.',
+                'Cost centre defaults are shown independently in the header and each receipt. This employee has an Admin-configured fixed approver.')
+            : t('Centrul de cost implicit se propune aici și pe fiecare bon, separat. Aprobatorul se calculează din centrul cu cel mai mare total în RON.',
+                'The default cost centre is prefilled here and on each receipt independently. Approval follows the cost centre with the highest RON total.')}
         </p>
         <div className="form-grid">
           <Field name={t('Nume angajat', 'Employee name')}>
@@ -1001,12 +1004,18 @@ function ReportDetail({
             />
           </Field>
           <Field name={t('Manager de aprobare (calculat automat)', 'Approval manager (calculated automatically)')}
-            note={t('Determinarea se face pe totalurile în RON ale bonurilor grupate după centru de cost.',
-                    'Determined from RON totals of receipts grouped by cost centre.')}>
+            note={detail.approvalRouting?.routingMode === 'Fixed'
+              ? t('Excepție aprobată în Admin: manager fix pentru acest angajat.',
+                  'Admin-configured exception: this employee has a named approver.')
+              : t('Determinarea se face pe totalurile în RON ale bonurilor grupate după centru de cost.',
+                  'Determined from RON totals of receipts grouped by cost centre.')}>
             <input readOnly value={
               (own || r.state === 'DRAFT' || r.state === 'REJECTED')
                 ? (detail.approvalRouting?.ready
-                    ? detail.approvalRouting.managerName + ' · ' + detail.approvalRouting.dominantCostCenter
+                    ? detail.approvalRouting.managerName
+                      + (detail.approvalRouting.routingMode === 'Fixed'
+                        ? ' · ' + t('manager fix', 'fixed approver')
+                        : ' · ' + detail.approvalRouting.dominantCostCenter)
                     : t('Responsabil neconfigurat — vezi mesajul de mai jos',
                         'Owner not configured — see details below'))
                 : detail.managerName || t('Manager neconfigurat', 'No manager assigned')
