@@ -732,9 +732,14 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   // Upload intentionally opens the OCR review automatically. Close that
   // unverified draft before navigating elsewhere; don't bypass the modal.
   if (await dialog.isVisible()) {
-    page.once('dialog', async (confirmation) => confirmation.accept());
-    await dialog.getByRole('button', { name: 'Anulează', exact: true }).click();
-    await expect(dialog).not.toBeVisible();
+    const acceptDiscard = (confirmation: any) => confirmation.accept();
+    page.on('dialog', acceptDiscard);
+    try {
+      await dialog.getByRole('button', { name: 'Anulează', exact: true }).click();
+      await expect(dialog).not.toBeVisible();
+    } finally {
+      page.off('dialog', acceptDiscard);
+    }
   }
   // Self-service profile and password change must work on desktop and mobile.
   await page.getByRole('button', { name: 'Profilul meu', exact: true }).last().click();
