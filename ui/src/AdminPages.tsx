@@ -416,6 +416,8 @@ export function UsersPage({ t, run }: Any) {
       worker: '',
       costCenter: '',
       managerId: '',
+      approvalMode: 'CostCenter',
+      fixedApproverId: '',
       active: true,
       roles: ['Employee'],
       password: '',
@@ -510,6 +512,27 @@ export function UsersPage({ t, run }: Any) {
                   ))}
               </select>
             </Field>
+            <Field name={t('Regula de aprobare', 'Approval rule')}
+              note={t('Implicit, aprobatorul este managerul centrului cu suma cea mai mare. Doar excepțiile nominalizate folosesc un manager fix.',
+                      'Normally approval follows the highest-total cost centre. A named fixed manager is an explicit exception.')}>
+              <select value={form.approvalMode || 'CostCenter'}
+                onChange={(e) => F({ ...form, approvalMode: e.target.value, fixedApproverId: '' })}>
+                <option value="CostCenter">{t('În funcție de centrul de cost', 'By cost centre')}</option>
+                <option value="Fixed">{t('Manager fix (excepție)', 'Named manager (exception)')}</option>
+              </select>
+            </Field>
+            {form.approvalMode === 'Fixed' && (
+              <Field name={t('Aprobator fix', 'Fixed approver')}
+                note={t('Managerul trebuie să fie activ și diferit de angajat.',
+                        'The manager must be active and must not be the employee.')}>
+                <select required value={form.fixedApproverId || ''}
+                  onChange={(e) => set('fixedApproverId', e.target.value)}>
+                  <option value="">{t('Alege managerul responsabil', 'Choose responsible manager')}</option>
+                  {users.filter((u) => u.active && u.roles.includes('Manager') && u.id !== id)
+                    .map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </Field>
+            )}
             <Field name={t('Parolă temporară', 'Temporary password')}>
               <input
                 type="password"
@@ -602,6 +625,8 @@ export function UsersPage({ t, run }: Any) {
                       worker: '',
                       costCenter: '',
                       managerId: '',
+                      approvalMode: 'CostCenter',
+                      fixedApproverId: '',
                       active: true,
                       roles: ['Employee'],
                       password: '',
@@ -630,7 +655,9 @@ export function UsersPage({ t, run }: Any) {
                   {u.name} {u.active ? '' : '· ' + t('Dezactivat', 'Disabled')}
                 </strong>
                 <small>
-                  {u.userName} · {u.email} · {t('Centru de cost', 'Cost centre')}: {u.costCenter || '—'}
+                  {u.userName} · {u.email} · {t('Centru de cost', 'Cost centre')}: {u.costCenter || '—'} · {u.approvalMode === 'Fixed'
+                    ? t('Aprobator fix', 'Fixed approver') + ': ' + (users.find((m) => m.id === u.fixedApproverId)?.name || '—')
+                    : t('Aprobare după centru', 'Cost-centre approval')}
                 </small>
               </span>
               <span>{u.roles.join(' · ')}</span>
