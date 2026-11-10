@@ -42,11 +42,13 @@ public static class CostCenterRouting
     public static async Task<ApprovalRouting> Preview(Db db, Report report)
     {
         var lines = report.Lines.Where(l => !l.Archived).ToList();
-        var groups = lines.Count == 0
-            ? string.IsNullOrWhiteSpace(report.CostCenter)
-                ? new List<(string Code, decimal Total)>()
-                : [(report.CostCenter.Trim(), 0m)]
-            : lines.GroupBy(l => (l.Data().CostCenter ?? "").Trim(), StringComparer.Ordinal)
+        List<(string Code, decimal Total)> groups;
+        if (lines.Count == 0)
+            groups = string.IsNullOrWhiteSpace(report.CostCenter)
+                ? []
+                : [(report.CostCenter.Trim(), 0m)];
+        else
+            groups = lines.GroupBy(l => (l.Data().CostCenter ?? "").Trim(), StringComparer.Ordinal)
                 .Select(g => (Code: g.Key, Total: Rules.Money(g.Sum(l => l.Final()))))
                 .OrderBy(g => g.Code, StringComparer.Ordinal)
                 .ToList();
