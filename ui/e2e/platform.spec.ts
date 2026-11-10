@@ -180,7 +180,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   await page.getByLabel('Centru de cost al decontului').selectOption(cc);
   await page.getByRole('button', { name: 'Salvează datele generale' }).click();
   await expect(
-    page.getByText('Cum citește aplicația un bon?', { exact: true }),
+    page.getByRole('heading', { name: 'Încarcă documentele și extrage datele', exact: true }),
   ).toBeVisible();
   await expect(page.getByLabel('Nume angajat', { exact: true })).toHaveValue('employee-' + suffix);
   await expect(page.getByLabel('LantID', { exact: true })).toHaveValue('TEST-WORKER');
