@@ -68,7 +68,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
       reason: 'CI isolated test setup',
     });
   const manager = await create('manager-' + suffix, ['Manager']);
-  await create('employee-' + suffix, ['Employee'], manager.id);
+  const employeeUser = await create('employee-' + suffix, ['Employee'], manager.id);
   await create('finance-' + suffix, ['Finance']);
   const master = async (kind: string, code: string, data: any) =>
     mutation(admin, '/api/configuration/masters', {
@@ -86,6 +86,21 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     cc = 'CC-' + suffix;
   await master('expenseTypes', cat, {});
   await master('costCenters', cc, { erpCode: cc });
+  await mutation(admin, '/api/admin/cost-center-owners/' + encodeURIComponent(cc), {
+    costCenterCode: cc, managerId: manager.id, reason: 'CI manager ownership',
+  }, 'PUT');
+  await mutation(admin, '/api/admin/users/' + employeeUser.id, {
+    username: 'employee-' + suffix,
+    name: 'employee-' + suffix,
+    email: 'employee-' + suffix + '@example.invalid',
+    worker: 'TEST-WORKER',
+    managerId: manager.id,
+    costCenter: cc,
+    active: true,
+    roles: ['Employee'],
+    password: null,
+    reason: 'CI cost centre allocation',
+  }, 'PUT');
   await master('accounting', cat, { mainAccount: 'TEST-GL', localAccount: 'TEST-LOCAL' });
   let settings = (await (await admin.get('/api/configuration/masters')).json()).filter(
     (m: any) => m.kind === 'erpSettings',
