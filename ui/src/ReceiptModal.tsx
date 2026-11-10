@@ -402,7 +402,8 @@ export default function ReceiptModal({
     (blankTax ||
       used.length === 0 ||
       used.some((row) =>
-        !row.rateId || rates(row.pct).length > 1 ||
+        !row.rateId ||
+        (rates(row.pct).length > 1 && !taxes[row.pct]?.rateId) ||
         (row.pct === 0 && compare(row.vat || '0', '0') !== 0)));
   const validationKey = JSON.stringify({
     ...d,
@@ -1224,10 +1225,27 @@ export default function ReceiptModal({
                         {d.taxCurrency}
                       </span>
                       {rates(row.pct).length > 1 && (
-                        <p className="vat-mapping issue blocking" role="alert">
-                          {t('Există mai multe mapări TVA active pentru această cotă. Contactează Finance.',
-                             'Multiple VAT mappings are active for this rate. Contact Finance.')}
-                        </p>
+                        finance ? (
+                          <Field name={t('Mapare TVA pentru cotă ' + row.pct + '%',
+                            'VAT mapping for rate ' + row.pct + '%')}
+                            note={t('Finance alege explicit maparea contabilă. Se păstrează în bon și în istoric.',
+                                    'Finance explicitly selects the accounting mapping. The choice is retained in the receipt and audit history.')}>
+                            <select required value={taxes[row.pct]?.rateId || ''}
+                              onChange={(e) => updateTax(row.pct, 'rateId', e.target.value)}>
+                              <option value="">{t('Alege maparea activă', 'Choose active mapping')}</option>
+                              {rates(row.pct).map((m: Any) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.code} · {t(m.nameRo, m.nameEn)}
+                                </option>
+                              ))}
+                            </select>
+                          </Field>
+                        ) : (
+                          <p className="vat-mapping issue blocking" role="alert">
+                            {t('Sunt mai multe mapări TVA active pentru această cotă. Finance trebuie să aleagă maparea corectă.',
+                               'Multiple VAT mappings exist for this rate. Finance must select the correct accounting mapping.')}
+                          </p>
+                        )
                       )}
                       {!row.rateId &&
                         (compare(row.base || '0', '0') !== 0 ||
