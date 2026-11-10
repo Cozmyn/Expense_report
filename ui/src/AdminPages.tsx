@@ -702,6 +702,9 @@ export function CardsPage({ t, masters, label, run, open }: Any) {
       </div>
       <section className="panel">
         <h2>{t('Import extras CSV', 'Import CSV statement')}</h2>
+        <a href="/api/finance/transactions/template" className="text-button">
+          {t('Descarcă exemplu extras CSV', 'Download example bank statement CSV')}
+        </a>
         <Field name={t('Card', 'Card')}>
           <select value={card} onChange={(e) => C(e.target.value)}>
             <option value="">{t('Selectează', 'Select')}</option>
