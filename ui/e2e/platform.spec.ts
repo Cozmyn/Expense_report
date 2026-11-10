@@ -88,7 +88,9 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   await master('costCenters', cc, { erpCode: cc });
   // The mobile fixture tests a supplier already registered in the internal master.
   // The desktop fixture independently tests the unregistered-supplier confirmation flow.
-  if (suffix === 'mobile')
+  const matchingSupplier = ((await (await admin.get('/api/configuration/masters')).json()) as any[])
+    .find((m: any) => m.kind === 'suppliers' && m.code === '18546294' && m.active);
+  if (suffix === 'mobile' && !matchingSupplier)
     await mutation(admin, '/api/configuration/masters', {
       kind: 'suppliers',
       code: '18546294',
@@ -629,7 +631,16 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     await dialog
       .getByLabel('Descriere / justificare', { exact: true })
       .fill('Confirmed OCR page ' + (n + 1));
-    await save();
+    const verifiedBefore = (await (await employee.get('/api/reports/' + ocrReport.id)).json()).report.lines.length;
+    const confirmed = dialog.getByRole('checkbox', { name: /Am verificat gruparea paginilor/ });
+    if (await confirmed.count()) await confirmed.check();
+    await dialog.getByRole('button', { name: 'Salvează bonul', exact: true }).click();
+    // The uploader opens the next unverified OCR group automatically. Confirm that
+    // the receipt was persisted rather than requiring an intermediate closed dialog.
+    await expect.poll(async () =>
+      ((await (await employee.get('/api/reports/' + ocrReport.id)).json()).report.lines.length),
+    ).toBe(verifiedBefore + 1);
+    if (n === 1) await expect(dialog).not.toBeVisible();
   }
   const captured = (await (await employee.get('/api/reports/' + ocrReport.id)).json()).report;
   expect(captured.lines).toHaveLength(2);
