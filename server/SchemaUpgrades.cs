@@ -13,7 +13,7 @@ public static class SchemaUpgrades
         foreach (
             System.Text.RegularExpressions.Match table in Regex.Matches(
                 ddl,
-                @"CREATE TABLE ""(?:ReportAttachments|Preferences|Comments|Assignments|SchemaReleases|SupplierAccounts|DocumentReviews|DocumentGroups|ExtractionAttempts|DocumentEvents|FinancePolicies|FxProposals|FxDecisions|Calculations|TaxPolicies|TaxPolicyDecisions|VerifiedVatComponents|ReportResets|ReportRestores|BankTreatments|BankTreatmentRevocations|FinanceAcceptanceRecords|PostingLines|PostingReviews)"" \(.*?\n\);",
+                @"CREATE TABLE ""(?:ReportAttachments|Preferences|Comments|Assignments|CostCenterOwners|SchemaReleases|SupplierAccounts|DocumentReviews|DocumentGroups|ExtractionAttempts|DocumentEvents|FinancePolicies|FxProposals|FxDecisions|Calculations|TaxPolicies|TaxPolicyDecisions|VerifiedVatComponents|ReportResets|ReportRestores|BankTreatments|BankTreatmentRevocations|FinanceAcceptanceRecords|PostingLines|PostingReviews)"" \(.*?\n\);",
                 RegexOptions.Singleline
             )
         )
@@ -45,6 +45,7 @@ public static class SchemaUpgrades
                 ("ReportAttachments", "Capture", "BOOLEAN NOT NULL DEFAULT FALSE"),
                 ("ReportAttachments", "ReceiptMode", "TEXT NOT NULL DEFAULT 'Auto'"),
                 ("Reports", "CostCenter", "TEXT NOT NULL DEFAULT ''"),
+                ("AspNetUsers", "CostCenter", "TEXT NOT NULL DEFAULT ''"),
                 ("Reports", "EmployeeName", "TEXT NOT NULL DEFAULT ''"),
                 ("Reports", "EmployeeWorker", "TEXT NOT NULL DEFAULT ''"),
                 ("Reports", "DepartmentCode", "TEXT NOT NULL DEFAULT ''"),
@@ -78,7 +79,7 @@ public static class SchemaUpgrades
         foreach (
             System.Text.RegularExpressions.Match index in Regex.Matches(
                 ddl,
-                @"CREATE (?:UNIQUE )?INDEX ""[^""]+"" ON ""(?:ReportAttachments|Preferences|Comments|Assignments|SchemaReleases|SupplierAccounts|DocumentReviews|DocumentGroups|ExtractionAttempts|DocumentEvents|FinancePolicies|FxProposals|FxDecisions|Calculations|TaxPolicies|TaxPolicyDecisions|VerifiedVatComponents|ReportResets|ReportRestores|BankTreatments|BankTreatmentRevocations|FinanceAcceptanceRecords|PostingLines|PostingReviews)"".*?;"
+                @"CREATE (?:UNIQUE )?INDEX ""[^""]+"" ON ""(?:ReportAttachments|Preferences|Comments|Assignments|CostCenterOwners|SchemaReleases|SupplierAccounts|DocumentReviews|DocumentGroups|ExtractionAttempts|DocumentEvents|FinancePolicies|FxProposals|FxDecisions|Calculations|TaxPolicies|TaxPolicyDecisions|VerifiedVatComponents|ReportResets|ReportRestores|BankTreatments|BankTreatmentRevocations|FinanceAcceptanceRecords|PostingLines|PostingReviews)"".*?;"
             )
         )
             await db.Database.ExecuteSqlRawAsync(
@@ -230,6 +231,11 @@ public static class SchemaUpgrades
         if (!await db.SchemaReleases.AnyAsync(x => x.Id == 10))
         {
             db.SchemaReleases.Add(new() { Id = 10, Name = "Unified receipt intake and report-level cost centre" });
+            await db.SaveChangesAsync();
+        }
+        if (!await db.SchemaReleases.AnyAsync(x => x.Id == 11))
+        {
+            db.SchemaReleases.Add(new() { Id = 11, Name = "Employee cost-centre defaults and manager ownership routing" });
             await db.SaveChangesAsync();
         }
         await db.Database.ExecuteSqlRawAsync(
