@@ -20,6 +20,7 @@ import {
   FinanceRouting,
 } from './PlatformPages';
 import CapturePanel from './CapturePanel';
+import ReceiptAuditReview from './ReceiptAuditReview';
 import ExpenseModal, { newReceipt } from './ReceiptModal';
 import { Field } from './Fields';
 import React, { useEffect, useState } from 'react';
@@ -1177,6 +1178,10 @@ function ReportDetail({
           editing={editing}
           masters={masters}
         />
+      )}
+      {tab === 'expenses' && (
+        <ReceiptAuditReview report={r} detail={detail} t={t}
+          editable={editable} finance={finance} onEdit={Editing} />
       )}
       {tab === 'expenses' && (
         <div className="detail-grid">
