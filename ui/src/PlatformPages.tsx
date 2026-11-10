@@ -80,9 +80,14 @@ export function ConfigurationImport({ kind, t, run, refresh }: Any) {
           'Review all rows before confirmation. Imports are applied entirely or not at all.',
         )}
       </p>
-      <a href="/api/configuration/import/template" className="text-button">
-        {t('Descarcă șablonul CSV', 'Download CSV template')}
+      <a href={'/api/configuration/import/template/' + encodeURIComponent(kind)}
+        className="text-button">
+        {t('Exemplu CSV pentru nomenclatorul ales', 'CSV example for selected master')}
       </a>
+      <p className="small muted">{t(
+        'Exemplele conțin anteturi și valori fictive. Nu importa numere complete de card sau parole.',
+        'Examples include headers and illustrative values. Never import full card numbers or passwords.'
+      )}</p>
       <Field name={t('Fișier import', 'Import file')}>
         <input
           type="file"
