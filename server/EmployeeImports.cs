@@ -103,10 +103,11 @@ public static class EmployeeImports
                 {
                     try
                     {
-                        string Get(string k)
+                        string Get(string k, string fallback = "")
                         {
                             var index = Array.IndexOf(rows[0], k);
-                            return index >= 0 && index < rows[n].Length ? rows[n][index] : "";
+                            var value = index >= 0 && index < rows[n].Length ? rows[n][index] : "";
+                            return value == "" ? fallback : value;
                         }
                         var row = new EmployeeRow(
                             Get("username"),
