@@ -86,6 +86,20 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     cc = 'CC-' + suffix;
   await master('expenseTypes', cat, {});
   await master('costCenters', cc, { erpCode: cc });
+  // The mobile fixture tests a supplier already registered in the internal master.
+  // The desktop fixture independently tests the unregistered-supplier confirmation flow.
+  if (suffix === 'mobile')
+    await mutation(admin, '/api/configuration/masters', {
+      kind: 'suppliers',
+      code: '18546294',
+      nameRo: 'Synthetic CI supplier',
+      nameEn: 'Synthetic CI supplier',
+      json: '{}',
+      from: '2020-01-01',
+      to: null,
+      active: true,
+      reason: 'CI registered supplier lookup fixture',
+    });
   await mutation(admin, '/api/admin/cost-center-owners/' + encodeURIComponent(cc), {
     costCenterCode: cc, managerId: manager.id, reason: 'CI manager ownership',
   }, 'PUT');
@@ -295,6 +309,8 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   });
   expect(sharedFile.ok(), await sharedFile.text()).toBeTruthy();
   await page.reload();
+  // A fresh login session starts on the dashboard; reopen the actual report.
+  await page.getByRole('button', { name: 'Client visit ' + suffix, exact: true }).click();
   await expect(page.getByRole('button', { name: 'Trimite la aprobare' })).toBeEnabled({
     timeout: 90000,
   });
