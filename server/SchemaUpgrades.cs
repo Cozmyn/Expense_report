@@ -235,14 +235,14 @@ public static class SchemaUpgrades
             db.SchemaReleases.Add(new() { Id = 10, Name = "Unified receipt intake and report-level cost centre" });
             await db.SaveChangesAsync();
         }
-        if (!await db.SchemaReleases.AnyAsync(x => x.Id == 12))
-        {
-            db.SchemaReleases.Add(new() { Id = 12, Name = "Explicit fixed-approver exceptions for specified employees" });
-            await db.SaveChangesAsync();
-        }
         if (!await db.SchemaReleases.AnyAsync(x => x.Id == 11))
         {
             db.SchemaReleases.Add(new() { Id = 11, Name = "Employee cost-centre defaults and manager ownership routing" });
+            await db.SaveChangesAsync();
+        }
+        if (!await db.SchemaReleases.AnyAsync(x => x.Id == 12))
+        {
+            db.SchemaReleases.Add(new() { Id = 12, Name = "Explicit fixed-approver exceptions for specified employees" });
             await db.SaveChangesAsync();
         }
         await db.Database.ExecuteSqlRawAsync(
