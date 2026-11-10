@@ -118,6 +118,12 @@ test('PDF02 recorded source-to-expense walkthrough', async ({ browser }, info) =
     cc = 'DEMO-CC-' + tag;
   await master('expenseTypes', category, { ocrKeywords: ['motorina'] });
   await master('costCenters', cc, { erpCode: cc });
+  // The approval policy must use a real owner mapping even for test reports.
+  await mutate(admin, '/admin/cost-center-owners/' + encodeURIComponent(cc), {
+    costCenterCode: cc,
+    managerId: manager.id,
+    reason: 'Set test owner for verified OCR receipts',
+  }, 'PUT');
   // User profile allocation is the authoritative default for each receipt.
   await mutate(admin, '/admin/users/' + employeeUser.id, {
     username: 'ocr-employee-' + tag,
