@@ -219,20 +219,20 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     .selectOption('yes');
   await dialog.getByLabel('CUI furnizor', { exact: true }).fill('RO18546294');
   await dialog.getByLabel('Număr bon / document', { exact: true }).fill('B-' + suffix);
-  if (suffix === 'chromium') {
-    const confirm = dialog.getByRole('checkbox', { name: /Am verificat CUI-ul/ });
-    await expect(confirm).toBeVisible();
-    await dialog.getByLabel('Denumire furnizor', { exact: true }).fill('Synthetic CI supplier');
+  // The seeded supplier may be in the directory or require human confirmation.
+  // Each project/browser has independent data and must handle both outcomes.
+  const supplier = dialog.getByLabel('Denumire furnizor', { exact: true });
+  const confirm = dialog.getByRole('checkbox', { name: /Am verificat CUI-ul/ });
+  await expect.poll(async () =>
+    (await confirm.isVisible()) || (await supplier.getAttribute('readonly')) !== null
+  ).toBeTruthy();
+  if (await confirm.isVisible()) {
+    await supplier.fill('Synthetic CI supplier');
     await expect(dialog.getByRole('button', { name: 'Salvează bonul' })).toBeDisabled();
     await confirm.check();
   } else {
-    await expect(dialog.getByLabel('Denumire furnizor', { exact: true })).toHaveValue(
-      'Synthetic CI supplier',
-    );
-    await expect(dialog.getByLabel('Denumire furnizor', { exact: true })).toHaveAttribute(
-      'readonly',
-      '',
-    );
+    await expect(supplier).not.toHaveValue('');
+    await expect(supplier).toHaveAttribute('readonly', '');
   }
   await dialog
     .getByLabel('Descriere / justificare', { exact: true })
@@ -295,6 +295,8 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   });
   expect(sharedFile.ok(), await sharedFile.text()).toBeTruthy();
   await page.reload();
+  // A hard reload shows the dashboard: reopen the existing draft explicitly.
+  await page.getByRole('button', { name: 'Continuă decontul', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Trimite la aprobare' })).toBeEnabled({
     timeout: 90000,
   });
