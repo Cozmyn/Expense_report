@@ -1,2 +1,2 @@
-date,merchant,amount,currency,reference
-2026-11-01,Comerciant exemplu,-125.50,RON,TXN001
+reference,date,merchant,amount,currency,settledRon
+TXN001,2026-11-01,Comerciant exemplu,-125.50,RON,-125.50
