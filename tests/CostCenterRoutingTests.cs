@@ -118,6 +118,38 @@ public class CostCenterRoutingTests
     }
 
     [Fact]
+    public async Task FixedApproverOverridesCostCenterOwnerWithoutChangingLineAllocations()
+    {
+        await using var f = new Factory();
+        var (db, alice, centreManager, namedManager) = await Setup(f);
+        var employee = await db.Users.SingleAsync(u => u.Id == alice);
+        employee.ApprovalMode = "Fixed";
+        employee.FixedApproverId = namedManager;
+        await db.SaveChangesAsync();
+
+        var report = new Report { EmployeeId = alice, CostCenter = "CC-A" };
+        report.Lines.Add(Expense(report.Id, "CC-A", 600, 1));
+        report.Lines.Add(Expense(report.Id, "CC-B", 20, 2));
+        var route = await CostCenterRouting.Preview(db, report);
+        Assert.True(route.Ready, route.MessageEn);
+        Assert.Equal("Fixed", route.RoutingMode);
+        Assert.Equal(namedManager, route.ManagerId);
+        Assert.Equal("CC-A", report.Lines[0].Data().CostCenter);
+        Assert.Equal("CC-B", report.Lines[1].Data().CostCenter);
+        Assert.NotEqual(centreManager, route.ManagerId);
+
+        employee.FixedApproverId = null;
+        await db.SaveChangesAsync();
+        var missing = await CostCenterRouting.Preview(db, report);
+        Assert.Equal("fixed_approver_invalid", missing.ErrorCode);
+
+        employee.FixedApproverId = alice;
+        await db.SaveChangesAsync();
+        var self = await CostCenterRouting.Preview(db, report);
+        Assert.Equal("fixed_approver_invalid", self.ErrorCode);
+    }
+
+    [Fact]
     public async Task EmployeeDbCostCenterOverridesLegacyPolicyAndIsIndependentFromReportHeader()
     {
         await using var f = new Factory();
