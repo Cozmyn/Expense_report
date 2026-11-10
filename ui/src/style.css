@@ -2670,3 +2670,46 @@ textarea:focus-visible,
   .receipt-review-selector { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; }
   .cost-centre-owner-import { padding: 12px; }
 }
+
+/* Mobile OCR review modal touch targets: no side-scrolling, no overlapping
+   footer and no hidden Cancel button when the page is long. */
+@media (max-width: 760px) {
+  .modal-overlay:has(.receipt-modal) {
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 0;
+  }
+  .receipt-modal,
+  .receipt-modal:has(.with-original) {
+    width: 100%;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    padding: 16px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+  }
+  .receipt-editor-layout,
+  .receipt-editor-layout.with-original,
+  .receipt-editor-layout form,
+  .receipt-original {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .receipt-modal .modal-footer {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    gap: 10px;
+    padding: 16px 0 max(24px, env(safe-area-inset-bottom));
+    margin-top: 20px;
+  }
+  .receipt-modal .modal-footer button {
+    width: 100%;
+    min-height: 48px;
+  }
+}
