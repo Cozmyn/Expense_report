@@ -310,7 +310,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   expect(sharedFile.ok(), await sharedFile.text()).toBeTruthy();
   await page.reload();
   // A fresh login session starts on the dashboard; reopen the actual report.
-  await page.getByRole('button', { name: 'Client visit ' + suffix, exact: true }).click();
+  await page.getByRole('button', { name: new RegExp('^Client visit ' + suffix + '(?:\\s|$)') }).first().click();
   await expect(page.getByRole('button', { name: 'Trimite la aprobare' })).toBeEnabled({
     timeout: 90000,
   });
@@ -511,10 +511,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     .poll(() => pp.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(pp.viewportSize()!.width);
   await postingNav('Configurare Finance');
-  const vehicle = pp
-    .locator('section')
-    .filter({ has: pp.locator('h4').filter({ hasText: 'Deductibilitate auto' }) })
-    .first();
+  const vehicle = pp.getByRole('heading', { name: 'Deductibilitate auto', exact: true }).locator('..');
   await expect(vehicle.locator('h4').first()).toBeVisible();
   await expect(vehicle.getByLabel('Procent deductibil auto', { exact: true })).toHaveValue('50');
   await vehicle.getByLabel('Procent deductibil auto', { exact: true }).fill('75');
@@ -526,6 +523,8 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     .fill('Synthetic future vehicle policy');
   await vehicle.getByRole('button', { name: 'Salvează procentul auto', exact: true }).click();
   await expect(vehicle.locator('.simple-row').first()).toContainText(/75(?:[,.]0+)?%/);
+  const vehiclePolicies = await (await fin.get('/api/finance/vehicle-deductibility')).json();
+  expect(vehiclePolicies.versions.some((v: any) => JSON.parse(v.json).percentage === 75 && v.from === '2027-02-01')).toBeTruthy();
   await pp.screenshot({ path: info.outputPath('pdf04-vehicle-percentage.png'), fullPage: true });
   await postingContext.close();
   const accounting = await fin.get('/api/reports/' + report.id + '/accounting-details');
