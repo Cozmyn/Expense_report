@@ -72,7 +72,8 @@ export default function ReceiptModal({
     [scanRegion, ScanRegion] = useState<any | null>(null),
     [manualHighlights, ManualHighlights] = useState<any[]>([]),
     [scanBusy, ScanBusy] = useState(false),
-    [scanError, ScanError] = useState('');
+    [scanError, ScanError] = useState(''),
+    [financeScanReason, FinanceScanReason] = useState('');
   const [lookup, Lookup] = useState<Any | null>(null),
     [looking, Looking] = useState(false),
     [lookupError, LE] = useState(''),
@@ -495,12 +496,14 @@ export default function ReceiptModal({
     ScanError('');
     try {
       const detail = await api('/reports/' + expense.reportId);
+      if (finance && financeScanReason.trim().length < 3)
+        throw new Error(t('Completează motivul corecției Finance.', 'Enter a reason for the Finance correction.'));
       await api(
         '/reports/' + expense.reportId + '/documents/' + expense.sourceAttachmentId
           + '/groups/' + expense.sourceGroupId + '/select-field',
         'POST',
         { version: detail.report.version, field: scanField, region: scanRegion,
-          reason: 'User selected receipt evidence' },
+          reason: finance ? financeScanReason : 'Employee verified the source region' },
       );
       const review = await api(
         '/reports/' + expense.reportId + '/documents/' + expense.sourceAttachmentId + '/review',
@@ -591,9 +594,18 @@ export default function ReceiptModal({
                   <p>{t('Apasă „Delimitează regiunea”, trasează peste text și confirmă. Poți oricând scrie manual în câmp.',
                       'Choose “Select source region”, draw over the text and confirm. You can always type the value manually.')}</p>
                   {scanRegion && <p role="status">{t('Regiune selectată', 'Region selected')}: {t('pagina', 'page')} {scanRegion.page}</p>}
+                  {finance && (
+                    <Field name={t('Motivul corecției OCR (Finance)', 'Reason for OCR correction (Finance)')}>
+                      <input required minLength={3} value={financeScanReason}
+                        onChange={(e) => FinanceScanReason(e.target.value)}
+                        placeholder={t('Ce informație a fost corectată?', 'What source information was corrected?')} />
+                    </Field>
+                  )}
                   {scanError && <p className="error" role="alert">{scanError}</p>}
                   <div className="actions">
-                    <button type="button" className="primary" disabled={!scanRegion || scanBusy} onClick={applyScan}>
+                    <button type="button" className="primary"
+                      disabled={!scanRegion || scanBusy || (finance && financeScanReason.trim().length < 3)}
+                      onClick={applyScan}>
                       {scanBusy ? t('Se citește…', 'Reading…') : t('Folosește selecția', 'Use selected text')}
                     </button>
                     <button type="button" className="secondary" onClick={() => { ScanField(null); ScanRegion(null); ScanError(''); }}>
