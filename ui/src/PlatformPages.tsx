@@ -158,6 +158,63 @@ export function ConfigurationImport({ kind, t, run, refresh }: Any) {
     </section>
   );
 }
+
+function CostCenterOwnerImport({ t, run, refresh }: Any) {
+  const [preview, Preview] = useState<Any | null>(null);
+  const [reason, Reason] = useState('');
+  return (
+    <section className="cost-centre-owner-import" aria-label={t('Import responsabil manager', 'Manager owner import')}>
+      <h3>{t('Importă responsabilii centrelor de cost', 'Import cost-centre owners')}</h3>
+      <p className="small muted">{t(
+        'Folosește coduri de centre de cost existente și username-uri de manageri activi. Importul este verificat integral înainte de confirmare.',
+        'Use existing cost centre codes and active manager usernames. The entire import is validated before confirmation.'
+      )}</p>
+      <a className="text-button" href="/api/admin/cost-center-owners/template">
+        {t('Descarcă exemplul CSV cu antet', 'Download sample CSV with headers')}
+      </a>
+      <Field name={t('Fișier responsabili CSV / XLSX', 'Owners CSV / XLSX file')}>
+        <input type="file" accept=".csv,.xlsx" onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          run(async () => {
+            const form = new FormData();
+            form.append('file', file);
+            Preview(await api('/admin/cost-center-owners/import/preview', 'POST', form));
+          });
+        }} />
+      </Field>
+      {preview && (
+        <>
+          <p role="status">{preview.count} {t('rânduri valide', 'valid rows')} · {preview.errors.length} {t('erori', 'errors')}</p>
+          {preview.errors.map((e: Any) =>
+            <p key={e.row} role="alert" className="issue blocking">{t('Rând', 'Row')} {e.row}: {e.message}</p>)}
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>{t('Centru de cost', 'Cost centre')}</th><th>{t('Manager responsabil', 'Responsible manager')}</th></tr></thead>
+              <tbody>{preview.rows.map((r: Any) =>
+                <tr key={r.costCenterCode}><td>{r.costCenterCode}</td><td>{r.managerUsername}</td></tr>)}</tbody>
+            </table>
+          </div>
+          <Field name={t('Motiv import', 'Import reason')}>
+            <input value={reason} onChange={(e) => Reason(e.target.value)} minLength={3} />
+          </Field>
+          <button className="primary" type="button"
+            disabled={!preview.count || preview.errors.length !== 0 || reason.trim().length < 3}
+            onClick={() => run(async () => {
+              await api('/admin/cost-center-owners/import/confirm', 'POST', {
+                rows: preview.rows, reason,
+              });
+              Preview(null);
+              Reason('');
+              await refresh();
+            })}>
+            {t('Confirmă importul responsabililor', 'Confirm owner import')}
+          </button>
+        </>
+      )}
+    </section>
+  );
+}
 export function Assignments({ t, run }: Any) {
   const [rows, R] = useState<Any[]>([]),
     [users, U] = useState<Any[]>([]),
@@ -264,6 +321,7 @@ export function Assignments({ t, run }: Any) {
         </div>
         <button className="primary">{t('Creează alocarea', 'Create assignment')}</button>
       </form>
+      <CostCenterOwnerImport t={t} run={run} refresh={load} />
       <section className="cost-centre-ownership" aria-label={t('Manageri responsabili de centrele de cost', 'Cost centre owner managers')}>
         <h2>{t('Responsabili pentru aprobarea deconturilor', 'Expense approval owners')}</h2>
         <p className="small muted">{t(
