@@ -16,13 +16,13 @@
 
 | Tip / Type | Fișier / File | Cum se folosește / Usage |
 | --- | --- | --- |
-| Angajați / Employees | [employees.csv](../../examples/imports/employees.csv) | Creare conturi și alocări implicite, excepții de aprobare |
-| Manageri / Managers | [managers.csv](../../examples/imports/managers.csv) | Conturi cu rol Manager |
-| Centre de cost / Cost centres | [cost-centres.csv](../../examples/imports/cost-centres.csv) | Nomenclator activ + ERP |
-| Responsabili / Owners | [cost-centre-owners.csv](../../examples/imports/cost-centre-owners.csv) | Rutare manager după centru |
-| Carduri / Cards | [company-cards.csv](../../examples/imports/company-cards.csv) | Ultimele 4 cifre și titular |
-| Bancă / Bank statement | [bank-statement.csv](../../examples/imports/bank-statement.csv) | Reconciliere Finance |
-| Generic | [generic-master.csv](../../examples/imports/generic-master.csv) | Alte nomenclatoare cu JSON |
+| Angajați / Employees | [employees.csv](../examples/imports/employees.csv) | Creare conturi și alocări implicite, excepții de aprobare |
+| Manageri / Managers | [managers.csv](../examples/imports/managers.csv) | Conturi cu rol Manager |
+| Centre de cost / Cost centres | [cost-centres.csv](../examples/imports/cost-centres.csv) | Nomenclator activ + ERP |
+| Responsabili / Owners | [cost-centre-owners.csv](../examples/imports/cost-centre-owners.csv) | Rutare manager după centru |
+| Carduri / Cards | [company-cards.csv](../examples/imports/company-cards.csv) | Ultimele 4 cifre și titular |
+| Bancă / Bank statement | [bank-statement.csv](../examples/imports/bank-statement.csv) | Reconciliere Finance |
+| Generic | [generic-master.csv](../examples/imports/generic-master.csv) | Alte nomenclatoare cu JSON |
 
 Toate exemplele sunt **descărcabile din meniul lor** în format CSV UTF-8. Importatoarele acceptă CSV și XLSX unde este indicat, folosind un singur sheet și numai valori, fără formule.
 
