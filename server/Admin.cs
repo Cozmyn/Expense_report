@@ -49,6 +49,22 @@ public static class Admin
         return value;
     }
 
+    private static async Task<(string Mode, string? ManagerId)> ApprovalOverride(
+        string mode, string? fixedManagerId, string employeeId, UserManager<User> users)
+    {
+        Guard.Require(mode is "CostCenter" or "Fixed",
+            "approval_mode", "Alege un mod de aprobare valid.", "Choose a valid approval mode.");
+        if (mode == "CostCenter") return ("CostCenter", null);
+        Guard.Require(!string.IsNullOrWhiteSpace(fixedManagerId) && fixedManagerId != employeeId,
+            "fixed_approver", "Aprobatorul fix este obligatoriu și trebuie să fie alt utilizator.",
+            "Fixed approver is required and must not be the employee.");
+        var manager = await users.FindByIdAsync(fixedManagerId!);
+        Guard.Require(manager != null && manager.Active && await users.IsInRoleAsync(manager, "Manager"),
+            "fixed_approver", "Aprobatorul fix trebuie să fie un manager activ.",
+            "Fixed approver must be an active Manager.");
+        return ("Fixed", manager!.Id);
+    }
+
     public static void Map(RouteGroupBuilder api)
     {
         var admin = api.MapGroup("/admin").RequireAuthorization(p => p.RequireRole("Admin"));
@@ -69,6 +85,8 @@ public static class Admin
                             u.Worker,
                             u.CostCenter,
                             u.ManagerId,
+                            u.ApprovalMode,
+                            u.FixedApproverId,
                             u.Active,
                             u.ChangePassword,
                             u.LockoutEnd,
@@ -105,6 +123,10 @@ public static class Admin
                             ManagerId = i.ManagerId,
                             Active = i.Active,
                         };
+                        var approval = await ApprovalOverride(i.ApprovalMode ?? "CostCenter",
+                            i.FixedApproverId, u.Id, um);
+                        u.ApprovalMode = approval.Mode;
+                        u.FixedApproverId = approval.ManagerId;
                         Identity(await um.CreateAsync(u, i.Password ?? ""));
                         Identity(await um.AddToRolesAsync(u, i.Roles));
                         svc.Log(
@@ -120,6 +142,8 @@ public static class Admin
                                 u.Worker,
                                 u.CostCenter,
                                 u.ManagerId,
+                                u.ApprovalMode,
+                                u.FixedApproverId,
                                 i.Roles,
                             }
                         );
@@ -161,6 +185,8 @@ public static class Admin
                             u.Worker,
                             u.CostCenter,
                             u.ManagerId,
+                            u.ApprovalMode,
+                            u.FixedApproverId,
                             u.Active,
                             roles = await um.GetRolesAsync(u),
                         };
@@ -170,12 +196,35 @@ public static class Admin
                         if (i.CostCenter != null)
                             u.CostCenter = await EmployeeCostCenter(i.CostCenter, db);
                         u.ManagerId = i.ManagerId;
+                        if (i.ApprovalMode != null)
+                        {
+                            var approval = await ApprovalOverride(i.ApprovalMode, i.FixedApproverId, id, um);
+                            u.ApprovalMode = approval.Mode;
+                            u.FixedApproverId = approval.ManagerId;
+                        }
                         u.Active = i.Active;
                         Identity(await um.UpdateAsync(u));
                         var current = await um.GetRolesAsync(u);
                         Identity(await um.RemoveFromRolesAsync(u, current.Except(i.Roles)));
                         Identity(await um.AddToRolesAsync(u, i.Roles.Except(current)));
                         await db.Sessions.Where(s => s.UserId == id).ExecuteDeleteAsync();
+                        var waiting = await db.Reports
+                            .Where(r => r.EmployeeId == id
+                                && (r.State == States.Manager || r.State == States.Reapproval))
+                            .Include(r => r.Lines).ToListAsync();
+                        foreach (var report in waiting)
+                        {
+                            var route = await CostCenterRouting.Preview(db, report);
+                            if (!route.Ready || route.ManagerId == report.ManagerId) continue;
+                            var oldManager = report.ManagerId;
+                            report.ManagerId = route.ManagerId!;
+                            svc.Snapshot(report, c.User);
+                            Reports.Touch(report);
+                            svc.Log(c.User, report.Id, "Report", "ApprovalOwnerRouted",
+                                new { managerId = oldManager },
+                                new { report.ManagerId, route.RoutingMode }, i.Reason);
+                            await svc.Notify(report, report.ManagerId, "ReapprovalRequired");
+                        }
                         svc.Log(
                             c.User,
                             null,
@@ -189,6 +238,8 @@ public static class Admin
                                 u.Worker,
                                 u.CostCenter,
                                 u.ManagerId,
+                                u.ApprovalMode,
+                                u.FixedApproverId,
                                 u.Active,
                                 i.Roles,
                             },
@@ -458,7 +509,9 @@ public record UserInput(
     string[] Roles,
     string? Password,
     string? Reason,
-    string? CostCenter = null
+    string? CostCenter = null,
+    string? ApprovalMode = null,
+    string? FixedApproverId = null
 );
 
 public record ResetInput(string Password, string Reason);
