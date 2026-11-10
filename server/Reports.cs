@@ -150,7 +150,11 @@ public class Reports(Db db, Posting? posting = null)
     public async Task<bool> RefreshApprovalManager(Report r, ClaimsPrincipal u, string? reason = null)
     {
         var route = await CostCenterRouting.Preview(db, r);
-        var target = route.Ready ? route.ManagerId! : "";
+        // Historical Finance records may predate the owner migration.
+        // Do not silently erase an existing approver before Admin configures
+        // the mandatory owner. Submission/approval remain blocked by validation.
+        if (!route.Ready) return false;
+        var target = route.ManagerId!;
         if (r.ManagerId == target) return false;
         var previous = r.ManagerId;
         r.ManagerId = target;
@@ -616,12 +620,6 @@ public class Reports(Db db, Posting? posting = null)
             );
             if (action == "approve")
             {
-                var route = await CostCenterRouting.Preview(db, r);
-                Guard.Require(route.Ready && route.ManagerId == r.ManagerId,
-                    "approval_route_changed",
-                    "Managerul responsabil s-a schimbat sau alocarea este incompletă. Actualizează aprobarea prin Admin.",
-                    "The responsible manager has changed or allocation is incomplete. Ask Admin to refresh the approval route.",
-                    409);
                 var issues = await Validate(r);
                 Guard.Require(
                     !issues.Any(p => p.Blocking),
@@ -629,6 +627,12 @@ public class Reports(Db db, Posting? posting = null)
                     Serialization.Write(issues),
                     Serialization.Write(issues)
                 );
+                var route = await CostCenterRouting.Preview(db, r);
+                Guard.Require(route.Ready && route.ManagerId == r.ManagerId,
+                    "approval_route_changed",
+                    "Managerul responsabil s-a schimbat sau alocarea este incompletă. Actualizează aprobarea prin Admin.",
+                    "The responsible manager has changed or allocation is incomplete. Ask Admin to refresh the approval route.",
+                    409);
             }
             if (action == "reject")
                 Guard.Reason(reason);
