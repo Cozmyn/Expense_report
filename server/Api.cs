@@ -117,6 +117,7 @@ public static class Api
             }
         );
         CostCenterRouting.Map(api);
+        CostCenterOwnerImports.Map(api);
         DocumentStatus.Map(api);
         DocumentIntake.Map(api);
         DocumentEvents.Map(api);
