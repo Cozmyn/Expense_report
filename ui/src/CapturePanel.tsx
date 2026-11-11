@@ -222,7 +222,14 @@ export default function CapturePanel({ report, t, run, refresh, reason, edit, ed
           (candidate: Any) =>
             candidate.state !== 'Verified' && !openedGroups.current.has(candidate.id),
         );
-        if (group) {
+        const mixedSingle = file.receiptMode === 'Single'
+          && result.review?.candidates?.some((candidate: Any) =>
+            candidate.warnings?.some((w: string) =>
+              w.startsWith('MULTIPLE_SECTIONS_SINGLE:')));
+        if (mixedSingle) {
+          // Do not open a combined draft: let the user split it without re-upload.
+          AutoFiles((old) => old[0] === id ? old.slice(1) : old);
+        } else if (group) {
           openedGroups.current.add(group.id);
           propose(file, { ...group, sourceGroupId: group.id });
         } else {

@@ -166,6 +166,31 @@ export default function OcrGroupBoard({
           'Review each receipt before creating an expense. You can select several receipts from one PDF.',
         )}
       </p>
+      {file.receiptMode === 'Single' && groups.some((g: Any) =>
+        g.warnings?.some((w: string) => w.startsWith('MULTIPLE_SECTIONS_SINGLE:'))
+      ) && (
+        <div className="issue warning" role="alert">
+          <strong>{t('Au fost detectate mai multe bonuri', 'Several receipts were detected')}</strong>
+          <p>{t(
+            'Nu salva un total combinat. Separă documentele fără să încarci din nou fișierul.',
+            'Do not save a combined total. Separate the receipts without uploading again.'
+          )}</p>
+          <button type="button" className="primary" disabled={changing || stale}
+            onClick={() => perform(async () => {
+              const candidate = groups.find((g: Any) => g.warnings?.some(
+                (w: string) => w.startsWith('MULTIPLE_SECTIONS_SINGLE:')));
+              await api(base + '/groups', 'POST', {
+                version: report.version,
+                action: 'expand',
+                groups: [candidate.id],
+                reason: 'Separate multiple OCR receipt candidates selected as one receipt',
+              });
+              await refresh();
+            })}>
+            {t('Separă bonurile detectate', 'Separate detected receipts')}
+          </button>
+        </div>
+      )}
       <section className="quick-help">
         <h4>{t('Mai multe bonuri într-un PDF?', 'Multiple receipts in one PDF?')}</h4>
         <ol>
