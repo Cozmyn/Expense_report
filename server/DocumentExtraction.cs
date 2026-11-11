@@ -23,7 +23,8 @@ public record OcrTax(
     int Page,
     string Evidence,
     SourceBox? Box = null,
-    decimal? Confidence = null
+    decimal? Confidence = null,
+    string Source = "Printed"
 );
 
 public record OcrPage(
@@ -257,13 +258,13 @@ public static class ReceiptParser
                     .Select(m => m)
                     .ToList();
                 var cui = cuiMatches.Select(m => Rules.Cui(m.Groups[2].Value)).Distinct().ToList();
-                // The local company identifier is RO35898037 until Finance configures
-                // a different tenant CUI. OCR text may omit the "CUI:" label.
-                var company = Rules.Cui(string.IsNullOrWhiteSpace(companyCui) ? "RO35898037" : companyCui);
-                var printedCompany = Regex.Match(
-                    text,
-                    @"(?i)\bRO\s*" + Regex.Escape(company) + @"\b"
-                );
+                // Never infer a tenant's fiscal identity from a sample CUI.
+                // Without a configured company CUI, leave the company-VAT branch
+                // unclassified and require explicit human review/configuration.
+                var company = Rules.Cui(companyCui);
+                var printedCompany = company.Length == 0
+                    ? Match.Empty
+                    : Regex.Match(text, @"(?i)\bRO\s*" + Regex.Escape(company) + @"\b");
                 var hasCompanyCui = printedCompany.Success || (company != "" && cui.Contains(company));
                 if (hasCompanyCui)
                     Put("hasCompanyCui", "true", printedCompany.Success
@@ -313,12 +314,14 @@ public static class ReceiptParser
                 {
                     if (!fields.ContainsKey("country"))
                         Put("country", "RO", "Romania / CUI RO");
-                    if (!hasCompanyCui)
+                    if (!hasCompanyCui && company.Length > 0)
                     {
-                        Put("hasCompanyCui", "false", "RO35898037 not detected");
-                        warnings.Add("CUI-ul companiei RO35898037 nu a fost detectat; confirmă pe document. / Company CUI RO35898037 was not detected; confirm against the source.");
+                        Put("hasCompanyCui", "false", "Configured company CUI " + company + " not detected");
+                        warnings.Add("CUI-ul companiei configurate (" + company + ") nu a fost detectat; confirmă pe document. / Configured company CUI (" + company + ") was not detected; confirm against the source.");
                     }
                 }
+                if (company.Length == 0 && (cui.Count > 0 || fields.GetValueOrDefault("country")?.Value == "RO"))
+                    warnings.Add("COMPANY_IDENTITY_NOT_CONFIGURED: Configurează CUI-ul companiei înainte de clasificarea fiscală. / Configure the company VAT ID before determining the VAT treatment.");
                 if (company != "" && !hasCompanyCui && cui.Count > 0)
                     warnings.Add(
                         "CUI-ul companiei nu a fost detectat; confirmă pe original. / Company VAT ID was not detected; check the original."
@@ -407,7 +410,7 @@ public static class ReceiptParser
                     else if (numbers.Count == 1 && Regex.IsMatch(line, @"(?i)TVA|VAT|TAX"))
                     {
                         var paid = numbers[0];
-                        taxes.Add(new(pct.Value, Rules.Money(paid * 100 / pct.Value), paid, page.Number, line));
+                        taxes.Add(new(pct.Value, Rules.Money(paid * 100 / pct.Value), paid, page.Number, line, Source: "Derived"));
                         warnings.Add(
                             "Baza TVA a fost dedusă din TVA; verifică baza exactă de pe document. / VAT base was derived; verify the exact printed base."
                         );

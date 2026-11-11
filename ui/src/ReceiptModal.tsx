@@ -1224,8 +1224,15 @@ export default function ReceiptModal({
                         (tax: Any) => Number(tax.rate) === row.pct
                       ) && (
                         <small className="receipt-hint">
-                          {t('Propus din original; verifică baza și TVA-ul efectiv.',
-                             'Suggested from the original; verify the taxable base and actual paid VAT.')}
+                          {expense.ocrCandidate.taxes.some(
+                            (tax: Any) => Number(tax.rate) === row.pct && tax.source === 'Derived'
+                          ) ? t(
+                            'ATENȚIE: baza TVA este calculată, nu citită din bon. Confirmă valoarea pe original.',
+                            'WARNING: taxable base is calculated, not read from the receipt. Verify it against the original.'
+                          ) : t(
+                            'Propus din original; verifică baza și TVA-ul efectiv.',
+                            'Suggested from the original; verify the taxable base and actual paid VAT.'
+                          )}
                         </small>
                       )}
                       <span>

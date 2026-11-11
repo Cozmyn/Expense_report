@@ -94,7 +94,7 @@ public class DocumentSegmentationTests
         var result = ReceiptParser.Parse(
             [new(1, "BON FISCAL\nBUCURESTI\nCUI: 12345678\nCUI CLIENT " + marker
                 + "\n11.11.2026\nTVA 21% 100.00 21.00\nTOTAL DE PLATA 121.00 RON")],
-            null
+            "35898037"
         );
         var receipt = Assert.Single(result.Candidates);
         Assert.Equal("RO", receipt.Fields["country"].Value);
@@ -110,7 +110,7 @@ public class DocumentSegmentationTests
     {
         var receipt = Assert.Single(ReceiptParser.Parse(
             [new(1, "BON FISCAL\nBUCURESTI\n10.11.2026\nTOTAL 89.40 RON")],
-            null
+            "35898037"
         ).Candidates);
         Assert.Equal("RO", receipt.Fields["country"].Value);
         Assert.Equal("false", receipt.Fields["hasCompanyCui"].Value);
@@ -148,6 +148,45 @@ public class DocumentSegmentationTests
         );
         var receipt = Assert.Single(parsed.Candidates);
         Assert.Equal("123.45", receipt.Fields["amount"].Value);
+    }
+
+
+    [Fact]
+    public void MissingCompanyIdentityNeverSilentlyUsesAnotherCompanyCui()
+    {
+        var candidate = Assert.Single(ReceiptParser.Parse(
+            [new(1, "BON FISCAL\nBUCURESTI\nCUI CLIENT RO35898037\nTVA 21% 100.00 21.00\nTOTAL 121.00 RON")],
+            null
+        ).Candidates);
+        Assert.Null(candidate.Fields.GetValueOrDefault("hasCompanyCui")?.Value);
+        Assert.Contains(candidate.Warnings, w => w.StartsWith("COMPANY_IDENTITY_NOT_CONFIGURED:"));
+    }
+
+    [Theory]
+    [InlineData("35898037", "true")]
+    [InlineData("12345678", "false")]
+    public void ConfiguredCompanyCuiControlsVatClassification(string companyCui, string expected)
+    {
+        var candidate = Assert.Single(ReceiptParser.Parse(
+            [new(1, "BON FISCAL\nBUCURESTI\nCUI CLIENT RO35898037\nTOTAL 121.00 RON")],
+            companyCui
+        ).Candidates);
+        Assert.Equal(expected, candidate.Fields["hasCompanyCui"].Value);
+        Assert.DoesNotContain(candidate.Warnings, w => w.StartsWith("COMPANY_IDENTITY_NOT_CONFIGURED:"));
+    }
+
+    [Fact]
+    public void DerivedTaxBaseNeverClaimsToBePrintedSource()
+    {
+        var candidate = Assert.Single(ReceiptParser.Parse(
+            [new(1, "FACTURA NR 77\nTVA 21% 21.00\nTOTAL 121.00 RON")],
+            "35898037"
+        ).Candidates);
+        var tax = Assert.Single(candidate.Taxes);
+        Assert.Equal(100m, tax.Base);
+        Assert.Equal(21m, tax.Vat);
+        Assert.Equal("Derived", tax.Source);
+        Assert.Contains(candidate.Warnings, w => w.Contains("Baza TVA a fost dedusă"));
     }
 
 }
