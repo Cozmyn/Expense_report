@@ -49,4 +49,20 @@ public class SchemaSafetyTests
         // already-baselined database outside reviewed versioned migrations.
     }
 
+
+    [Fact]
+    public async Task VerifiedBaselineRejectsMissingImmutableEvidenceTrigger()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        using var scope = f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        if (db.Database.IsNpgsql())
+            await db.Database.ExecuteSqlRawAsync("DROP TRIGGER immutable_evidence ON \"DocumentEvents\"");
+        else
+            await db.Database.ExecuteSqlRawAsync("DROP TRIGGER immutable_update_DocumentEvents");
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => SchemaUpgrades.Apply(db));
+        Assert.Contains("immutable_", failure.Message);
+    }
+
 }

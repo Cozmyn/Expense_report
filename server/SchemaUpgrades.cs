@@ -8,6 +8,32 @@ namespace Decont;
 
 public static class SchemaUpgrades
 {
+    private static readonly string[] ImmutableEvidenceTables =
+    [
+        "Audits",
+        "Snapshots",
+        "Decisions",
+        "Reviews",
+        "Comments",
+        "ExtractionAttempts",
+        "DocumentEvents",
+        "FinancePolicies",
+        "FxProposals",
+        "FxDecisions",
+        "Calculations",
+        "TaxPolicies",
+        "TaxPolicyDecisions",
+        "VerifiedVatComponents",
+        "ReportResets",
+        "ReportRestores",
+        "BankTreatments",
+        "BankTreatmentRevocations",
+        "FinanceAcceptanceRecords",
+        "PostingLines",
+        "PostingReviews",
+        "Transactions",
+    ];
+
     public static async Task Apply(Db db)
     {
         // A verified baseline is immutable. Later changes must arrive through
@@ -98,33 +124,7 @@ public static class SchemaUpgrades
                     .Value.Replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ")
                     .Replace("CREATE UNIQUE INDEX ", "CREATE UNIQUE INDEX IF NOT EXISTS ")
             );
-        foreach (
-            var table in new[]
-            {
-                "Audits",
-                "Snapshots",
-                "Decisions",
-                "Reviews",
-                "Comments",
-                "ExtractionAttempts",
-                "DocumentEvents",
-                "FinancePolicies",
-                "FxProposals",
-                "FxDecisions",
-                "Calculations",
-                "TaxPolicies",
-                "TaxPolicyDecisions",
-                "VerifiedVatComponents",
-                "ReportResets",
-                "ReportRestores",
-                "BankTreatments",
-                "BankTreatmentRevocations",
-                "FinanceAcceptanceRecords",
-                "PostingLines",
-                "PostingReviews",
-                "Transactions",
-            }
-        )
+        foreach (var table in ImmutableEvidenceTables)
         {
             if (db.Database.IsNpgsql())
             {
@@ -344,20 +344,35 @@ public static class SchemaUpgrades
                     return names;
                 }
 
-                var escapedTable = table.Key.Name.Replace("\"", "\"\"");
                 var columns = db.Database.IsNpgsql()
                     ? await ReadNames("SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=@table", true)
                     : await ReadNames("SELECT name FROM pragma_table_info('" + table.Key.Name.Replace("'", "''") + "')", false);
                 var indexes = db.Database.IsNpgsql()
                     ? await ReadNames("SELECT indexname FROM pg_indexes WHERE schemaname=current_schema() AND tablename=@table", true)
                     : await ReadNames("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=@table", true);
+                var requiredTriggers = ImmutableEvidenceTables.Contains(table.Key.Name)
+                    ? db.Database.IsNpgsql()
+                        ? new[] { "immutable_evidence" }
+                        : new[] { "immutable_update_" + table.Key.Name, "immutable_delete_" + table.Key.Name }
+                    : table.Key.Name == "Batches"
+                        ? db.Database.IsNpgsql()
+                            ? new[] { "immutable_batch" }
+                            : new[] { "immutable_batch_update", "immutable_batch_delete" }
+                        : [];
+                var triggers = requiredTriggers.Length == 0
+                    ? new HashSet<string>(StringComparer.Ordinal)
+                    : db.Database.IsNpgsql()
+                        ? await ReadNames("SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON t.tgrelid=c.oid JOIN pg_namespace n ON c.relnamespace=n.oid WHERE NOT t.tgisinternal AND n.nspname=current_schema() AND c.relname=@table", true)
+                        : await ReadNames("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name=@table", true);
+                var missingTriggers = requiredTriggers.Except(triggers).ToArray();
                 var missingColumns = expectedColumns.Except(columns).ToArray();
                 var missingIndexes = expectedIndexes.Except(indexes).ToArray();
-                if (columns.Count == 0 || missingColumns.Length > 0 || missingIndexes.Length > 0)
+                if (columns.Count == 0 || missingColumns.Length > 0 || missingIndexes.Length > 0 || missingTriggers.Length > 0)
                     throw new InvalidOperationException(
                         "Database schema drift for " + table.Key.Name
                         + "; missing columns: " + string.Join(",", missingColumns)
                         + "; missing indexes: " + string.Join(",", missingIndexes)
+                        + "; missing audit triggers: " + string.Join(",", missingTriggers)
                         + ". Stop startup and restore or apply reviewed migrations."
                     );
             }
