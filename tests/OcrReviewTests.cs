@@ -241,6 +241,49 @@ public class OcrReviewTests
     }
 
     [Fact]
+    public async Task SourceSelectionUsesLatestOcrAttemptAndCanChooseEarlierAttempt()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        var (report, document) = await Fixture(f, 1, "INVOICE NO A1\nTOTAL 10.00 RON");
+        Guid originalAttempt;
+        using (var scope = f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<Db>();
+            originalAttempt = (await db.ExtractionAttempts.SingleAsync()).Id;
+            var retry = ReceiptParser.Parse(
+                [new OcrPage(1, "INVOICE NO A1\nTOTAL 99.00 RON")], null);
+            await OcrReviews.Import(db, report, document, retry);
+            await db.SaveChangesAsync();
+            Assert.Equal(2, await db.ExtractionAttempts.CountAsync());
+        }
+        var alice = await Login(f, "alice");
+        var view = await View(alice, report, document);
+        var review = view.GetProperty("review");
+        var id = review.GetProperty("candidates")[0].GetProperty("id").GetGuid();
+        Key(alice);
+        var select = await alice.PostAsJsonAsync(
+            $"/api/reports/{report}/documents/{document}/groups/{id}/select-field",
+            new OcrSourceSelection(review.GetProperty("version").GetInt64(),
+                "amount", new SourceRegion(1), "Choose the latest OCR attempt"));
+        Assert.True(select.IsSuccessStatusCode, await select.Content.ReadAsStringAsync());
+        view = await View(alice, report, document);
+        review = view.GetProperty("review");
+        Assert.Equal("99.00", review.GetProperty("candidates")[0]
+            .GetProperty("fields").GetProperty("amount").GetProperty("value").GetString());
+        Key(alice);
+        select = await alice.PostAsJsonAsync(
+            $"/api/reports/{report}/documents/{document}/groups/{id}/select-field",
+            new OcrSourceSelection(review.GetProperty("version").GetInt64(),
+                "amount", new SourceRegion(1), "Compare with original attempt",
+                AttemptId: originalAttempt));
+        Assert.True(select.IsSuccessStatusCode, await select.Content.ReadAsStringAsync());
+        view = await View(alice, report, document);
+        Assert.Equal("10.00", view.GetProperty("review").GetProperty("candidates")[0]
+            .GetProperty("fields").GetProperty("amount").GetProperty("value").GetString());
+    }
+
+    [Fact]
     public async Task VerificationCreatesOnlyOneExpenseAndRetryPreservesHumanCorrections()
     {
         await using var f = new Factory();

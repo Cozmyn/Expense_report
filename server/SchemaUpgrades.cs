@@ -10,6 +10,13 @@ public static class SchemaUpgrades
 {
     public static async Task Apply(Db db)
     {
+        // A verified baseline is immutable. Later changes must arrive through
+        // an explicit reviewed migration, never silently through regex DDL.
+        if (await HasVerifiedBaseline(db))
+        {
+            await VerifyModel(db);
+            return;
+        }
         var ddl = db.Database.GenerateCreateScript();
         await using var tx = await db.Database.BeginTransactionAsync();
         foreach (
@@ -263,6 +270,30 @@ public static class SchemaUpgrades
             await db.SaveChangesAsync();
         }
         await tx.CommitAsync();
+    }
+
+    private static async Task<bool> HasVerifiedBaseline(Db db)
+    {
+        var connection = db.Database.GetDbConnection();
+        var close = connection.State != ConnectionState.Open;
+        if (close)
+            await db.Database.OpenConnectionAsync();
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = db.Database.CurrentTransaction?.GetDbTransaction();
+            command.CommandText = db.Database.IsNpgsql()
+                ? "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() AND table_name='SchemaReleases')"
+                : "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='SchemaReleases')";
+            if (!Convert.ToBoolean(await command.ExecuteScalarAsync()))
+                return false;
+        }
+        finally
+        {
+            if (close)
+                await db.Database.CloseConnectionAsync();
+        }
+        return await db.SchemaReleases.AsNoTracking().AnyAsync(r => r.Id == 13);
     }
 
     /// <summary>

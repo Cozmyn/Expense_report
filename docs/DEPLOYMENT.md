@@ -10,7 +10,7 @@ Node 22 builds the frontend. .NET 10 builds/publishes the backend. Runtime image
 
 Schema release 13 introduces a read-only physical model check during `--init` / `--bootstrap` on both PostgreSQL and SQLite. Missing tables, expected columns or indexes stop the upgrade rather than silently accepting a partial migration. Verify the database and retain a backup before updating; never remove financial tables to make this check pass.
 
-**Transition limitation:** the historical schema 3–12 updater still uses the legacy additive DDL extraction for old installations. Release 13 adds verification and a numbered baseline, **not yet a complete EF migration replacement**. Before moving an existing production database to the new migration model, approve a baseline and rehearse upgrade/rollback on its restored copy. New schema changes must use reviewed, numbered migration scripts rather than extend the regex extractor.
+**Transition limitation:** the historical schema 3–12 updater still uses the legacy additive DDL extraction for old installations. Release 13 adds verification and a numbered baseline, **not yet a complete EF migration replacement**. On any installation that already has release 13, bootstrap validates the existing schema and refuses to modify it implicitly; future changes require a reviewed explicit migration. Before moving an existing production database to the new migration model, approve a baseline and rehearse upgrade/rollback on its restored copy. New schema changes must use reviewed, numbered migration scripts rather than extend the regex extractor.
 
 ## Actualizarea unei instalări existente / Existing installation upgrade
 

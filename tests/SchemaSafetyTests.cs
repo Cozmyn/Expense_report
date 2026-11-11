@@ -32,4 +32,21 @@ public class SchemaSafetyTests
             SchemaUpgrades.VerifyModel(db));
         Assert.Contains("IX_DocumentGroups_BundleId_SourceKey", exception.Message);
     }
+
+    [Fact]
+    public async Task VerifiedBaselineNeverSilentlyRecreatesMissingIndex()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        using var scope = f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        Assert.True(await db.SchemaReleases.AnyAsync(r => r.Id == 13));
+        await db.Database.ExecuteSqlRawAsync("DROP INDEX \"IX_DocumentGroups_BundleId_SourceKey\"");
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            SchemaUpgrades.Apply(db));
+        Assert.Contains("IX_DocumentGroups_BundleId_SourceKey", failure.Message);
+        // This matters: the initializer must not modify or 'repair' an
+        // already-baselined database outside reviewed versioned migrations.
+    }
+
 }
