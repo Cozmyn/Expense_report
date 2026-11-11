@@ -179,6 +179,7 @@ export default function OcrGroupBoard({
             onClick={() => perform(async () => {
               const candidate = groups.find((g: Any) => g.warnings?.some(
                 (w: string) => w.startsWith('MULTIPLE_SECTIONS_SINGLE:')));
+              if (!candidate) return;
               await api(base + '/groups', 'POST', {
                 version: report.version,
                 action: 'expand',
