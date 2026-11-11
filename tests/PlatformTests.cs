@@ -29,7 +29,7 @@ public class PlatformTests
                 ),
                 new(2, "INVOICE NO INV002\n02.01.2026\nTOTAL 1.234,56 EUR"),
             ],
-            null
+            "35898037"
         );
         Assert.Equal(2, result.Candidates.Count);
         var first = result.Candidates[0];
