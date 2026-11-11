@@ -166,6 +166,32 @@ export default function OcrGroupBoard({
           'Review each receipt before creating an expense. You can select several receipts from one PDF.',
         )}
       </p>
+      {file.receiptMode === 'Single' && groups.some((g: Any) =>
+        g.warnings?.some((w: string) => w.startsWith('MULTIPLE_SECTIONS_SINGLE:'))
+      ) && (
+        <div className="issue warning" role="alert">
+          <strong>{t('Au fost detectate mai multe bonuri', 'Several receipts were detected')}</strong>
+          <p>{t(
+            'Nu salva un total combinat. Separă documentele fără să încarci din nou fișierul.',
+            'Do not save a combined total. Separate the receipts without uploading again.'
+          )}</p>
+          <button type="button" className="primary" disabled={changing || stale}
+            onClick={() => perform(async () => {
+              const candidate = groups.find((g: Any) => g.warnings?.some(
+                (w: string) => w.startsWith('MULTIPLE_SECTIONS_SINGLE:')));
+              if (!candidate) return;
+              await api(base + '/groups', 'POST', {
+                version: report.version,
+                action: 'expand',
+                groups: [candidate.id],
+                reason: 'Separate multiple OCR receipt candidates selected as one receipt',
+              });
+              await refresh();
+            })}>
+            {t('Separă bonurile detectate', 'Separate detected receipts')}
+          </button>
+        </div>
+      )}
       <section className="quick-help">
         <h4>{t('Mai multe bonuri într-un PDF?', 'Multiple receipts in one PDF?')}</h4>
         <ol>
@@ -174,11 +200,19 @@ export default function OcrGroupBoard({
           <li>{t('Confirmă fiecare grup pentru a crea cheltuieli separate.', 'Confirm each group to create separate expenses.')}</li>
         </ol>
       </section>
-      {file.receiptMode !== 'Single' && (
+      {(file.receiptMode !== 'Single' || review.tombstones?.some(
+        (g: Any) => g.state === 'Split'
+      )) && (
         <button type="button" className="secondary"
           onClick={() => { RG({ id: 'new-region', pages: [1] }); Regions([]); }}>
           {t('Nu este detectat un bon? Selectează-l din PDF', 'Missing a receipt? Select it in the PDF')}
         </button>
+      )}
+      {review.attempts > 1 && (
+        <p className="small muted">{t(
+          'Câmpurile selectate folosesc ultima tentativă OCR, păstrând toate încercările în istoric.',
+          'Selected fields use the latest OCR attempt; previous attempts remain in the history.'
+        )}</p>
       )}
       {(changing || stale) && (
         <p role="status">
@@ -653,6 +687,20 @@ export default function OcrGroupBoard({
                 }
               >
                 {t('Folosește textul selectat', 'Use selected text')}
+              </button>
+              <button type="button" className="secondary"
+                disabled={changing || stale || !fieldRegion}
+                onClick={() => perform(async () => {
+                  await api(base + '/groups/' + fieldGroup.id + '/select-field', 'POST', {
+                    version: report.version, field: fieldKey, region: fieldRegion,
+                    reread: true,
+                    reason: reason.trim().length >= 3 ? reason : 'User requested region OCR re-read',
+                  });
+                  FieldGroup(null);
+                  FieldRegion(null);
+                  await refresh();
+                })}>
+                {t('Recitește zona cu OCR', 'Re-read region with OCR')}
               </button>
               <button className="secondary" type="button" onClick={() => FieldRegion(null)}>
                 {t('Selectează din nou', 'Select again')}

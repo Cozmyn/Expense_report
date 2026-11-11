@@ -7,11 +7,34 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.HttpOverrides;
+using System.Net;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(
     args.Where(a => a is not ("--init" or "--bootstrap" or "--schema")).ToArray()
 );
+// Only a precisely enumerated ingress may set forwarded scheme/client IP.
+// Never trust client-supplied X-Forwarded-* headers from the public Internet.
+if (!builder.Environment.IsDevelopment())
+{
+    var configured = builder.Configuration["ReverseProxy:KnownProxies"]?
+        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? [];
+    if (configured.Length == 0 || configured.Any(ip => !IPAddress.TryParse(ip, out _)))
+        throw new InvalidOperationException(
+            "Production requires ReverseProxy:KnownProxies as an explicit comma-separated list of proxy IP addresses."
+        );
+    var proxies = configured.Select(IPAddress.Parse).ToArray();
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        options.ForwardLimit = 1;
+        options.KnownProxies.Clear();
+        options.KnownNetworks.Clear();
+        foreach (var proxy in proxies)
+            options.KnownProxies.Add(proxy);
+    });
+}
 builder.Logging.AddJsonConsole();
 builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
 var postgres = builder.Configuration["Database:Provider"] == "Postgres";
@@ -306,6 +329,7 @@ app.Use(
 );
 if (!app.Environment.IsDevelopment())
 {
+    app.UseForwardedHeaders();
     app.UseHsts();
     app.UseHttpsRedirection();
 }

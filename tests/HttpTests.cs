@@ -34,6 +34,11 @@ public sealed class Factory : WebApplicationFactory<Program>
             using var command = new NpgsqlCommand("CREATE DATABASE " + name, admin);
             command.ExecuteNonQuery();
             cs.Database = name;
+            // Every integration fixture owns a different test database. Pooling by
+            // unique database name retains idle backend connections across hundreds
+            // of tests and can exhaust the PostgreSQL service. The test database
+            // connections are disposable; real concurrent SQL requests still work.
+            cs.Pooling = false;
             testConnection = cs.ConnectionString;
         }
         builder.ConfigureServices(services =>

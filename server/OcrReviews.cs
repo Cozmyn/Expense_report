@@ -130,10 +130,15 @@ public static class OcrReviews
                     if (!fields.TryGetValue(field.Key, out var existing)
                         || (string.IsNullOrWhiteSpace(existing.Value) && !string.IsNullOrWhiteSpace(field.Value.Value)))
                         fields[field.Key] = field.Value;
-                var taxes = parsed.SelectMany(c => c.Taxes).ToList();
+                // A single-upload containing multiple detected receipts is unresolved.
+                // Never combine unrelated receipts or VAT breakdowns into one draft.
+                var taxes = parsed.Count == 1 ? parsed[0].Taxes.ToList() : [];
                 var warnings = parsed.SelectMany(c => c.Warnings).Distinct().ToList();
                 if (parsed.Count > 1)
-                    warnings.Add("Mai multe secțiuni detectate într-un document ales ca bon unic; verifică suma și TVA-ul. / Multiple document sections were detected; verify total and VAT.");
+                {
+                    fields.Clear();
+                    warnings.Add("MULTIPLE_SECTIONS_SINGLE: Au fost găsite mai multe bonuri într-un fișier ales ca bon unic. Alege «Separă bonurile» înainte de salvare. / Several receipts were found in a single-receipt upload. Choose «Separate receipts» before saving.");
+                }
                 if (parsed.Count == 0)
                     warnings.Add("Nu au fost identificate câmpuri. Selectează valorile din document sau completează manual. / No fields identified. Select values from the document or enter them manually.");
                 db.DocumentGroups.Add(new()
@@ -343,6 +348,7 @@ public static class OcrReviews
                 }),
             historyCount = await db.Audits.CountAsync(a => a.Entity == review.Id.ToString()),
             attempts = await db.ExtractionAttempts.CountAsync(a => a.BundleId == review.Id),
+            activeAttemptId = latest?.Id,
         };
     }
 
@@ -427,6 +433,14 @@ public static class OcrReviews
         var review = await db.DocumentReviews.SingleAsync(r => r.Id == document && r.ReportId == report.Id);
         var source = report.Attachments.Single(a => a.Id == document && !a.Archived);
         Guard.Require(source.Scan == "Clean", "scan", "Așteaptă scanarea documentului.", "Wait for document scanning.");
+        Guard.Require(
+            source.ReceiptMode != "Single"
+            || !Serialization.Read<List<string>>(group.Warnings).Any(w => w.StartsWith("MULTIPLE_SECTIONS_SINGLE:")),
+            "ocr_multiple_receipts",
+            "Au fost detectate mai multe bonuri. Separă-le înainte de confirmare.",
+            "Several receipts were detected. Separate them before verifying.",
+            409
+        );
         var regions = Regions(group);
         ValidateRegions(regions, review.PageCount);
         var others = await db
@@ -1006,7 +1020,48 @@ public static class OcrReviews
                             db.DocumentGroups.Add(g);
                             return g;
                         }
-                        if (i.Action == "restore")
+                        if (i.Action == "expand")
+                        {
+                            Guard.Require(
+                                selected.Count == 1 && all.Count(Active) == 1
+                                && selected[0].SourceKey.StartsWith("single:")
+                                && report.Attachments.Single(a => a.Id == document).ReceiptMode == "Single"
+                                && selected[0].CorrectedExpense == null,
+                                "group_state",
+                                "Separarea este permisă numai înainte de verificarea bonului unic.",
+                                "A single receipt can be separated only before verification."
+                            );
+                            var latest = await db.ExtractionAttempts.Where(a => a.BundleId == document)
+                                .OrderByDescending(a => a.Created).FirstOrDefaultAsync();
+                            var candidates = Serialization.Read<OcrResult>(latest?.Json ?? review.OriginalExtraction).Candidates;
+                            Guard.Require(
+                                candidates.Count > 0,
+                                "ocr_missing_candidates",
+                                "Nu există propuneri de separat. Adaugă bonurile prin delimitare manuală.",
+                                "No detected receipts to separate. Add receipt regions manually."
+                            );
+                            selected[0].State = "Split";
+                            foreach (var candidate in candidates)
+                            {
+                                var regions = candidate.Regions ?? candidate.Pages.Select(p => new SourceRegion(p)).ToList();
+                                ValidateRegions(regions, review.PageCount);
+                                var created = new DocumentGroup
+                                {
+                                    BundleId = document,
+                                    SourceKey = candidate.Id.ToString(),
+                                    Regions = Serialization.Write(regions),
+                                    Fields = Serialization.Write(candidate.Fields),
+                                    Taxes = Serialization.Write(candidate.Taxes),
+                                    Warnings = Serialization.Write(candidate.Warnings),
+                                    Parents = Serialization.Write(ids),
+                                };
+                                db.DocumentGroups.Add(created);
+                                added.Add(created);
+                            }
+                            // Preserve the immutable original upload intent ("Single").
+                            // The Split tombstone and child groups record the reviewed correction.
+                        }
+                        else if (i.Action == "restore")
                         {
                             Guard.Require(selected.Count > 0, "group", "Selectează un grup.", "Select a group.");
                             var dispositions = Serialization.Read<List<PageDisposition>>(review.Dispositions);

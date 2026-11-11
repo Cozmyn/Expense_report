@@ -12,6 +12,28 @@ public static class SupplierOcrLearning
 
     private static string Cui(string? value) => Rules.Cui(value);
 
+    public static bool MatchesVerifiedValue(ExpenseData expense, string key, OcrField field)
+    {
+        if (string.IsNullOrWhiteSpace(field.Value))
+            return false;
+        if (key == "amount")
+            return ReceiptParser.Number(field.Value) == expense.Amount;
+        var final = key switch
+        {
+            "supplier" => expense.Supplier,
+            "cui" => expense.Cui,
+            "invoice" => expense.Invoice,
+            "date" => expense.Date,
+            "currency" => expense.Currency,
+            "description" => expense.Description,
+            _ => null,
+        };
+        return final != null &&
+            (key == "cui"
+                ? Cui(final) == Cui(field.Value)
+                : string.Equals(final.Trim(), field.Value.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
     private static bool Similar(SourceBox a, SourceBox b) =>
         Math.Abs(a.X - b.X) <= .08m
         && Math.Abs(a.Y - b.Y) <= .08m
@@ -54,12 +76,23 @@ public static class SupplierOcrLearning
                 );
                 if (page == null)
                     continue;
+                // A supplier may have two receipts on the same scanned page.
+                // Only the candidate's own source region can contribute a hint.
+                var regions = candidate.Regions ?? candidate.Pages.Select(n => new SourceRegion(n)).ToList();
+                if (result.Candidates.Count(other => other != candidate
+                        && other.Pages.Contains(page.Number)) > 0
+                    && regions.Any(r => r.Page == page.Number && r.X == 0
+                        && r.Y == 0 && r.Width == 1 && r.Height == 1))
+                    continue; // Shared-page, unbounded source is ambiguous.
                 var words = page.Words!
                     .Where(w =>
                     {
                         var x = w.Box.X + w.Box.Width / 2;
                         var y = w.Box.Y + w.Box.Height / 2;
-                        return x >= Math.Max(0, sample.X - .02m)
+                        return regions.Any(r => r.Page == page.Number
+                                && x >= r.X && x <= r.X + r.Width
+                                && y >= r.Y && y <= r.Y + r.Height)
+                            && x >= Math.Max(0, sample.X - .02m)
                             && x <= Math.Min(1, sample.X + sample.Width + .02m)
                             && y >= Math.Max(0, sample.Y - .02m)
                             && y <= Math.Min(1, sample.Y + sample.Height + .02m);
@@ -105,7 +138,8 @@ public static class SupplierOcrLearning
                     continue;
                 var fields = Serialization.Read<Dictionary<string, OcrField>>(item.Fields);
                 foreach (var (key, field) in fields)
-                    if (field.Source == "HumanSelected" && field.Box != null)
+                    if (field.Source == "HumanSelected" && field.Box != null
+                        && MatchesVerifiedValue(expense, key, field))
                         examples.Add(new(cui, item.BundleId, key, field.Box));
             }
             catch (Exception)

@@ -490,7 +490,7 @@ export default function ReceiptModal({
         {t('Selectează pe bon', 'Select on receipt')}
       </button>
     ) : null;
-  const applyScan = async () => {
+  const applyScan = async (reread = false) => {
     if (!scanField || !scanRegion || !expense.sourceGroupId || !expense.sourceAttachmentId) return;
     ScanBusy(true);
     ScanError('');
@@ -503,7 +503,7 @@ export default function ReceiptModal({
           + '/groups/' + expense.sourceGroupId + '/select-field',
         'POST',
         { version: detail.report.version, field: scanField, region: scanRegion,
-          reason: finance ? financeScanReason : 'Employee verified the source region' },
+          reread, reason: finance ? financeScanReason : 'Employee verified the source region' },
       );
       const review = await api(
         '/reports/' + expense.reportId + '/documents/' + expense.sourceAttachmentId + '/review',
@@ -605,8 +605,13 @@ export default function ReceiptModal({
                   <div className="actions">
                     <button type="button" className="primary"
                       disabled={!scanRegion || scanBusy || (finance && financeScanReason.trim().length < 3)}
-                      onClick={applyScan}>
-                      {scanBusy ? t('Se citește…', 'Reading…') : t('Folosește selecția', 'Use selected text')}
+                      onClick={() => applyScan(false)}>
+                      {scanBusy ? t('Se citește…', 'Reading…') : t('Folosește textul existent', 'Use existing text')}
+                    </button>
+                    <button type="button" className="secondary"
+                      disabled={!scanRegion || scanBusy || (finance && financeScanReason.trim().length < 3)}
+                      onClick={() => applyScan(true)}>
+                      {t('Recitește zona cu OCR', 'Re-read region with OCR')}
                     </button>
                     <button type="button" className="secondary" onClick={() => { ScanField(null); ScanRegion(null); ScanError(''); }}>
                       {t('Completez manual', 'Enter manually')}
@@ -1224,8 +1229,15 @@ export default function ReceiptModal({
                         (tax: Any) => Number(tax.rate) === row.pct
                       ) && (
                         <small className="receipt-hint">
-                          {t('Propus din original; verifică baza și TVA-ul efectiv.',
-                             'Suggested from the original; verify the taxable base and actual paid VAT.')}
+                          {expense.ocrCandidate.taxes.some(
+                            (tax: Any) => Number(tax.rate) === row.pct && tax.source === 'Derived'
+                          ) ? t(
+                            'ATENȚIE: baza TVA este calculată, nu citită din bon. Confirmă valoarea pe original.',
+                            'WARNING: taxable base is calculated, not read from the receipt. Verify it against the original.'
+                          ) : t(
+                            'Propus din original; verifică baza și TVA-ul efectiv.',
+                            'Suggested from the original; verify the taxable base and actual paid VAT.'
+                          )}
                         </small>
                       )}
                       <span>

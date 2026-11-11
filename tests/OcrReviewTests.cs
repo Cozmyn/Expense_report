@@ -52,7 +52,7 @@ public class OcrReviewTests
             []
         );
 
-    static async Task<(Guid Report, Guid Document)> Fixture(Factory f, int pages = 2, string? sourceText = null)
+    static async Task<(Guid Report, Guid Document)> Fixture(Factory f, int pages = 2, string? sourceText = null, string receiptMode = "Auto")
     {
         using var scope = f.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<Db>();
@@ -72,6 +72,7 @@ public class OcrReviewTests
             Key = "test",
             Scan = "Clean",
             Hash = "SYNTHETIC",
+            ReceiptMode = receiptMode,
         };
         report.Attachments.Add(source);
         db.Reports.Add(report);
@@ -105,6 +106,42 @@ public class OcrReviewTests
 
     static async Task<JsonElement> View(HttpClient c, Guid report, Guid source) =>
         await c.GetFromJsonAsync<JsonElement>($"/api/reports/{report}/documents/{source}/review");
+
+    [Fact]
+    public async Task SingleUploadWithTwoReceiptsRequiresSeparationAndPreservesCandidates()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        var text = "BON FISCAL NR A1\nTOTAL 10.00 RON\nBON FISCAL NR B2\nTOTAL 20.00 RON";
+        var (r, d) = await Fixture(f, 1, text, "Single");
+        var alice = await Login(f, "alice");
+        var view = await View(alice, r, d);
+        var review = view.GetProperty("review");
+        var group = Assert.Single(review.GetProperty("candidates").EnumerateArray());
+        Assert.Empty(group.GetProperty("fields").EnumerateObject());
+        Assert.Empty(group.GetProperty("taxes").EnumerateArray());
+        Assert.Contains(group.GetProperty("warnings").EnumerateArray(),
+            w => w.GetString()!.StartsWith("MULTIPLE_SECTIONS_SINGLE:"));
+        var version = review.GetProperty("version").GetInt64();
+        Key(alice);
+        var rejected = await alice.PostAsJsonAsync($"/api/reports/{r}/lines",
+            new LineEdit(version, Data(), null, d, group.GetProperty("id").GetGuid()));
+        Assert.Equal(HttpStatusCode.Conflict, rejected.StatusCode);
+
+        Key(alice);
+        var expanded = await alice.PostAsJsonAsync(
+            $"/api/reports/{r}/documents/{d}/groups",
+            new GroupCommand(version, "expand", [group.GetProperty("id").GetGuid()],
+                Reason: "Separate the two different fiscal receipts"));
+        Assert.True(expanded.IsSuccessStatusCode, await expanded.Content.ReadAsStringAsync());
+        view = await View(alice, r, d);
+        Assert.Equal(2, view.GetProperty("review").GetProperty("candidates").GetArrayLength());
+        using var scope = f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        Assert.Equal("Single", (await db.ReportAttachments.SingleAsync()).ReceiptMode); // Upload intent stays immutable.
+        Assert.Equal(3, await db.DocumentGroups.CountAsync());
+        Assert.Equal("Split", (await db.DocumentGroups.SingleAsync(g => g.Id == group.GetProperty("id").GetGuid())).State);
+    }
 
     [Fact]
     public async Task GroupsAreScopedVersionedAndSupportSplitMergeAndDisposition()
@@ -201,6 +238,49 @@ public class OcrReviewTests
         Assert.Equal(5, await db.DocumentGroups.CountAsync());
         Assert.Equal(3, await db.DocumentGroups.CountAsync(g => g.State == "Merged" || g.State == "Split"));
         Assert.True(await db.Audits.CountAsync(a => a.Entity == d.ToString()) >= 4);
+    }
+
+    [Fact]
+    public async Task SourceSelectionUsesLatestOcrAttemptAndCanChooseEarlierAttempt()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        var (report, document) = await Fixture(f, 1, "INVOICE NO A1\nTOTAL 10.00 RON");
+        Guid originalAttempt;
+        using (var scope = f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<Db>();
+            originalAttempt = (await db.ExtractionAttempts.SingleAsync()).Id;
+            var retry = ReceiptParser.Parse(
+                [new OcrPage(1, "INVOICE NO A1\nTOTAL 99.00 RON")], null);
+            await OcrReviews.Import(db, report, document, retry);
+            await db.SaveChangesAsync();
+            Assert.Equal(2, await db.ExtractionAttempts.CountAsync());
+        }
+        var alice = await Login(f, "alice");
+        var view = await View(alice, report, document);
+        var review = view.GetProperty("review");
+        var id = review.GetProperty("candidates")[0].GetProperty("id").GetGuid();
+        Key(alice);
+        var select = await alice.PostAsJsonAsync(
+            $"/api/reports/{report}/documents/{document}/groups/{id}/select-field",
+            new OcrSourceSelection(review.GetProperty("version").GetInt64(),
+                "amount", new SourceRegion(1), "Choose the latest OCR attempt"));
+        Assert.True(select.IsSuccessStatusCode, await select.Content.ReadAsStringAsync());
+        view = await View(alice, report, document);
+        review = view.GetProperty("review");
+        Assert.Equal("99.00", review.GetProperty("candidates")[0]
+            .GetProperty("fields").GetProperty("amount").GetProperty("value").GetString());
+        Key(alice);
+        select = await alice.PostAsJsonAsync(
+            $"/api/reports/{report}/documents/{document}/groups/{id}/select-field",
+            new OcrSourceSelection(review.GetProperty("version").GetInt64(),
+                "amount", new SourceRegion(1), "Compare with original attempt",
+                AttemptId: originalAttempt));
+        Assert.True(select.IsSuccessStatusCode, await select.Content.ReadAsStringAsync());
+        view = await View(alice, report, document);
+        Assert.Equal("10.00", view.GetProperty("review").GetProperty("candidates")[0]
+            .GetProperty("fields").GetProperty("amount").GetProperty("value").GetString());
     }
 
     [Fact]

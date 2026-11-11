@@ -1,13 +1,48 @@
 using System.Text.RegularExpressions;
+using System.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage;
 
 namespace Decont;
 
 public static class SchemaUpgrades
 {
+    private static readonly string[] ImmutableEvidenceTables =
+    [
+        "Audits",
+        "Snapshots",
+        "Decisions",
+        "Reviews",
+        "Comments",
+        "ExtractionAttempts",
+        "DocumentEvents",
+        "FinancePolicies",
+        "FxProposals",
+        "FxDecisions",
+        "Calculations",
+        "TaxPolicies",
+        "TaxPolicyDecisions",
+        "VerifiedVatComponents",
+        "ReportResets",
+        "ReportRestores",
+        "BankTreatments",
+        "BankTreatmentRevocations",
+        "FinanceAcceptanceRecords",
+        "PostingLines",
+        "PostingReviews",
+        "Transactions",
+    ];
+
     public static async Task Apply(Db db)
     {
+        // A verified baseline is immutable. Later changes must arrive through
+        // an explicit reviewed migration, never silently through regex DDL.
+        if (await HasVerifiedBaseline(db))
+        {
+            await VerifyModel(db);
+            return;
+        }
         var ddl = db.Database.GenerateCreateScript();
         await using var tx = await db.Database.BeginTransactionAsync();
         foreach (
@@ -89,33 +124,7 @@ public static class SchemaUpgrades
                     .Value.Replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ")
                     .Replace("CREATE UNIQUE INDEX ", "CREATE UNIQUE INDEX IF NOT EXISTS ")
             );
-        foreach (
-            var table in new[]
-            {
-                "Audits",
-                "Snapshots",
-                "Decisions",
-                "Reviews",
-                "Comments",
-                "ExtractionAttempts",
-                "DocumentEvents",
-                "FinancePolicies",
-                "FxProposals",
-                "FxDecisions",
-                "Calculations",
-                "TaxPolicies",
-                "TaxPolicyDecisions",
-                "VerifiedVatComponents",
-                "ReportResets",
-                "ReportRestores",
-                "BankTreatments",
-                "BankTreatmentRevocations",
-                "FinanceAcceptanceRecords",
-                "PostingLines",
-                "PostingReviews",
-                "Transactions",
-            }
-        )
+        foreach (var table in ImmutableEvidenceTables)
         {
             if (db.Database.IsNpgsql())
             {
@@ -248,6 +257,131 @@ public static class SchemaUpgrades
         await db.Database.ExecuteSqlRawAsync(
             "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_Batches_BusinessKey\" ON \"Batches\" (\"BusinessKey\") WHERE \"BusinessKey\" <> ''"
         );
+        // A numbered baseline cannot be acknowledged until the physical database
+        // actually matches the EF model. Partial upgrades fail closed.
+        await VerifyModel(db);
+        if (!await db.SchemaReleases.AnyAsync(x => x.Id == 13))
+        {
+            db.SchemaReleases.Add(new()
+            {
+                Id = 13,
+                Name = "Verified schema baseline; future releases require reviewed explicit migrations"
+            });
+            await db.SaveChangesAsync();
+        }
         await tx.CommitAsync();
     }
+
+    private static async Task<bool> HasVerifiedBaseline(Db db)
+    {
+        var connection = db.Database.GetDbConnection();
+        var close = connection.State != ConnectionState.Open;
+        if (close)
+            await db.Database.OpenConnectionAsync();
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = db.Database.CurrentTransaction?.GetDbTransaction();
+            command.CommandText = db.Database.IsNpgsql()
+                ? "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() AND table_name='SchemaReleases')"
+                : "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='SchemaReleases')";
+            if (!Convert.ToBoolean(await command.ExecuteScalarAsync()))
+                return false;
+        }
+        finally
+        {
+            if (close)
+                await db.Database.CloseConnectionAsync();
+        }
+        return await db.SchemaReleases.AsNoTracking().AnyAsync(r => r.Id == 13);
+    }
+
+    /// <summary>
+    /// Read-only physical schema validation for both PostgreSQL and SQLite.
+    /// Compare real columns/indexes with the EF model, including after upgrading
+    /// a legacy database. A partially upgraded DB must not start as healthy.
+    /// </summary>
+    public static async Task VerifyModel(Db db)
+    {
+        var connection = db.Database.GetDbConnection();
+        var close = connection.State != ConnectionState.Open;
+        if (close)
+            await db.Database.OpenConnectionAsync();
+        try
+        {
+            var tables = db.Model.GetEntityTypes()
+                .Where(e => e.GetTableName() != null)
+                .GroupBy(e => (Name: e.GetTableName()!, Schema: e.GetSchema()))
+                .ToList();
+            foreach (var table in tables)
+            {
+                var store = StoreObjectIdentifier.Table(table.Key.Name, table.Key.Schema);
+                var expectedColumns = table.SelectMany(e => e.GetProperties())
+                    .Select(p => p.GetColumnName(store))
+                    .Where(name => name != null)
+                    .ToHashSet(StringComparer.Ordinal);
+                var expectedIndexes = table.SelectMany(e => e.GetIndexes())
+                    .Select(index => index.GetDatabaseName())
+                    .Where(name => name != null)
+                    .ToHashSet(StringComparer.Ordinal);
+
+                async Task<HashSet<string>> ReadNames(string query, bool useNameParameter)
+                {
+                    await using var command = connection.CreateCommand();
+                    command.Transaction = db.Database.CurrentTransaction?.GetDbTransaction();
+                    command.CommandText = query;
+                    if (useNameParameter)
+                    {
+                        var parameter = command.CreateParameter();
+                        parameter.ParameterName = "@table";
+                        parameter.Value = table.Key.Name;
+                        command.Parameters.Add(parameter);
+                    }
+                    HashSet<string> names = new(StringComparer.Ordinal);
+                    await using var reader = await command.ExecuteReaderAsync();
+                    while (await reader.ReadAsync())
+                        names.Add(reader.GetString(0));
+                    return names;
+                }
+
+                var columns = db.Database.IsNpgsql()
+                    ? await ReadNames("SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=@table", true)
+                    : await ReadNames("SELECT name FROM pragma_table_info('" + table.Key.Name.Replace("'", "''") + "')", false);
+                var indexes = db.Database.IsNpgsql()
+                    ? await ReadNames("SELECT indexname FROM pg_indexes WHERE schemaname=current_schema() AND tablename=@table", true)
+                    : await ReadNames("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=@table", true);
+                var requiredTriggers = ImmutableEvidenceTables.Contains(table.Key.Name)
+                    ? db.Database.IsNpgsql()
+                        ? new[] { "immutable_evidence" }
+                        : new[] { "immutable_update_" + table.Key.Name, "immutable_delete_" + table.Key.Name }
+                    : table.Key.Name == "Batches"
+                        ? db.Database.IsNpgsql()
+                            ? new[] { "immutable_batch" }
+                            : new[] { "immutable_batch_update", "immutable_batch_delete" }
+                        : [];
+                var triggers = requiredTriggers.Length == 0
+                    ? new HashSet<string>(StringComparer.Ordinal)
+                    : db.Database.IsNpgsql()
+                        ? await ReadNames("SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON t.tgrelid=c.oid JOIN pg_namespace n ON c.relnamespace=n.oid WHERE NOT t.tgisinternal AND n.nspname=current_schema() AND c.relname=@table", true)
+                        : await ReadNames("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name=@table", true);
+                var missingTriggers = requiredTriggers.Except(triggers).ToArray();
+                var missingColumns = expectedColumns.Except(columns).ToArray();
+                var missingIndexes = expectedIndexes.Except(indexes).ToArray();
+                if (columns.Count == 0 || missingColumns.Length > 0 || missingIndexes.Length > 0 || missingTriggers.Length > 0)
+                    throw new InvalidOperationException(
+                        "Database schema drift for " + table.Key.Name
+                        + "; missing columns: " + string.Join(",", missingColumns)
+                        + "; missing indexes: " + string.Join(",", missingIndexes)
+                        + "; missing audit triggers: " + string.Join(",", missingTriggers)
+                        + ". Stop startup and restore or apply reviewed migrations."
+                    );
+            }
+        }
+        finally
+        {
+            if (close)
+                await db.Database.CloseConnectionAsync();
+        }
+    }
+
 }

@@ -6,6 +6,12 @@
 
 Node 22 builds the frontend. .NET 10 builds/publishes the backend. Runtime image uses the official `10.0-noble` Ubuntu variant and installs Romanian/English Tesseract, Poppler and DejaVu Unicode fonts. Image tags are mutable: pin approved digests in the release pipeline. Bootstrap creates new installations and applies the application’s repeatable additive schema upgrades. Do not point `--init` at an existing unrelated database.
 
+## Control de schemă / Schema integrity gate
+
+Schema release 13 introduces a read-only physical model check during `--init` / `--bootstrap` on both PostgreSQL and SQLite. Missing tables, expected columns, indexes or immutable-evidence triggers stop the upgrade rather than silently accepting a partial migration. Verify the database and retain a backup before updating; never remove financial tables to make this check pass.
+
+**Transition limitation:** the historical schema 3–12 updater still uses the legacy additive DDL extraction for old installations. Release 13 adds verification and a numbered baseline, **not yet a complete EF migration replacement**. On any installation that already has release 13, bootstrap validates the existing schema and refuses to modify it implicitly; future changes require a reviewed explicit migration. Before moving an existing production database to the new migration model, approve a baseline and rehearse upgrade/rollback on its restored copy. New schema changes must use reviewed, numbered migration scripts rather than extend the regex extractor.
+
 ## Actualizarea unei instalări existente / Existing installation upgrade
 
 Pentru instalările acestei aplicații anterioare fluxului de bonuri, realizează backup și oprește versiunea veche; construiește noua imagine, apoi rulează serviciul de inițializare înainte de pornirea aplicației:
@@ -32,6 +38,7 @@ Separate environment, database and bucket for DEV, UAT and PROD. Production sour
 - `Ocr__Enabled=true`, `Ocr__Languages=ron+eng`, `Ocr__MaxPages=50`; `Ocr__PdfInfo`, `Ocr__PdfRenderer`, `Ocr__Tesseract`, `Ocr__HeicConverter` may override executable paths. Poppler and libheif are installed in the image.
 - SMTP TLS configuration via `Smtp__Host`, `Smtp__Port=587`, `Smtp__From`, `Smtp__Username`, `Smtp__Password`.
 - `Session__Minutes=30` controls idle timeout; activity refreshes the server session. `Application__BaseUrl` must use the real HTTPS origin for recovery links.
+- `ReverseProxy__KnownProxies` is **required** in Production: a comma-separated list of literal IP addresses of the ingress reverse proxies immediately in front of the app (for example `10.2.3.4,10.2.3.5`). Only those peers may supply `X-Forwarded-For` and `X-Forwarded-Proto`; the application accepts one forwarded hop. Configure the actual ingress to strip untrusted client-supplied forwarded headers and test HTTPS redirection and true client IP. Never use `*` or arbitrary public ranges.
 - `DECONT_FONT_DIRECTORY` if the DejaVu font folder differs from `/usr/share/fonts/truetype/dejavu`.
 
 Use a managed HTTPS ingress terminating TLS, enforce HSTS and trusted forwarded headers, serve frontend and API on the same origin, and restrict egress/ingress. There is no included production ingress or certificate setup. Do not enable cross-origin cookie access as a shortcut.
