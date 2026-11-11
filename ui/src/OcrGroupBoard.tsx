@@ -200,7 +200,9 @@ export default function OcrGroupBoard({
           <li>{t('Confirmă fiecare grup pentru a crea cheltuieli separate.', 'Confirm each group to create separate expenses.')}</li>
         </ol>
       </section>
-      {file.receiptMode !== 'Single' && (
+      {(file.receiptMode !== 'Single' || review.tombstones?.some(
+        (g: Any) => g.state === 'Split'
+      )) && (
         <button type="button" className="secondary"
           onClick={() => { RG({ id: 'new-region', pages: [1] }); Regions([]); }}>
           {t('Nu este detectat un bon? Selectează-l din PDF', 'Missing a receipt? Select it in the PDF')}

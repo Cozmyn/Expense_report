@@ -138,7 +138,7 @@ public class OcrReviewTests
         Assert.Equal(2, view.GetProperty("review").GetProperty("candidates").GetArrayLength());
         using var scope = f.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<Db>();
-        Assert.Equal("Multiple", (await db.ReportAttachments.SingleAsync()).ReceiptMode);
+        Assert.Equal("Single", (await db.ReportAttachments.SingleAsync()).ReceiptMode); // Upload intent stays immutable.
         Assert.Equal(3, await db.DocumentGroups.CountAsync());
         Assert.Equal("Split", (await db.DocumentGroups.SingleAsync(g => g.Id == group.GetProperty("id").GetGuid())).State);
     }

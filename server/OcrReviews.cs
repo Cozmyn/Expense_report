@@ -1058,7 +1058,8 @@ public static class OcrReviews
                                 db.DocumentGroups.Add(created);
                                 added.Add(created);
                             }
-                            report.Attachments.Single(a => a.Id == document).ReceiptMode = "Multiple";
+                            // Preserve the immutable original upload intent ("Single").
+                            // The Split tombstone and child groups record the reviewed correction.
                         }
                         else if (i.Action == "restore")
                         {
