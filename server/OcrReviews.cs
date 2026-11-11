@@ -348,6 +348,7 @@ public static class OcrReviews
                 }),
             historyCount = await db.Audits.CountAsync(a => a.Entity == review.Id.ToString()),
             attempts = await db.ExtractionAttempts.CountAsync(a => a.BundleId == review.Id),
+            activeAttemptId = latest?.Id,
         };
     }
 

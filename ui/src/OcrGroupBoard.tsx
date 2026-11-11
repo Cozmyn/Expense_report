@@ -206,6 +206,12 @@ export default function OcrGroupBoard({
           {t('Nu este detectat un bon? Selectează-l din PDF', 'Missing a receipt? Select it in the PDF')}
         </button>
       )}
+      {review.attempts > 1 && (
+        <p className="small muted">{t(
+          'Câmpurile selectate folosesc ultima tentativă OCR, păstrând toate încercările în istoric.',
+          'Selected fields use the latest OCR attempt; previous attempts remain in the history.'
+        )}</p>
+      )}
       {(changing || stale) && (
         <p role="status">
           {t(

@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Decont;
 
-public record OcrSourceSelection(long Version, string Field, SourceRegion Region, string? Reason = null);
+public record OcrSourceSelection(long Version, string Field, SourceRegion Region, string? Reason = null, Guid? AttemptId = null);
 
 /// <summary>
 /// A source annotation records where a user selected text. It never verifies a receipt or
@@ -117,7 +117,20 @@ public static class OcrFieldSelection
                             "Selecția trebuie să fie în interiorul bonului.",
                             "Selection must be inside this receipt."
                         );
-                        var result = Serialization.Read<OcrResult>(review.OriginalExtraction);
+                        // Preserve the original extraction for audit, but select from the
+                        // latest (or explicitly requested) extraction attempt.
+                        var attempt = input.AttemptId is Guid requested
+                            ? await db.ExtractionAttempts.SingleOrDefaultAsync(a => a.BundleId == document && a.Id == requested)
+                            : await db.ExtractionAttempts.Where(a => a.BundleId == document)
+                                .OrderByDescending(a => a.Created).FirstOrDefaultAsync();
+                        Guard.Require(
+                            input.AttemptId == null || attempt != null,
+                            "ocr_attempt",
+                            "Tentativa OCR selectată nu este disponibilă.",
+                            "Selected OCR attempt is unavailable.",
+                            409
+                        );
+                        var result = Serialization.Read<OcrResult>(attempt?.Json ?? review.OriginalExtraction);
                         var raw = DocumentAssistance.Evidence(result, [input.Region]);
                         var value = Extract(input.Field, raw);
                         Guard.Require(
@@ -140,11 +153,11 @@ public static class OcrFieldSelection
                             db, id, document, "OcrSourceSelected",
                             Reports.Actor(context.User),
                             group + "|" + report.Version + "|" + input.Field,
-                            new { group, input.Field, input.Region, financeCorrection }
+                            new { group, input.Field, input.Region, extractionAttemptId = attempt?.Id, financeCorrection }
                         );
                         svc.Log(
                             context.User, id, document.ToString(), "OcrSourceSelected", before,
-                            new { item.Id, input.Field, input.Region, financeCorrection }, input.Reason
+                            new { item.Id, input.Field, input.Region, extractionAttemptId = attempt?.Id, financeCorrection }, input.Reason
                         );
                         return Api.View(report);
                     }

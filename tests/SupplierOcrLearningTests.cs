@@ -75,4 +75,41 @@ public class SupplierOcrLearningTests
     [InlineData("invoice", "BON NR 00019", "00019")]
     public void UserSelectionKeepsTypedValues(string field, string text, string expected) =>
         Assert.Equal(expected, OcrFieldSelection.Extract(field, text));
+
+    [Fact]
+    public void CorrectedSelectionIsNeverAPositiveSupplierLearningExample()
+    {
+        var expense = new ExpenseData("Vendor", "18546294", "INV-9", "2026-11-11",
+            "RO", "InvoiceWithCui", "GENERAL", "Valid receipt", "Personal",
+            null, "CC", null, 121m, "RON", []);
+        Assert.False(SupplierOcrLearning.MatchesVerifiedValue(expense, "amount",
+            new OcrField("100.00", 1, "SUBTOTAL 100.00", Source: "HumanSelected")));
+        Assert.True(SupplierOcrLearning.MatchesVerifiedValue(expense, "amount",
+            new OcrField("121.00", 1, "TOTAL 121.00", Source: "HumanSelected")));
+        Assert.False(SupplierOcrLearning.MatchesVerifiedValue(expense, "supplier",
+            new OcrField("Wrong Vendor", 1, "Wrong Vendor", Source: "HumanSelected")));
+    }
+
+    [Fact]
+    public void SupplierHintsCannotCrossBetweenReceiptsOnTheSamePage()
+    {
+        var sample = new SourceBox(.10m, .72m, .5m, .04m);
+        var examples = new[]
+        {
+            new SupplierOcrLearning.Example("18546294", Guid.NewGuid(), "amount", sample),
+            new SupplierOcrLearning.Example("18546294", Guid.NewGuid(), "amount", sample),
+        };
+        var receipt = Receipt();
+        var first = receipt.Candidates[0] with { Regions = [new SourceRegion(1, .0m, .0m, .6m, 1m)] };
+        var second = receipt.Candidates[0] with
+        {
+            Id = Guid.NewGuid(),
+            Regions = [new SourceRegion(1, .6m, .0m, .4m, 1m)]
+        };
+        var result = SupplierOcrLearning.Suggest(
+            receipt with { Candidates = [first, second] }, examples);
+        Assert.Equal("123.45", result.Candidates[0].Fields["amount"].Value);
+        Assert.False(result.Candidates[1].Fields.ContainsKey("amount"));
+    }
+
 }
