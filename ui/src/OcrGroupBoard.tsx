@@ -688,6 +688,20 @@ export default function OcrGroupBoard({
               >
                 {t('Folosește textul selectat', 'Use selected text')}
               </button>
+              <button type="button" className="secondary"
+                disabled={changing || stale || !fieldRegion}
+                onClick={() => perform(async () => {
+                  await api(base + '/groups/' + fieldGroup.id + '/select-field', 'POST', {
+                    version: report.version, field: fieldKey, region: fieldRegion,
+                    reread: true,
+                    reason: reason.trim().length >= 3 ? reason : 'User requested region OCR re-read',
+                  });
+                  FieldGroup(null);
+                  FieldRegion(null);
+                  await refresh();
+                })}>
+                {t('Recitește zona cu OCR', 'Re-read region with OCR')}
+              </button>
               <button className="secondary" type="button" onClick={() => FieldRegion(null)}>
                 {t('Selectează din nou', 'Select again')}
               </button>

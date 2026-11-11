@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Decont;
 
-public record OcrSourceSelection(long Version, string Field, SourceRegion Region, string? Reason = null, Guid? AttemptId = null);
+public record OcrSourceSelection(long Version, string Field, SourceRegion Region, string? Reason = null, Guid? AttemptId = null, bool Reread = false);
 
 /// <summary>
 /// A source annotation records where a user selected text. It never verifies a receipt or
@@ -71,7 +71,7 @@ public static class OcrFieldSelection
     {
         api.MapPost(
             "/reports/{id:guid}/documents/{document:guid}/groups/{group:guid}/select-field",
-            async (Guid id, Guid document, Guid group, OcrSourceSelection input, Db db, Reports svc, HttpContext context) =>
+            async (Guid id, Guid document, Guid group, OcrSourceSelection input, Db db, Reports svc, IStore store, IConfiguration config, HttpContext context) =>
                 await Api.Atomic(
                     db, context, input,
                     async () =>
@@ -131,7 +131,11 @@ public static class OcrFieldSelection
                             409
                         );
                         var result = Serialization.Read<OcrResult>(attempt?.Json ?? review.OriginalExtraction);
-                        var raw = DocumentAssistance.Evidence(result, [input.Region]);
+                        var raw = input.Reread
+                            ? await OcrRegionRecognition.Recognize(
+                                report.Attachments.Single(a => a.Id == document), store, config,
+                                input.Region, context.RequestAborted)
+                            : DocumentAssistance.Evidence(result, [input.Region]);
                         var value = Extract(input.Field, raw);
                         Guard.Require(
                             value != null,
@@ -145,7 +149,7 @@ public static class OcrFieldSelection
                             value, input.Region.Page, raw,
                             financeCorrection ? "FinanceCorrected" : "ReviewRequired", null,
                             new SourceBox(input.Region.X, input.Region.Y, input.Region.Width, input.Region.Height),
-                            raw, "HumanSelected"
+                            raw, input.Reread ? "HumanReread" : "HumanSelected"
                         );
                         item.Fields = Serialization.Write(fields);
                         Reports.Touch(report);
@@ -153,11 +157,11 @@ public static class OcrFieldSelection
                             db, id, document, "OcrSourceSelected",
                             Reports.Actor(context.User),
                             group + "|" + report.Version + "|" + input.Field,
-                            new { group, input.Field, input.Region, extractionAttemptId = attempt?.Id, financeCorrection }
+                            new { group, input.Field, input.Region, input.Reread, extractionAttemptId = attempt?.Id, financeCorrection }
                         );
                         svc.Log(
                             context.User, id, document.ToString(), "OcrSourceSelected", before,
-                            new { item.Id, input.Field, input.Region, extractionAttemptId = attempt?.Id, financeCorrection }, input.Reason
+                            new { item.Id, input.Field, input.Region, input.Reread, extractionAttemptId = attempt?.Id, financeCorrection }, input.Reason
                         );
                         return Api.View(report);
                     }
