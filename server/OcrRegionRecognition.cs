@@ -77,9 +77,11 @@ public static class OcrRegionRecognition
             var dimensionText = await LocalDocumentExtractor.Run(convert,
                 [..limits, normalized, "-format", "%w %h", "info:"], cancellationToken);
             var dimensions = dimensionText.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var width = 0;
+            var height = 0;
             Guard.Require(dimensions.Length == 2
-                && int.TryParse(dimensions[0], out var width)
-                && int.TryParse(dimensions[1], out var height),
+                && int.TryParse(dimensions[0], out width)
+                && int.TryParse(dimensions[1], out height),
                 "ocr_crop_size", "Imagine imposibil de măsurat.", "Could not measure image.");
             var box = Crop(region, width, height);
             var cropped = Path.Combine(temp, "selection.png");
