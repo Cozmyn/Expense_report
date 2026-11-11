@@ -6,6 +6,12 @@
 
 Node 22 builds the frontend. .NET 10 builds/publishes the backend. Runtime image uses the official `10.0-noble` Ubuntu variant and installs Romanian/English Tesseract, Poppler and DejaVu Unicode fonts. Image tags are mutable: pin approved digests in the release pipeline. Bootstrap creates new installations and applies the application’s repeatable additive schema upgrades. Do not point `--init` at an existing unrelated database.
 
+## Control de schemă / Schema integrity gate
+
+Schema release 13 introduces a read-only physical model check during `--init` / `--bootstrap` on both PostgreSQL and SQLite. Missing tables, expected columns or indexes stop the upgrade rather than silently accepting a partial migration. Verify the database and retain a backup before updating; never remove financial tables to make this check pass.
+
+**Transition limitation:** the historical schema 3–12 updater still uses the legacy additive DDL extraction for old installations. Release 13 adds verification and a numbered baseline, **not yet a complete EF migration replacement**. Before moving an existing production database to the new migration model, approve a baseline and rehearse upgrade/rollback on its restored copy. New schema changes must use reviewed, numbered migration scripts rather than extend the regex extractor.
+
 ## Actualizarea unei instalări existente / Existing installation upgrade
 
 Pentru instalările acestei aplicații anterioare fluxului de bonuri, realizează backup și oprește versiunea veche; construiește noua imagine, apoi rulează serviciul de inițializare înainte de pornirea aplicației:

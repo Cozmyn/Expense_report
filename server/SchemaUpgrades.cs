@@ -1,5 +1,7 @@
 using System.Text.RegularExpressions;
+using System.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage;
 
 namespace Decont;
@@ -248,6 +250,92 @@ public static class SchemaUpgrades
         await db.Database.ExecuteSqlRawAsync(
             "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_Batches_BusinessKey\" ON \"Batches\" (\"BusinessKey\") WHERE \"BusinessKey\" <> ''"
         );
+        // A numbered baseline cannot be acknowledged until the physical database
+        // actually matches the EF model. Partial upgrades fail closed.
+        await VerifyModel(db);
+        if (!await db.SchemaReleases.AnyAsync(x => x.Id == 13))
+        {
+            db.SchemaReleases.Add(new()
+            {
+                Id = 13,
+                Name = "Verified schema baseline; future releases require reviewed explicit migrations"
+            });
+            await db.SaveChangesAsync();
+        }
         await tx.CommitAsync();
     }
+
+    /// <summary>
+    /// Read-only physical schema validation for both PostgreSQL and SQLite.
+    /// Compare real columns/indexes with the EF model, including after upgrading
+    /// a legacy database. A partially upgraded DB must not start as healthy.
+    /// </summary>
+    public static async Task VerifyModel(Db db)
+    {
+        var connection = db.Database.GetDbConnection();
+        var close = connection.State != ConnectionState.Open;
+        if (close)
+            await db.Database.OpenConnectionAsync();
+        try
+        {
+            var tables = db.Model.GetEntityTypes()
+                .Where(e => e.GetTableName() != null)
+                .GroupBy(e => (Name: e.GetTableName()!, Schema: e.GetSchema()))
+                .ToList();
+            foreach (var table in tables)
+            {
+                var store = StoreObjectIdentifier.Table(table.Key.Name, table.Key.Schema);
+                var expectedColumns = table.SelectMany(e => e.GetProperties())
+                    .Select(p => p.GetColumnName(store))
+                    .Where(name => name != null)
+                    .ToHashSet(StringComparer.Ordinal);
+                var expectedIndexes = table.SelectMany(e => e.GetIndexes())
+                    .Select(index => index.GetDatabaseName())
+                    .Where(name => name != null)
+                    .ToHashSet(StringComparer.Ordinal);
+
+                async Task<HashSet<string>> ReadNames(string query, bool useNameParameter)
+                {
+                    await using var command = connection.CreateCommand();
+                    command.Transaction = db.Database.CurrentTransaction?.GetDbTransaction();
+                    command.CommandText = query;
+                    if (useNameParameter)
+                    {
+                        var parameter = command.CreateParameter();
+                        parameter.ParameterName = "@table";
+                        parameter.Value = table.Key.Name;
+                        command.Parameters.Add(parameter);
+                    }
+                    HashSet<string> names = new(StringComparer.Ordinal);
+                    await using var reader = await command.ExecuteReaderAsync();
+                    while (await reader.ReadAsync())
+                        names.Add(reader.GetString(0));
+                    return names;
+                }
+
+                var escapedTable = table.Key.Name.Replace("\"", "\"\"");
+                var columns = db.Database.IsNpgsql()
+                    ? await ReadNames("SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=@table", true)
+                    : await ReadNames("SELECT name FROM pragma_table_info('" + table.Key.Name.Replace("'", "''") + "')", false);
+                var indexes = db.Database.IsNpgsql()
+                    ? await ReadNames("SELECT indexname FROM pg_indexes WHERE schemaname=current_schema() AND tablename=@table", true)
+                    : await ReadNames("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=@table", true);
+                var missingColumns = expectedColumns.Except(columns).ToArray();
+                var missingIndexes = expectedIndexes.Except(indexes).ToArray();
+                if (columns.Count == 0 || missingColumns.Length > 0 || missingIndexes.Length > 0)
+                    throw new InvalidOperationException(
+                        "Database schema drift for " + table.Key.Name
+                        + "; missing columns: " + string.Join(",", missingColumns)
+                        + "; missing indexes: " + string.Join(",", missingIndexes)
+                        + ". Stop startup and restore or apply reviewed migrations."
+                    );
+            }
+        }
+        finally
+        {
+            if (close)
+                await db.Database.CloseConnectionAsync();
+        }
+    }
+
 }
