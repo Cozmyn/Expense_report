@@ -263,11 +263,11 @@ public static class ReceiptParser
                 // unclassified and require explicit human review/configuration.
                 var company = Rules.Cui(companyCui);
                 var printedCompany = company.Length == 0
-                    ? Match.Empty
+                    ? null
                     : Regex.Match(text, @"(?i)\bRO\s*" + Regex.Escape(company) + @"\b");
-                var hasCompanyCui = printedCompany.Success || (company != "" && cui.Contains(company));
+                var hasCompanyCui = (printedCompany?.Success ?? false) || (company != "" && cui.Contains(company));
                 if (hasCompanyCui)
-                    Put("hasCompanyCui", "true", printedCompany.Success
+                    Put("hasCompanyCui", "true", printedCompany?.Success == true
                         ? printedCompany.Value
                         : cuiMatches.First(m => Rules.Cui(m.Groups[2].Value) == company).Value);
                 var supplier =
