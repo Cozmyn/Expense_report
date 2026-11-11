@@ -14,6 +14,7 @@ public class SchemaSafetyTests
         await f.Seed();
         using var scope = f.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<Db>();
+        await SchemaUpgrades.Apply(db);
         await SchemaUpgrades.VerifyModel(db);
     }
 
@@ -24,6 +25,7 @@ public class SchemaSafetyTests
         await f.Seed();
         using var scope = f.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<Db>();
+        await SchemaUpgrades.Apply(db);
         if (db.Database.IsNpgsql())
             await db.Database.ExecuteSqlRawAsync("DROP INDEX \"IX_DocumentGroups_BundleId_SourceKey\"");
         else
@@ -40,6 +42,7 @@ public class SchemaSafetyTests
         await f.Seed();
         using var scope = f.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<Db>();
+        await SchemaUpgrades.Apply(db);
         Assert.True(await db.SchemaReleases.AnyAsync(r => r.Id == 13));
         await db.Database.ExecuteSqlRawAsync("DROP INDEX \"IX_DocumentGroups_BundleId_SourceKey\"");
         var failure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -57,6 +60,7 @@ public class SchemaSafetyTests
         await f.Seed();
         using var scope = f.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<Db>();
+        await SchemaUpgrades.Apply(db);
         if (db.Database.IsNpgsql())
             await db.Database.ExecuteSqlRawAsync("DROP TRIGGER immutable_evidence ON \"DocumentEvents\"");
         else
