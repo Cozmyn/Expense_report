@@ -136,8 +136,19 @@ def check(config: Mapping[str, str]) -> list[Finding]:
     if not _value(config, "Smtp__Host") or not _value(config, "Smtp__From"):
         warn("EMAIL_RECOVERY", "Confirm SMTP TLS, password recovery and actual notification delivery.")
 
-    # Source code cannot prove these external controls from environment variables.
-    warn("TRUSTED_PROXY", "A trusted-forwarded-headers and TLS-terminating ingress design needs deployment review; source is not yet production-hardened for a generic reverse proxy.")
+    # Production refuses arbitrary forwarded headers: require explicit upstream IPs.
+    import ipaddress
+    proxies = _value(config, "ReverseProxy__KnownProxies")
+    if not proxies:
+        block("TRUSTED_PROXY", "Set ReverseProxy__KnownProxies to the actual ingress proxy IP addresses.")
+    else:
+        try:
+            addresses = [ipaddress.ip_address(ip.strip()) for ip in proxies.split(",") if ip.strip()]
+            if not addresses:
+                raise ValueError
+        except ValueError:
+            block("TRUSTED_PROXY", "ReverseProxy__KnownProxies must be a comma-separated list of literal IP addresses.")
+    warn("INGRESS_REVIEW", "Exercise HTTPS, original client IP, spoofed forwarded headers and rate limits through the real ingress.")
     warn("BACKUP_RESTORE", "Provide a timed PostgreSQL PITR, object storage, and Data Protection key restore rehearsal with agreed RPO/RTO.")
     warn("ERP_AND_OCR_ACCEPTANCE", "Finance must sign off real ERP golden files and representative OCR receipts.")
     warn("OPERATIONS", "Prove alerts, capacity, scanner downtime and incident runbooks on production-like infrastructure.")

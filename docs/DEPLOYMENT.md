@@ -32,6 +32,7 @@ Separate environment, database and bucket for DEV, UAT and PROD. Production sour
 - `Ocr__Enabled=true`, `Ocr__Languages=ron+eng`, `Ocr__MaxPages=50`; `Ocr__PdfInfo`, `Ocr__PdfRenderer`, `Ocr__Tesseract`, `Ocr__HeicConverter` may override executable paths. Poppler and libheif are installed in the image.
 - SMTP TLS configuration via `Smtp__Host`, `Smtp__Port=587`, `Smtp__From`, `Smtp__Username`, `Smtp__Password`.
 - `Session__Minutes=30` controls idle timeout; activity refreshes the server session. `Application__BaseUrl` must use the real HTTPS origin for recovery links.
+- `ReverseProxy__KnownProxies` is **required** in Production: a comma-separated list of literal IP addresses of the ingress reverse proxies immediately in front of the app (for example `10.2.3.4,10.2.3.5`). Only those peers may supply `X-Forwarded-For` and `X-Forwarded-Proto`; the application accepts one forwarded hop. Configure the actual ingress to strip untrusted client-supplied forwarded headers and test HTTPS redirection and true client IP. Never use `*` or arbitrary public ranges.
 - `DECONT_FONT_DIRECTORY` if the DejaVu font folder differs from `/usr/share/fonts/truetype/dejavu`.
 
 Use a managed HTTPS ingress terminating TLS, enforce HSTS and trusted forwarded headers, serve frontend and API on the same origin, and restrict egress/ingress. There is no included production ingress or certificate setup. Do not enable cross-origin cookie access as a shortcut.

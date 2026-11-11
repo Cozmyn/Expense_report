@@ -30,6 +30,7 @@ def plausible_configuration() -> dict[str, str]:
         "Smtp__Host": "smtp.example.invalid",
         "Smtp__From": "notify@example.invalid",
         "Session__Minutes": "30",
+        "ReverseProxy__KnownProxies": "10.2.3.4",
     }
 
 
@@ -50,9 +51,18 @@ class ProductionPreflightTests(unittest.TestCase):
         findings = check(plausible_configuration())
         self.assertFalse([f for f in findings if f.severity == "blocker"])
         manual = {f.code for f in findings}
-        self.assertIn("TRUSTED_PROXY", manual)
+        self.assertIn("INGRESS_REVIEW", manual)
         self.assertIn("BACKUP_RESTORE", manual)
         self.assertIn("ERP_AND_OCR_ACCEPTANCE", manual)
+
+    def test_unknown_or_missing_proxy_is_blocked(self) -> None:
+        env = plausible_configuration()
+        del env["ReverseProxy__KnownProxies"]
+        self.assertIn("TRUSTED_PROXY", blockers(env))
+        env["ReverseProxy__KnownProxies"] = "any"
+        self.assertIn("TRUSTED_PROXY", blockers(env))
+        env["ReverseProxy__KnownProxies"] = "10.2.3.4,10.2.3.5"
+        self.assertNotIn("TRUSTED_PROXY", blockers(env))
 
     def test_local_development_compose_is_not_mistaken_for_production(self) -> None:
         env = plausible_configuration()
