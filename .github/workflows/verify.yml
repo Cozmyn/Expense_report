@@ -3,6 +3,12 @@ on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
 jobs:
+  p0-ops-offline:
+    name: P0 restore and Production UAT safety checks (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s deploy -p 'test_*.py' -v
   build-and-test:
     name: Backend and frontend (${{ matrix.database }})
     runs-on: ubuntu-latest
