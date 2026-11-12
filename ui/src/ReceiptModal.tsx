@@ -267,6 +267,12 @@ export default function ReceiptModal({
   };
   const requestClose = async () => {
     if (saving.current || busy || closingDraft) return;
+    // Preserve the existing explicit cancel/escape confirmation contract.
+    // After acceptance, an editable draft is flushed before closing.
+    if (modified.current && !window.confirm(t(
+      'Închizi fără să salvezi bonul? Modificările neconfirmate se pot pierde.',
+      'Close without saving the receipt? Unconfirmed changes may be lost.',
+    ))) return;
     if (!expense.id && draftStorageKey && draftReady) {
       ClosingDraft(true);
       saving.current = true;
@@ -287,10 +293,6 @@ export default function ReceiptModal({
       }
       return;
     }
-    if (modified.current && !window.confirm(t(
-      'Închizi fără să salvezi bonul? Modificările neconfirmate se pot pierde.',
-      'Close without saving the receipt? Unconfirmed changes may be lost.',
-    ))) return;
     onClose();
   };
   requestCloseRef.current = requestClose;
@@ -1641,10 +1643,12 @@ export default function ReceiptModal({
                 </button>
               )}
               <button type="button" className="secondary"
-                disabled={closingDraft} onClick={requestClose}>
-                {!expense.id && draftStorageKey
-                  ? t('Închide și păstrează ciorna', 'Close and keep draft')
-                  : t('Anulează', 'Cancel')}
+                disabled={closingDraft} onClick={requestClose}
+                title={!expense.id && draftStorageKey
+                  ? t('Ciorna se salvează înainte de închidere.',
+                      'Your draft is saved before closing.')
+                  : undefined}>
+                {t('Anulează', 'Cancel')}
               </button>
               <button
                 className="primary"
