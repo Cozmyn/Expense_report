@@ -192,6 +192,53 @@ export default function OcrGroupBoard({
           </button>
         </div>
       )}
+      {review.coverageRequired && (
+        <section className="issue warning" role="region"
+          aria-label={t('Completitudinea bonurilor', 'Receipt completeness')}>
+          <strong>{t('Verifică toate bonurile de pe fiecare pagină',
+            'Confirm all receipts on every page')}</strong>
+          <p>{t(
+            'O pagină atribuită nu înseamnă că toate bonurile vizibile au fost identificate. Inspectează originalul, adaugă orice bon omis și confirmă fiecare pagină. Trimiterea la aprobare este blocată până atunci.',
+            'An assigned page does not prove that every visible receipt was detected. Inspect the original, add missing receipts and confirm each page. Submission stays blocked until then.'
+          )}</p>
+          {Array.from({ length: review.pageCount }, (_, index) => index + 1).map((page: number) => {
+            const confirmed = review.confirmedPages?.includes(page);
+            const unassigned = review.unassignedPages.includes(page);
+            return (
+              <div key={page} className="actions">
+                <span>{t('Pagina', 'Page')} {page}: {confirmed
+                  ? t('completitudinea confirmată', 'completeness confirmed')
+                  : t('neconfirmată', 'not confirmed')}</span>
+                <button type="button" className="secondary"
+                  onClick={() => {
+                    FP(page);
+                    Focus({ page, x: 0, y: 0, width: 1, height: 1 });
+                    FT((n) => n + 1);
+                  }}>
+                  {t('Arată originalul paginii', 'View original page')} {page}
+                </button>
+                <button type="button" className="secondary"
+                  disabled={changing || stale || (unassigned && !confirmed)}
+                  onClick={() => perform(async () => {
+                    await api(base + '/page-coverage', 'POST', {
+                      version: report.version,
+                      page,
+                      complete: !confirmed,
+                      reason: confirmed
+                        ? 'User revoked previous visual page-completeness acknowledgement'
+                        : 'User visually checked the original page and accounted for every visible receipt',
+                    });
+                    await refresh();
+                  })}>
+                  {confirmed
+                    ? t('Retrage confirmarea', 'Revoke confirmation')
+                    : t('Confirmă toate bonurile din pagina', 'Confirm all receipts on page') + ' ' + page}
+                </button>
+              </div>
+            );
+          })}
+        </section>
+      )}
       <section className="quick-help">
         <h4>{t('Mai multe bonuri într-un PDF?', 'Multiple receipts in one PDF?')}</h4>
         <ol>
@@ -333,7 +380,7 @@ export default function OcrGroupBoard({
             ))}
           </div>
         )}
-        {review.dispositions.map((d: Any) => (
+        {review.dispositions.filter((d: Any) => d.kind !== 'CoverageConfirmed').map((d: Any) => (
           <div className="simple-row" key={d.page}>
             <span>
               {t('Pagina justificativă', 'Supporting page')} {d.page}: {d.reason}

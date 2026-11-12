@@ -143,6 +143,56 @@ public class OcrReviewTests
         Assert.Equal("Split", (await db.DocumentGroups.SingleAsync(g => g.Id == group.GetProperty("id").GetGuid())).State);
     }
 
+
+    [Fact]
+    public async Task MultiReceiptPageCoverageNeedsExplicitConfirmationAndRegroupRevokesIt()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        var (report, document) = await Fixture(
+            f, 1, "INVOICE NO C1\nTOTAL 10.00 RON", "Multiple");
+        var alice = await Login(f, "alice");
+        var view = await View(alice, report, document);
+        var review = view.GetProperty("review");
+        Assert.True(review.GetProperty("coverageRequired").GetBoolean());
+        Assert.Empty(review.GetProperty("confirmedPages").EnumerateArray());
+        using (var scope = f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<Db>();
+            var stored = await db.Reports.Include(r => r.Attachments).Include(r => r.Lines)
+                .SingleAsync(r => r.Id == report);
+            var problems = await OcrReviews.Problems(db, stored);
+            Assert.Contains(problems, problem => problem.Code == "ocr_page_coverage_required");
+        }
+        Key(alice);
+        var confirmation = await alice.PostAsJsonAsync(
+            $"/api/reports/{report}/documents/{document}/page-coverage",
+            new PageCoverageCommand(review.GetProperty("version").GetInt64(), 1, true,
+                "Visually confirmed all receipt regions on the original"));
+        Assert.True(confirmation.IsSuccessStatusCode, await confirmation.Content.ReadAsStringAsync());
+        view = await View(alice, report, document);
+        review = view.GetProperty("review");
+        Assert.Equal(1, Assert.Single(review.GetProperty("confirmedPages").EnumerateArray()).GetInt32());
+        Assert.Empty(review.GetProperty("dispositions").EnumerateArray());
+        using (var scope = f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<Db>();
+            var stored = await db.Reports.Include(r => r.Attachments).Include(r => r.Lines)
+                .SingleAsync(r => r.Id == report);
+            var problems = await OcrReviews.Problems(db, stored);
+            Assert.DoesNotContain(problems, problem => problem.Code == "ocr_page_coverage_required");
+        }
+        var group = review.GetProperty("candidates")[0].GetProperty("id").GetGuid();
+        Key(alice);
+        var edited = await alice.PostAsJsonAsync(
+            $"/api/reports/{report}/documents/{document}/groups",
+            new GroupCommand(review.GetProperty("version").GetInt64(), "regions",
+                [group], [new SourceRegion(1)], Reason: "Review updated original coverage"));
+        Assert.True(edited.IsSuccessStatusCode, await edited.Content.ReadAsStringAsync());
+        view = await View(alice, report, document);
+        Assert.Empty(view.GetProperty("review").GetProperty("confirmedPages").EnumerateArray());
+    }
+
     [Fact]
     public async Task GroupsAreScopedVersionedAndSupportSplitMergeAndDisposition()
     {
