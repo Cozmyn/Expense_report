@@ -1245,9 +1245,9 @@ function ReportDetail({
                         'PATCH',
                         { ...version, data },
                       );
-                      await api('/preferences/ocr-draft:' + editing.sourceGroupId, 'PUT', {}).catch(
-                        () => {},
-                      );
+                      // Preserve server draft revision until ReceiptModal can
+                      // explicitly clear its own version. Blind PUT {} here
+                      // would overwrite edits from a second browser tab.
                       await refresh();
                       Editing(null);
                     }
