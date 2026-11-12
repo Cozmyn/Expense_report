@@ -6,6 +6,8 @@ import { api } from './api';
 import { Field } from './Fields';
 import { ocrFieldLabel } from './OcrLabels';
 import { attentionFields, fieldProvenance } from './receiptProvenance.mjs';
+import { stageEncryptedDraft, recoverEncryptedDrafts, clearOwnEncryptedDraftIfMatch,
+  discardEncryptedDraft } from './encryptedDraft.mjs';
 type Any = Record<string, any>;
 export function newReceipt() {
   return {
@@ -141,6 +143,8 @@ export default function ReceiptModal({
   );
   const [states, States] = useState<Any>({ project: 'OPTIONAL', costCenter: 'REQUIRED' });
   const [manualFields, ManualFields] = useState<string[]>([]);
+  const [encryptedBackups, EncryptedBackups] = useState<Any[]>([]);
+  const [localBackupError, LocalBackupError] = useState('');
   const [ocrVerified, OcrVerified] = useState(false);
   const [draftReady, DR] = useState(false),
     [draftStatus, DS] = useState(''),
@@ -160,6 +164,27 @@ export default function ReceiptModal({
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestDraft = useRef<Any>({});
   latestDraft.current = { data: d, taxes, sourceVersion: expense.ocrVersion };
+  // Crash recovery is opt-in on restore. Never prefer local over server silently.
+  useEffect(() => {
+    if (!draftStorageKey || expense.id) return;
+    let active = true;
+    recoverEncryptedDrafts(draftStorageKey)
+      .then((records) => { if (active) EncryptedBackups(records); })
+      .catch(() => { if (active) LocalBackupError(t(
+        'Recuperarea criptată locală nu este disponibilă în acest browser.',
+        'Encrypted local recovery is unavailable in this browser.')); });
+    return () => { active = false; };
+  }, [draftStorageKey, expense.id]);
+  useEffect(() => {
+    if (!draftReady || !modified.current || !draftStorageKey || expense.id) return;
+    const timer = setTimeout(() => {
+      void stageEncryptedDraft(draftStorageKey, latestDraft.current)
+        .catch(() => LocalBackupError(t(
+          'Copierea criptată locală a eșuat; păstrează fila deschisă până se salvează pe server.',
+          'Encrypted local backup failed; keep the tab open until server save succeeds.')));
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [d, taxes, draftReady, draftStorageKey, expense.id]);
   // A current snapshot is persisted on close, even if a debounce timer has
   // not fired. The queue serializes optimistic revisions across rapid edits.
   const persistDraft = () => {
@@ -171,10 +196,14 @@ export default function ReceiptModal({
     if (lastSaved.current === json) return draftQueue.current;
     const next = draftQueue.current.catch(() => {}).then(async () => {
       if (draftConflicted.current) throw new Error('Draft changed in another tab');
+      // Stage before network send, retaining recoverable bytes after a crash.
+      try { await stageEncryptedDraft(draftStorageKey, value); }
+      catch { LocalBackupError(t('Copie criptată indisponibilă', 'Encrypted backup unavailable')); }
       const saved = await api('/preferences/' + draftStorageKey, 'PUT',
         { ...value, draftRevision: draftRevision.current });
       draftRevision.current = Number(saved.draftRevision);
       lastSaved.current = json;
+      void clearOwnEncryptedDraftIfMatch(draftStorageKey, value).catch(() => {});
       DraftSaveFailed(false);
       DS(t('Ciornă salvată automat', 'Draft autosaved'));
     }).catch(async (error: Error) => {
@@ -775,6 +804,7 @@ export default function ReceiptModal({
               try {
                 const openNext = saveNextRequested.current;
                 saveNextRequested.current = false;
+                const savedSnapshot = latestDraft.current;
                 await save(
                   {
                     ...d,
@@ -810,6 +840,9 @@ export default function ReceiptModal({
                   [],
                   openNext,
                 );
+                if (!expense.id && draftStorageKey) {
+                  void clearOwnEncryptedDraftIfMatch(draftStorageKey, savedSnapshot).catch(() => {});
+                }
                 if (!expense.id && draftStorageKey && !draftConflicted.current) {
                   try {
                     const cleared = await api('/preferences/' + draftStorageKey, 'PUT',
