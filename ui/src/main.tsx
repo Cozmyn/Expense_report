@@ -1231,6 +1231,10 @@ function ReportDetail({
               draftStorageKey={
                 editing.sourceGroupId ? 'ocr-draft:' + editing.sourceGroupId : 'receipt-draft:' + r.id
               }
+              // Local recovery is scoped to the authenticated actor, not only
+              // the document: another user sharing a device sees no backup.
+              localDraftScope={me.id + ':' + (editing.sourceGroupId
+                ? 'ocr-draft:' + editing.sourceGroupId : 'receipt-draft:' + r.id)}
               masters={masters}
               label={label}
               t={t}
