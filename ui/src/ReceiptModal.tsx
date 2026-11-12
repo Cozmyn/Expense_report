@@ -5,6 +5,7 @@ import { X, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { api } from './api';
 import { Field } from './Fields';
 import { ocrFieldLabel } from './OcrLabels';
+import { adoptSupplierLookup, offersRegistryName, draftSnapshot } from './receiptAssist.mjs';
 type Any = Record<string, any>;
 export function newReceipt() {
   return {
@@ -64,6 +65,7 @@ export default function ReceiptModal({
           : null),
   });
   const [draftError, DraftError] = useState('');
+  const [closingDraft, ClosingDraft] = useState(false);
   const [original, Original] = useState<any | null>(null);
   const [focusedSource, FS] = useState<any | null>(null),
     [focusedPage, FP] = useState(expense.ocrCandidate?.pages?.[0] || 1),
@@ -197,7 +199,7 @@ export default function ReceiptModal({
   }, []);
   useEffect(() => {
     if (!draftReady || !draftStorageKey || expense.id || saving.current) return;
-    const value = { data: d, taxes, sourceVersion: expense.ocrVersion };
+    const value = draftSnapshot(d, taxes, expense.ocrVersion);
     const json = JSON.stringify(value);
     if (json === lastSaved.current) return;
     const timer = setTimeout(() => {
@@ -250,15 +252,45 @@ export default function ReceiptModal({
         cardId: reportPayment === 'CompanyCard' ? reportCardId : null,
       }));
   }, [reportPayment, reportCardId, draftReady]);
-  const requestClose = () => {
-    if (saving.current || busy) return;
-    if (
-      modified.current &&
-      !window.confirm(t(
-        'Închizi fără să salvezi bonul? Modificările neconfirmate se pot pierde.',
-        'Close without saving the receipt? Unconfirmed changes may be lost.',
-      ))
-    ) return;
+  // Flush the latest private draft before dismissing the form. A pending
+  // 800ms debounce or an earlier in-flight save must not lose typed values.
+  const persistDraft = async () => {
+    if (!draftStorageKey || expense.id) return;
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    await draftQueue.current.catch(() => {});
+    const value = draftSnapshot(d, taxes, expense.ocrVersion);
+    const json = JSON.stringify(value);
+    if (json === lastSaved.current) return;
+    await api('/preferences/' + draftStorageKey, 'PUT', value);
+    lastSaved.current = json;
+    DS(t('Ciornă salvată automat', 'Draft autosaved'));
+  };
+  const requestClose = async () => {
+    if (saving.current || busy || closingDraft) return;
+    if (!expense.id && draftStorageKey && draftReady) {
+      ClosingDraft(true);
+      saving.current = true;
+      DraftError('');
+      DS(t('Se păstrează ultima ciornă…', 'Saving the latest draft…'));
+      try {
+        await persistDraft();
+        onClose();
+      } catch (e) {
+        DraftError(t(
+          'Ciorna nu a fost salvată. Verifică conexiunea și reîncearcă sau închide fără salvare.',
+          'Draft was not saved. Check your connection and retry, or close without saving.'
+        ) + ' ' + (e as Error).message);
+        DS('');
+      } finally {
+        saving.current = false;
+        ClosingDraft(false);
+      }
+      return;
+    }
+    if (modified.current && !window.confirm(t(
+      'Închizi fără să salvezi bonul? Modificările neconfirmate se pot pierde.',
+      'Close without saving the receipt? Unconfirmed changes may be lost.',
+    ))) return;
     onClose();
   };
   requestCloseRef.current = requestClose;
@@ -326,13 +358,14 @@ export default function ReceiptModal({
       return;
     }
     Looking(true);
+    const requestedCui = d.cui;
     const timer = setTimeout(() => {
-      api('/suppliers/lookup?' + new URLSearchParams({ cui: d.cui, date: d.date }))
+      api('/suppliers/lookup?' + new URLSearchParams({ cui: requestedCui, date: d.date }))
         .then((result) => {
           if (!active) return;
           Lookup(result);
           if (result.found)
-            D((old) => ({ ...old, supplier: result.name, supplierConfirmed: false }));
+            D((old) => adoptSupplierLookup(old, result, requestedCui));
         })
         .catch((e) => {
           if (active) LE((e as Error).message);
@@ -456,7 +489,11 @@ export default function ReceiptModal({
   // Suggestions are navigation aids only. The original document remains the source of truth.
   const ocrShortcuts = (['date', 'invoice', 'supplier', 'cui', 'description', 'currency', 'amount'] as const)
     .filter((key) => vat || !['invoice', 'supplier', 'cui'].includes(key))
-    .map((key) => ({ key, value: expense.ocrCandidate?.fields?.[key]?.value }))
+    .map((key) => ({
+      key,
+      value: expense.ocrCandidate?.fields?.[key]?.value,
+      source: expense.ocrCandidate?.fields?.[key]?.source,
+    }))
     .filter((field) => field.value != null && String(field.value).trim().length > 0);
   const ocrTaxShortcuts =
     vat && (!d.vatTreatment || d.vatTreatment === 'STANDARD')
@@ -485,7 +522,7 @@ export default function ReceiptModal({
   const scanAction = (key: string) =>
     expense.sourceGroupId && expense.sourceAttachmentId && original ? (
       <button type="button" className="ocr-scan-action"
-        aria-label={t('Selectează ' + key + ' din document', 'Select ' + key + ' from document')}
+        aria-label={t('Selectează din document: ', 'Select from document: ') + ocrFieldLabel(key, t)}
         onClick={() => { ScanField(key); ScanRegion(null); ScanError(''); }}>
         {t('Selectează pe bon', 'Select on receipt')}
       </button>
@@ -695,7 +732,7 @@ export default function ReceiptModal({
                 </p>
                 {(ocrShortcuts.length > 0 || ocrTaxShortcuts.length > 0) && (
                   <div className="ocr-shortcuts">
-                    {ocrShortcuts.map(({ key, value }) => (
+                    {ocrShortcuts.map(({ key, value, source }) => (
                       <button
                         key={key}
                         type="button"
@@ -704,6 +741,10 @@ export default function ReceiptModal({
                       >
                         <span>{ocrFieldLabel(key, t)}</span>
                         <strong>{String(value)}</strong>
+                        {source === 'SupplierTemplate' && (
+                          <small>{t('Din bonuri confirmate anterior — verifică',
+                            'From previously verified receipts — review')}</small>
+                        )}
                       </button>
                     ))}
                     {ocrTaxShortcuts.map((tax: Any, i: number) => (
@@ -719,6 +760,33 @@ export default function ReceiptModal({
                     ))}
                   </div>
                 )}
+                {Object.values(expense.ocrCandidate?.fields || {}).some(
+                  (field: any) => field?.source === 'SupplierTemplate'
+                ) && (
+                  <p className="issue warning" role="status">
+                    {t(
+                      'Unele valori provin din modele de bonuri verificate anterior pentru acest furnizor. Verifică-le pe original: nu sunt aprobate automat.',
+                      'Some values were suggested from previously verified receipts for this supplier. Check the original: they are not automatically approved.'
+                    )}
+                  </p>
+                )}
+                {(['date', 'currency', 'amount'] as const).some(
+                  (key) => d[key] === '' || d[key] === null || d[key] === undefined
+                ) && (
+                  <div className="issue warning" role="status">
+                    <strong>{t('Valori obligatorii de verificat:', 'Fields requiring attention:')}</strong>
+                    <div className="actions">
+                      {(['date', 'currency', 'amount'] as const)
+                        .filter((key) => d[key] === '' || d[key] === null || d[key] === undefined)
+                        .map((key) => (
+                          <button type="button" className="secondary" key={key}
+                            onClick={() => focusOcrField(key)}>
+                            {ocrFieldLabel(key, t)}
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                )}
                 <p className="receipt-hint">
                   {t(
                     'Aceste valori sunt doar sugestii, nu confirmări. Documentul original este afișat lângă formular.',
@@ -728,9 +796,20 @@ export default function ReceiptModal({
               </section>
             )}
             {draftError && (
-              <p className="error" role="alert">
-                {draftError}
-              </p>
+              <div className="error" role="alert">
+                <p>{draftError}</p>
+                {!expense.id && draftStorageKey && (
+                  <button type="button" className="secondary"
+                    onClick={() => {
+                      if (window.confirm(t(
+                        'Închizi fără ciorna curentă? Ultimele modificări se pot pierde.',
+                        'Close without the current draft? Your latest changes may be lost.'
+                      ))) onClose();
+                    }}>
+                    {t('Închide fără salvarea ciornei', 'Close without saving draft')}
+                  </button>
+                )}
+              </div>
             )}
             {draftStatus && (
               <p className="small muted" role="status">
@@ -982,6 +1061,19 @@ export default function ReceiptModal({
                         </strong>
                       )}
                     </span>
+                  </div>
+                )}
+                {offersRegistryName(d, lookup) && (
+                  <div className="receipt-hint" role="status">
+                    <p>{t(
+                      'Numele de pe document diferă de cel din registrul intern. Nu l-am înlocuit automat.',
+                      'The printed or entered name differs from the internal registry. It was not overwritten.'
+                    )}</p>
+                    <button type="button" className="secondary"
+                      onClick={() => set('supplier', lookup.name)}>
+                      {t('Folosește numele din registrul intern',
+                        'Use supplier name from the internal registry')}
+                    </button>
                   </div>
                 )}
                 {d.cui && (
@@ -1548,12 +1640,16 @@ export default function ReceiptModal({
                   {t('Salvează ciorna pentru verificare', 'Save review draft')}
                 </button>
               )}
-              <button type="button" className="secondary" onClick={requestClose}>
-                {t('Anulează', 'Cancel')}
+              <button type="button" className="secondary"
+                disabled={closingDraft} onClick={requestClose}>
+                {!expense.id && draftStorageKey
+                  ? t('Închide și păstrează ciorna', 'Close and keep draft')
+                  : t('Anulează', 'Cancel')}
               </button>
               <button
                 className="primary"
                 disabled={
+                  closingDraft ||
                   busy ||
                   !d.country ||
                   (taxError && !finance) ||
