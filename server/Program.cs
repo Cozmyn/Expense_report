@@ -41,6 +41,38 @@ builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.W
 var postgres = builder.Configuration["Database:Provider"] == "Postgres";
 if (!postgres && !builder.Environment.IsDevelopment())
     throw new InvalidOperationException("Production requires PostgreSQL");
+if (!builder.Environment.IsDevelopment())
+{
+    // Security gates belong in the application too, not only an optional
+    // external deployment preflight. A DDL migrator must also verify server TLS.
+    var connection = builder.Configuration.GetConnectionString("Database");
+    if (string.IsNullOrWhiteSpace(connection))
+        throw new InvalidOperationException("Production requires a PostgreSQL TLS connection.");
+    var settings = new Npgsql.NpgsqlConnectionStringBuilder(connection);
+    if (settings.SslMode != Npgsql.SslMode.VerifyFull || settings.TrustServerCertificate)
+        throw new InvalidOperationException("Production PostgreSQL requires SSL Mode=VerifyFull without certificate bypass.");
+    if (!isMigrationJob)
+    {
+        var s3Endpoint = builder.Configuration["Storage:Endpoint"];
+        if (!Uri.TryCreate(s3Endpoint, UriKind.Absolute, out var endpoint)
+            || endpoint.Scheme != Uri.UriSchemeHttps || !string.IsNullOrEmpty(endpoint.UserInfo))
+            throw new InvalidOperationException("Production S3 endpoint requires verified HTTPS.");
+        var baseUrl = builder.Configuration["Application:BaseUrl"];
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var publicUrl)
+            || publicUrl.Scheme != Uri.UriSchemeHttps || !string.IsNullOrEmpty(publicUrl.UserInfo)
+            || publicUrl.AbsolutePath != "/" || !string.IsNullOrEmpty(publicUrl.Query)
+            || !string.IsNullOrEmpty(publicUrl.Fragment))
+            throw new InvalidOperationException("Production requires an HTTPS application origin.");
+        if (string.IsNullOrWhiteSpace(builder.Configuration["Scanner:Host"])
+            || builder.Configuration.GetValue<bool>("Ocr:Enabled") != true
+            || string.IsNullOrWhiteSpace(builder.Configuration["Smtp:Host"])
+            || string.IsNullOrWhiteSpace(builder.Configuration["Smtp:From"]))
+            throw new InvalidOperationException("Production requires configured scanner, OCR and SMTP.");
+        var keysRoot = builder.Configuration["Data:Directory"];
+        if (string.IsNullOrWhiteSpace(keysRoot) || !Path.IsPathFullyQualified(keysRoot))
+            throw new InvalidOperationException("Production requires a persistent absolute Data Protection directory.");
+    }
+}
 var dataRoot = builder.Configuration["Data:Directory"] ?? Path.Combine(builder.Environment.ContentRootPath, ".data");
 Directory.CreateDirectory(dataRoot);
 builder.Services.AddDbContext<Db>(o =>
