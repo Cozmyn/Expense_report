@@ -203,14 +203,15 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   await expect(
     page.getByRole('heading', { name: 'Client visit ' + suffix, exact: true }),
   ).toBeVisible();
-  const dialog = page.getByRole('dialog');
+  // UX-02: receipt editor lives in the stable page workspace, not a modal.
+  const dialog = page.locator('.receipt-modal-inline');
   const receipt = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a16kAAAAASUVORK5CYII=',
     'base64',
   );
   const begin = async () => {
     await page.getByRole('button', { name: 'Adaugă bon / document', exact: true }).click();
-    await expect(dialog.getByRole('heading', { name: 'Adaugă un bon / document' })).toBeFocused();
+    await expect(dialog.getByRole('heading', { name: 'Adaugă un bon / document' })).toBeVisible();
     await expect(dialog.getByLabel('Metoda de plată', { exact: true })).toHaveCount(0);
     await dialog.getByLabel('Tip cheltuială', { exact: true }).selectOption(cat);
   };
@@ -221,14 +222,9 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     await expect(dialog).not.toBeVisible();
   };
   await begin();
-  const dismissedDialogs: string[] = [];
-  page.once('dialog', async (prompt) => {
-    dismissedDialogs.push(prompt.message());
-    await prompt.dismiss();
-  });
+  // Escape must never silently dismiss an inline, unsaved editor.
   await page.keyboard.press('Escape');
   await expect(dialog).toBeVisible();
-  expect(dismissedDialogs[0]).toContain('Închizi fără să salvezi bonul?');
   await expect(dialog.getByRole('heading', { name: 'Adaugă un bon / document' })).toBeVisible();
   await dialog
     .getByLabel('Bonul are înscris CUI-ul companiei?', { exact: true })
@@ -245,7 +241,9 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     await expect(dialog.getByLabel('Denumire furnizor', { exact: true })).toHaveValue(
       'Synthetic CI supplier',
     );
-    await expect(dialog.getByLabel('Denumire furnizor', { exact: true })).toHaveAttribute(
+    // The printed merchant stays editable; the fiscal registry cannot
+    // silently overwrite the user's supplier name (UX-05).
+    await expect(dialog.getByLabel('Denumire furnizor', { exact: true })).not.toHaveAttribute(
       'readonly',
       '',
     );
@@ -619,9 +617,22 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
       mimeType: 'application/pdf',
       buffer: pdfFixture,
     });
-  await expect(dialog).toBeVisible({ timeout: 90000 });
+  const board = page.getByRole('region', { name: 'Verificarea documentelor', exact: true });
+  const picker = board.getByRole('group', { name: 'Selectează bonul pentru verificare' });
+  await expect(picker.getByRole('button')).toHaveCount(2, { timeout: 90000 });
+  // The uploader no longer interrupts the user. Open each original deliberately.
+  await expect(dialog).not.toBeVisible();
   await page.screenshot({ path: 'test-results/' + suffix + '-ocr-review.png', fullPage: true });
   for (let n = 0; n < 2; n++) {
+    const reviewJson = await employee.get('/api/reports/' + ocrReport.id + '/documents/'
+      + ((await (await employee.get('/api/reports/' + ocrReport.id)).json()).report.attachments[0].id)
+      + '/review');
+    expect(reviewJson.ok(), await reviewJson.text()).toBeTruthy();
+    const review = (await reviewJson.json()).review;
+    const next = review.candidates.findIndex((g: any) => g.state !== 'Verified');
+    expect(next).toBeGreaterThanOrEqual(0);
+    await picker.getByRole('button').nth(next).click();
+    await board.getByRole('button', { name: 'Revizuiește și creează bonul' }).click();
     await expect(dialog).toBeVisible({ timeout: 90000 });
     await expect(
       dialog.getByLabel('Total bon în moneda documentului', { exact: true }),
@@ -635,12 +646,11 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     const confirmed = dialog.getByRole('checkbox', { name: /Am verificat gruparea paginilor/ });
     if (await confirmed.count()) await confirmed.check();
     await dialog.getByRole('button', { name: 'Salvează bonul', exact: true }).click();
-    // The uploader opens the next unverified OCR group automatically. Confirm that
-    // the receipt was persisted rather than requiring an intermediate closed dialog.
+    // User-controlled selection; check the saved receipt before opening another group.
     await expect.poll(async () =>
       ((await (await employee.get('/api/reports/' + ocrReport.id)).json()).report.lines.length),
     ).toBe(verifiedBefore + 1);
-    if (n === 1) await expect(dialog).not.toBeVisible();
+    await expect(dialog).not.toBeVisible();
   }
   const captured = (await (await employee.get('/api/reports/' + ocrReport.id)).json()).report;
   expect(captured.lines).toHaveLength(2);
