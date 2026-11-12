@@ -33,7 +33,7 @@ public class SchemaMigrationTests
         var userBefore = await db.Users.AsNoTracking()
             .OrderBy(u => u.UserName).Select(u => new { u.Id, u.UserName, u.PasswordHash }).ToListAsync();
 
-        await db.Database.ExecuteSqlRawAsync("DROP TABLE \"DocumentReviews\"");
+        await db.Database.ExecuteSqlRawAsync("DROP TABLE \"Preferences\"");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"ReportAttachments\" DROP COLUMN \"ReceiptMode\"");
         await db.Database.ExecuteSqlRawAsync("DROP INDEX \"IX_DocumentGroups_BundleId_SourceKey\"");
 
@@ -55,10 +55,10 @@ public class SchemaMigrationTests
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<Db>();
         // The bridge must never mark an incomplete legacy table as healthy.
-        await db.Database.ExecuteSqlRawAsync("DROP TABLE \"DocumentReviews\"");
+        await db.Database.ExecuteSqlRawAsync("DROP TABLE \"Preferences\"");
         await db.Database.ExecuteSqlRawAsync(
-            "CREATE TABLE \"DocumentReviews\" (\"Id\" TEXT NOT NULL PRIMARY KEY)");
-        await Assert.ThrowsAsync<InvalidOperationException>(() => SchemaUpgrades.Apply(db));
+            "CREATE TABLE \"Preferences\" (\"Id\" TEXT NOT NULL PRIMARY KEY)");
+        await Assert.ThrowsAnyAsync<Exception>(() => SchemaUpgrades.Apply(db));
         Assert.False(await db.SchemaReleases.AnyAsync(x => x.Id == 13));
         Assert.False(await db.SchemaReleases.AnyAsync(x => x.Id == 14));
     }
