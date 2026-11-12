@@ -110,3 +110,66 @@ test('Empty-body 401 during receipt upload still reports the expired session', a
   );
   assert.deepEqual(events, [SESSION_EXPIRED_EVENT]);
 });
+
+
+test('Lost response reuses exactly the same mutation key on a manual retry', async () => {
+  const writes = [];
+  globalThis.fetch = async (url, options) => {
+    if (url.endsWith('/csrf')) return Response.json({ token: 'token' });
+    writes.push({ key: options.headers['Idempotency-Key'], body: options.body });
+    if (writes.length === 1) throw new TypeError('Network disconnected after commit');
+    return Response.json({ id: 'same-server-result' });
+  };
+  const { api } = await fresh();
+  const payload = { purpose: 'Trip', version: 3 };
+  await assert.rejects(() => api('/reports', 'POST', payload), /Network disconnected/);
+  assert.deepEqual(await api('/reports', 'POST', payload), { id: 'same-server-result' });
+  assert.equal(writes.length, 2);
+  assert.equal(writes[0].key, writes[1].key);
+  assert.equal(writes[0].body, writes[1].body);
+});
+
+test('Different payloads or completed operations receive different keys', async () => {
+  const keys = [];
+  globalThis.fetch = async (url, options) => {
+    if (url.endsWith('/csrf')) return Response.json({ token: 'token' });
+    keys.push(options.headers['Idempotency-Key']);
+    return Response.json({ ok: true });
+  };
+  const { api } = await fresh();
+  await api('/reports', 'POST', { purpose: 'A' });
+  await api('/reports', 'POST', { purpose: 'B' });
+  await api('/reports', 'POST', { purpose: 'A' });
+  assert.equal(new Set(keys).size, 3);
+});
+
+test('Explicit operation ID is propagated on an identical manual retry', async () => {
+  const seen = [];
+  globalThis.fetch = async (url, options) => {
+    if (url.endsWith('/csrf')) return Response.json({ token: 'token' });
+    seen.push(options.headers['Idempotency-Key']);
+    return Response.json({ ro: 'Indisponibil', en: 'Unavailable' }, { status: 503 });
+  };
+  const { api } = await fresh();
+  await assert.rejects(() => api('/reports', 'POST', { purpose: 'A' }, {
+    operationId: 'request-from-confirmation-screen-0001'
+  }), /Unavailable/);
+  await assert.rejects(() => api('/reports', 'POST', { purpose: 'A' }), /Unavailable/);
+  assert.deepEqual(seen, [
+    'request-from-confirmation-screen-0001',
+    'request-from-confirmation-screen-0001',
+  ]);
+});
+
+test('Client rejection clears the pending operation rather than reusing an invalid key', async () => {
+  const seen = [];
+  globalThis.fetch = async (url, options) => {
+    if (url.endsWith('/csrf')) return Response.json({ token: 'token' });
+    seen.push(options.headers['Idempotency-Key']);
+    return Response.json({ en: 'Validation failed' }, { status: 422 });
+  };
+  const { api } = await fresh();
+  await assert.rejects(() => api('/reports', 'POST', { purpose: 'A' }), /Validation failed/);
+  await assert.rejects(() => api('/reports', 'POST', { purpose: 'A' }), /Validation failed/);
+  assert.notEqual(seen[0], seen[1]);
+});

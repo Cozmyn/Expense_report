@@ -1,5 +1,10 @@
 import { parseFinancialJson } from './decimal.mjs';
 let token = '';
+// A failed transport is not proof that the server did not commit a mutation.
+// Reuse the same idempotency key for manual retries of the *identical* request.
+// Keep these keys only in memory: never persist sensitive request bodies.
+const uncertainMutations = new Map<string, string>();
+export type MutationOptions = { operationId?: string; signal?: AbortSignal };
 /** Tell the authenticated workspace to offer a safe return to sign-in on a 401. */
 export const SESSION_EXPIRED_EVENT = 'decont:session-expired';
 function handleExpiredSession(path: string, status: number): boolean {
@@ -8,6 +13,7 @@ function handleExpiredSession(path: string, status: number): boolean {
     !['/me', '/auth/login', '/auth/logout', '/auth/csrf'].includes(path);
   if (expired) {
     token = '';
+    uncertainMutations.clear();
     window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
   }
   return expired;
@@ -17,24 +23,46 @@ function expiredSessionMessage(): string {
     ? 'Session expired. Sign in again.'
     : 'Sesiunea a expirat. Autentifică-te din nou.';
 }
-export async function api<T = any>(path: string, method = 'GET', body?: unknown): Promise<T> {
+export async function api<T = any>(
+  path: string,
+  method = 'GET',
+  body?: unknown,
+  options: MutationOptions = {},
+): Promise<T> {
   if (method !== 'GET' && !token) {
     const r = await fetch('/api/auth/csrf', { credentials: 'same-origin' });
     if (!r.ok) throw new Error('Conexiunea cu serverul a eșuat. / Server connection failed.');
     token = (await r.json()).token;
   }
+  const payload = body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body);
+  const isMutation = method !== 'GET';
+  // FormData uploads use upload() with a caller-provided operation key.
+  const signature = isMutation && !(body instanceof FormData)
+    ? method + '\n' + path + '\n' + (payload ?? '')
+    : null;
+  const operationId = isMutation
+    ? options.operationId || (signature && uncertainMutations.get(signature)) || crypto.randomUUID()
+    : null;
+  if (signature && operationId) uncertainMutations.set(signature, operationId);
   const headers: Record<string, string> = { 'X-Money-Format': 'exact-v1' };
-  if (method !== 'GET') {
+  if (operationId) {
     headers['X-CSRF-TOKEN'] = token;
-    headers['Idempotency-Key'] = crypto.randomUUID();
+    headers['Idempotency-Key'] = operationId;
   }
   if (body && !(body instanceof FormData)) headers['Content-Type'] = 'application/json';
+  // If fetch rejects (offline, lost reply, aborted request), deliberately retain
+  // the operation key: the caller may retry without creating a duplicate.
   const response = await fetch('/api' + path, {
     method,
     headers,
     credentials: 'same-origin',
-    body: body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body),
+    body: payload,
+    signal: options.signal,
   });
+  // Successful or deterministic client-error responses terminate the command.
+  // A server failure can occur after a commit and therefore stays retryable.
+  if (signature && (response.ok || (response.status >= 400 && response.status < 500)))
+    uncertainMutations.delete(signature);
   if (!response.ok) {
     if (handleExpiredSession(path, response.status)) throw new Error(expiredSessionMessage());
     const p = await response
@@ -48,7 +76,10 @@ export async function api<T = any>(path: string, method = 'GET', body?: unknown)
     } catch {}
     throw new Error(message);
   }
-  if (['/auth/login', '/auth/logout', '/auth/change-password'].includes(path)) token = '';
+  if (['/auth/login', '/auth/logout', '/auth/change-password'].includes(path)) {
+    token = '';
+    uncertainMutations.clear();
+  }
   return response.status === 204 ? (undefined as T) : parseFinancialJson(await response.text());
 }
 export async function upload(
