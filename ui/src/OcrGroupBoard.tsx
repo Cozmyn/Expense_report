@@ -34,7 +34,8 @@ export default function OcrGroupBoard({
     [history, H] = useState<Any[] | null>(null),
     [feedback, Feedback] = useState<Any[] | null>(null),
     [events, Events] = useState<Any[] | null>(null),
-    [existing, X] = useState<Any>({});
+    [existing, X] = useState<Any>({}),
+    [visibleCounts, VisibleCounts] = useState<Record<number, number>>({});
   const base = '/reports/' + report.id + '/documents/' + file.id;
   useEffect(() => {
     let active = true;
@@ -271,6 +272,60 @@ export default function OcrGroupBoard({
               {t('Verifică paginile', 'Review pages')}
             </button>
           </div>
+        )}
+        {review.coverageRequired && (
+          <section className="panel" aria-label={t('Confirmarea tuturor bonurilor', 'Confirm all visible receipts')}>
+            <h4>{t('Confirmă fiecare bon vizibil pe pagină', 'Account for every visible receipt on each page')}</h4>
+            <p className="small">
+              {t(
+                'OCR poate identifica un bon din trei pe aceeași pagină. Numără bonurile pe original; dacă lipsesc, selectează separat regiunile. Confirmarea este salvată cu delimitarea curentă și se invalidează automat la regrupare.',
+                'OCR might find only one of several receipts on a page. Count them on the original; select missing regions. The attestation is tied to current grouping and is invalidated by regrouping.'
+              )}
+            </p>
+            {(review.missingCoveragePages as number[]).length === 0 ? (
+              <p role="status" className="success">{t('Toate paginile au fost confirmate.', 'All pages have been confirmed.')}</p>
+            ) : (
+              <p className="issue warning" role="status">
+                {t('Pagini care necesită confirmarea numărului de bonuri', 'Pages awaiting a visible receipt count')}:
+                {' '}{review.missingCoveragePages.join(', ')}
+              </p>
+            )}
+            {(review.missingCoveragePages as number[]).map((page: number) => {
+              const expected = Number(review.pageVisibleGroupCounts?.[page] ?? 0);
+              const current = visibleCounts[page] ?? expected;
+              const pageGroups = groups.filter((g: Any) => g.regions?.some((r: Region) => r.page === page));
+              const ready = pageGroups.every((g: Any) => g.state === 'Verified') &&
+                (expected > 0 || review.dispositions?.some((d: Any) => d.page === page));
+              return (
+                <div className="simple-row" key={page}>
+                  <label>
+                    {t('Bonuri vizibile pe pagina', 'Visible receipts on page')} {page}
+                    <input type="number" min={0} max={100} step={1} value={current}
+                      onChange={(event) => VisibleCounts(old => ({ ...old, [page]: Number(event.target.value) }))}/>
+                  </label>
+                  <span className="small">{expected} {t('grupuri atribuite', 'assigned groups')}</span>
+                  <button type="button" className="secondary"
+                    disabled={changing || stale || !ready || !Number.isInteger(current) || current !== expected}
+                    onClick={() => perform(async () => {
+                      await api(base + '/pages/' + page + '/coverage', 'POST', {
+                        version: report.version, page, visibleReceipts: current
+                      });
+                      await refresh();
+                    })}>
+                    {t('Confirm că toate bonurile sunt acoperite', 'I confirm every receipt is accounted for')}
+                  </button>
+                  {!ready && <span className="small muted">{t(
+                    'Verifică bonurile sau clasifică pagina ca justificativă înainte de confirmare.',
+                    'Verify receipts or mark the page supporting before confirming.'
+                  )}</span>}
+                  {ready && current !== expected && <span className="issue warning">{t(
+                    'Număr diferit: delimitează bonurile lipsă sau corectează numărătoarea.',
+                    'Counts differ: split missing receipts or correct the count.'
+                  )}</span>}
+                </div>
+              );
+            })}
+          </section>
         )}
         {(file.receiptMode !== 'Single' || review.unassignedPages.length > 0 || groups.length > 1) && (
         <section className="ocr-group-tools" ref={advancedRef}>
