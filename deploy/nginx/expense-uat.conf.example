@@ -1,0 +1,63 @@
+# Example only: provide approved certificates, DNS, upstreams and ingress policy.
+# Validate with nginx -t and the real UAT hostname before any Production use.
+# One shared ingress limiter covers BOTH app replicas; for several ingress nodes
+# enforce the same limits at the common WAF/LB layer.
+limit_req_zone $binary_remote_addr zone=decont_api:20m rate=180r/m;
+limit_req_zone $binary_remote_addr zone=decont_login:10m rate=10r/m;
+limit_conn_zone $binary_remote_addr zone=decont_connections:10m;
+
+upstream decont_application {
+    least_conn;
+    server decont-app-1.internal:8080 max_fails=2 fail_timeout=10s;
+    server decont-app-2.internal:8080 max_fails=2 fail_timeout=10s;
+    keepalive 16;
+}
+
+server {
+    listen 80;
+    server_name uat.expense.example.invalid;
+    return 308 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name uat.expense.example.invalid;
+    ssl_certificate /etc/nginx/private/decont/fullchain.pem;
+    ssl_certificate_key /etc/nginx/private/decont/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    client_max_body_size 101m;
+    client_body_timeout 30s;
+    proxy_connect_timeout 5s;
+    proxy_read_timeout 120s;
+    proxy_send_timeout 120s;
+    limit_req_status 429;
+    limit_conn_status 429;
+    limit_conn decont_connections 20;
+
+    # CRITICAL: discard untrusted X-Forwarded-* supplied by remote clients.
+    # The app trusts only this ingress's literal peer IP in KnownProxies.
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header Connection "";
+    proxy_http_version 1.1;
+    proxy_request_buffering on;
+
+    location = /api/auth/login {
+        limit_req zone=decont_login burst=5 nodelay;
+        proxy_pass http://decont_application;
+    }
+
+    location /api/ {
+        limit_req zone=decont_api burst=30 nodelay;
+        proxy_pass http://decont_application;
+    }
+
+    location / {
+        proxy_pass http://decont_application;
+    }
+}
