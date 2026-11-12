@@ -1,4 +1,5 @@
 import { formatMoney, parseFinancialJson, compare } from './decimal.mjs';
+import { stateText } from './ReportDisplay';
 import React, { useEffect, useState } from 'react';
 import { api } from './api';
 import { Field } from './Fields';
@@ -425,6 +426,21 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
       sort: 'age',
     }),
     [loaded, L] = useState(false);
+  const readableState = (state: string) => {
+    const names = stateText[state];
+    return names ? t(names[0], names[1]) : state.replace(/_/g, ' ');
+  };
+  const exceptionLabels: Record<string, [string, string]> = {
+    VENDOR_UNRESOLVED: ['Cont furnizor lipsă', 'Supplier account missing'],
+    MISSING_VENDOR_ACCOUNT: ['Cont furnizor lipsă', 'Supplier account missing'],
+    MISSING_COST_CENTER: ['Centru de cost lipsă', 'Cost centre missing'],
+    OCR_REVIEW_REQUIRED: ['Bon de verificat', 'Receipt requires review'],
+    MISSING_EVIDENCE: ['Document justificativ lipsă', 'Supporting document missing'],
+  };
+  const readableException = (code: string) => {
+    const name = exceptionLabels[code];
+    return name ? t(name[0], name[1]) : code.replace(/_/g, ' ').toLowerCase();
+  };
   useEffect(() => {
     run(async () => {
       R(await api('/finance/queue'));
@@ -522,7 +538,7 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
           <select value={filter.state} onChange={(e) => F({ ...filter, state: e.target.value })}>
             <option value="">{t('Toate', 'All')}</option>
             {Array.from(new Set(rows.map((r) => r.report.state))).map((s) => (
-              <option key={s}>{s}</option>
+              <option key={s} value={s}>{readableState(s)}</option>
             ))}
           </select>
         </Field>
@@ -533,7 +549,7 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
           >
             <option value="">{t('Toate', 'All')}</option>
             {Array.from(new Set(rows.flatMap((r) => r.exceptionCodes))).map((s: any) => (
-              <option key={s}>{s}</option>
+              <option key={s} value={s}>{readableException(s)}</option>
             ))}
           </select>
         </Field>
@@ -593,14 +609,15 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
         </button>
       </div>
       </section>
-      <p>
-        {shown.length} {t('deconturi', 'reports')}
+      <p role="status" className="small muted">
+        {shown.length} {t('deconturi afișate', 'reports shown')} {activeFilters
+          ? ' · ' + activeFilters + ' ' + t('filtre active', 'active filters') : ''}
       </p>
       {shown.map((x) => (
         <button
           key={x.report.id}
           className="simple-row row-button"
-          aria-label={t('Deschide ', 'Open ') + x.report.number}
+          aria-label={t('Deschide ', 'Open ') + x.report.number + ' · ' + readableState(x.report.state)}
           onClick={() => open(x.report.id)}
         >
           <span>
@@ -608,16 +625,28 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
               {x.report.number} · {x.report.purpose}
             </strong>
             <small>
-              {x.employee} · {x.manager} · {x.ageDays} {t(x.ageDays === 1 ? 'zi' : 'zile', x.ageDays === 1 ? 'day' : 'days')}
+              {x.employee || t('Angajat nespecificat', 'Unspecified employee')}
+              {' · '}{x.manager || t('Manager nespecificat', 'Unspecified manager')}
+              {' · '}{x.ageDays} {t(x.ageDays === 1 ? 'zi' : 'zile', x.ageDays === 1 ? 'day' : 'days')}
+            </small>
+            <small className="finance-queue-money">
+              {t('Total decont', 'Report total')}: {formatMoney(x.report.total ?? 0, 'ro-RO')} RON
+              {' · '}{x.report.lines?.length || 0} {t('bonuri', 'receipts')}
             </small>
           </span>
           <span>
-            <strong>{x.report.state}</strong>
+            <strong>{readableState(x.report.state)}</strong>
             <small>
               {x.exceptionCodes.length
-                ? x.exceptionCodes.join(' · ')
+                ? t('Necesită atenție: ', 'Needs attention: ') +
+                  x.exceptionCodes.map(readableException).join(' · ')
                 : t('Fără excepții detectate', 'No flagged exceptions')}
             </small>
+            {x.exceptionCodes.length > 0 && (
+              <small className="muted">
+                {t('Coduri pentru audit', 'Audit codes')}: {x.exceptionCodes.join(', ')}
+              </small>
+            )}
           </span>
         </button>
       ))}
