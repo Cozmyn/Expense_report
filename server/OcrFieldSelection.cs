@@ -27,38 +27,91 @@ public static class OcrFieldSelection
             return null;
         if (field == "amount" || field.StartsWith("taxBase:") || field.StartsWith("taxVat:"))
         {
-            var numbers = Regex.Matches(
-                text, @"(?<!\d)[-+]?\d+(?:[ .,]\d{3})*[.,]\d{2}(?!\d)"
-            );
-            var last = numbers.Cast<System.Text.RegularExpressions.Match>().LastOrDefault();
-            var value = last == null
-                ? Regex.IsMatch(text, @"\A[-+]?\d+\z")
-                    ? ReceiptParser.Number(text)
-                    : null
-                : ReceiptParser.Number(last.Value);
+            var matches = Regex.Matches(text, @"(?<!\d)[-+]?\d+(?:[ .,\u00a0\u202f]\d{3})*[.,]\d{2}(?!\d)")
+                .Select(m => ReceiptParser.Number(m.Value))
+                .Where(v => v.HasValue)
+                .Select(v => v!.Value)
+                .ToList();
+            var value = matches.Count == 0 && Regex.IsMatch(text, @"\A[-+]?\d+\z")
+                ? ReceiptParser.Number(text)
+                : null;
+            if (matches.Count == 1)
+                value = matches[0];
+            if (field == "amount")
+            {
+                // A highlighted area can include both the original amount and a
+                // converted equivalent. Never silently pick the last number.
+                var equivalent = Regex.Match(text, @"(?i)\b(?:ECHIVALENT|EQUIVALENT)\b");
+                if (equivalent.Success && Regex.IsMatch(text, @"(?i)\bTOTAL\b"))
+                {
+                    var primary = Regex.Matches(text[..equivalent.Index],
+                            @"(?<!\d)[-+]?\d+(?:[ .,\u00a0\u202f]\d{3})*[.,]\d{2}(?!\d)")
+                        .Select(m => ReceiptParser.Number(m.Value))
+                        .Where(v => v.HasValue).Select(v => v!.Value).Distinct().ToList();
+                    value = primary.Count == 1 ? primary[0] : null;
+                }
+                else if (matches.Distinct().Count() > 1)
+                    value = null;
+            }
+            else if (matches.Count > 1)
+            {
+                // Tax base and paid VAT may share one printed line only when
+                // the VAT rate and exact two monetary amounts are explicit.
+                var rate = field.Split(':')[1];
+                var printed = Regex.Matches(text, @"(?<!\d)(\d{1,2}(?:[.,]\d+)?)\s*%")
+                    .Select(m => m.Groups[1].Value.Replace(',', '.')).Distinct().ToList();
+                if (matches.Count == 2 && printed.Count == 1
+                    && decimal.TryParse(printed[0], NumberStyles.Number,
+                        CultureInfo.InvariantCulture, out var percentage)
+                    && decimal.TryParse(rate, NumberStyles.Number,
+                        CultureInfo.InvariantCulture, out var expectedRate)
+                    && percentage == expectedRate
+                    && Regex.IsMatch(text, @"(?i)\b(?:TVA|VAT|TAX)\b"))
+                    value = field.StartsWith("taxBase:") ? matches[0] : matches[1];
+                else
+                    value = null;
+            }
             return value?.ToString("0.00", CultureInfo.InvariantCulture);
         }
         if (field == "date")
         {
-            var match = Regex.Match(text, @"\b(\d{2}[./-]\d{2}[./-]\d{4}|\d{4}-\d{2}-\d{2})\b");
-            return match.Success
-                && DateOnly.TryParseExact(
-                    match.Value,
+            var parsed = new List<DateOnly>();
+            foreach (System.Text.RegularExpressions.Match match in Regex.Matches(text,
+                @"\b(?:\d{2}[./-]\d{2}[./-]\d{4}|\d{4}-\d{2}-\d{2})\b"))
+            {
+                var parts = match.Value.Split('/');
+                if (parts.Length == 3 &&
+                    int.TryParse(parts[0], out var first) &&
+                    int.TryParse(parts[1], out var second) &&
+                    first <= 12 && second <= 12 && first != second)
+                    return null; // Slash format could mean either day/month order.
+                if (DateOnly.TryParseExact(match.Value,
                     ["dd.MM.yyyy", "dd/MM/yyyy", "dd-MM-yyyy", "yyyy-MM-dd"],
-                    CultureInfo.InvariantCulture, DateTimeStyles.None, out var value
-                ) ? value.ToString("yyyy-MM-dd") : null;
+                    CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+                    parsed.Add(date);
+            }
+            return parsed.Distinct().Count() == 1
+                ? parsed[0].ToString("yyyy-MM-dd") : null;
         }
         if (field == "currency")
         {
-            var match = Regex.Match(text, @"\b(RON|LEI|EUR|USD|GBP|CHF|HUF|PLN|CZK|BGN|DKK|NOK|SEK)\b", RegexOptions.IgnoreCase);
-            return match.Success ? (match.Value.Equals("LEI", StringComparison.OrdinalIgnoreCase)
-                ? "RON" : match.Value.ToUpperInvariant()) : null;
+            var primary = text;
+            var equivalent = Regex.Match(text, @"(?i)\b(?:ECHIVALENT|EQUIVALENT)\b");
+            if (equivalent.Success && Regex.IsMatch(text, @"(?i)\bTOTAL\b"))
+                primary = text[..equivalent.Index];
+            var codes = Regex.Matches(primary,
+                    @"(?i)\b(?:RON|LEI|EUR|USD|GBP|CHF|HUF|PLN|CZK|BGN|DKK|NOK|SEK)\b")
+                .Select(m => m.Value.Equals("LEI", StringComparison.OrdinalIgnoreCase)
+                    ? "RON" : m.Value.ToUpperInvariant())
+                .Distinct().ToArray();
+            return codes.Length == 1 ? codes[0] : null;
         }
         if (field == "cui")
         {
-            var match = Regex.Match(text, @"(?:RO\s*)?(\d{2,10})\b", RegexOptions.IgnoreCase);
-            var cui = match.Success ? Rules.Cui(match.Groups[1].Value) : "";
-            return Rules.ValidCui(cui) ? cui : null;
+            var codes = Regex.Matches(text, @"(?:RO\s*)?(\d{2,10})\b", RegexOptions.IgnoreCase)
+                .Select(m => Rules.Cui(m.Groups[1].Value))
+                .Where(Rules.ValidCui).Distinct().ToArray();
+            return codes.Length == 1 ? codes[0] : null;
         }
         if (field == "invoice")
             return Regex.Replace(text, @"(?i)^(?:FACTUR[ĂA]|INVOICE|BON(?:\s+FISCAL)?|DOCUMENT)\s*(?:NR\.?|NO\.?|NUMBER|#)?\s*[:#-]?\s*", "")
