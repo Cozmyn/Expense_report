@@ -182,6 +182,18 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   await expect(
     page.getByRole('heading', { name: 'Privire de ansamblu', exact: true }),
   ).toBeVisible();
+  // Wave 3: task navigation must remain visible per role, even on touch screens.
+  const menuTrigger = page.getByRole('button', { name: 'Deschide meniul', exact: true });
+  const openedMobileMenu = await menuTrigger.isVisible();
+  if (openedMobileMenu) await menuTrigger.click();
+  const primaryNav = page.getByRole('navigation', { name: 'Navigare principală' });
+  await expect(primaryNav.getByText('Zilnic', { exact: true })).toBeVisible();
+  await expect(primaryNav.getByRole('button', { name: 'Deconturi', exact: true })).toBeVisible();
+  await expect(primaryNav.getByRole('button', { name: 'Utilizatori și acces', exact: true })).toHaveCount(0);
+  if (openedMobileMenu) {
+    await page.keyboard.press('Escape');
+    await expect(menuTrigger).toBeFocused();
+  }
   await shot(page, '02-dashboard');
   const ocrHelp = page.locator('.report-instructions .quick-help').filter({
     hasText: 'Cum citește aplicația un bon?',
