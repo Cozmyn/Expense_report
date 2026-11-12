@@ -62,6 +62,32 @@ public static class Api
     private static bool RetryablePg(PostgresException ex) =>
         ex.SqlState is "40001" or "40P01" or "23P01" or "23505";
 
+    private static async Task<IResult> ReplayCommittedOperation(
+        Db db, HttpContext c, object request, int successStatus)
+    {
+        // A concurrent identical operation can lose the unique-key insert race
+        // after the first worker commits. Re-read its committed response instead
+        // of reporting a conflict and inviting the client to create a new key.
+        // After PostgreSQL transaction failure the original transaction is
+        // disposed before this method runs.
+        db.ChangeTracker.Clear();
+        var key = c.Request.Headers["Idempotency-Key"].ToString();
+        if (key.Length is >= 16 and <= 100)
+        {
+            var id = Serialization.Hash(Reports.Actor(c.User) + c.Request.Path + key);
+            var hash = Serialization.Hash(Serialization.Write(request));
+            var prior = await db.Idempotencies.AsNoTracking().SingleOrDefaultAsync(i => i.Id == id);
+            if (prior != null)
+            {
+                Guard.Require(prior.RequestHash == hash, "idempotency_conflict",
+                    "Identificatorul a fost reutilizat cu alte date.",
+                    "Idempotency key reused with different data.", 409);
+                return Results.Text(prior.Response, "application/json", statusCode: successStatus);
+            }
+        }
+        throw ConcurrentWrite(); // Retry exact request + same key after a race.
+    }
+
     /// <summary>
     /// All mutations use serializable isolation. A competing interval insert
     /// must never be silently accepted; map database serialization, exclusion
@@ -117,20 +143,20 @@ public static class Api
         }
         catch (PostgresException ex) when (RetryablePg(ex))
         {
-            throw ConcurrentWrite();
+            return await ReplayCommittedOperation(db, c, request, successStatus);
         }
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg && RetryablePg(pg))
         {
-            throw ConcurrentWrite();
+            return await ReplayCommittedOperation(db, c, request, successStatus);
         }
         catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6 or 19)
         {
-            throw ConcurrentWrite();
+            return await ReplayCommittedOperation(db, c, request, successStatus);
         }
         catch (DbUpdateException ex) when (ex.InnerException is SqliteException sqlite
             && sqlite.SqliteErrorCode is 5 or 6 or 19)
         {
-            throw ConcurrentWrite();
+            return await ReplayCommittedOperation(db, c, request, successStatus);
         }
     }
 
