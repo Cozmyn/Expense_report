@@ -153,6 +153,12 @@ public class SupplierOcrLearningTests
             "TVA 21% 100.00 21.00 121.00"));
         Assert.Null(OcrFieldSelection.Extract("taxVat:11",
             "TVA 21% 100.00 21.00"));
+        Assert.Equal("100.00", OcrFieldSelection.Extract("taxBase:21",
+            "TVA 21% 21.00 100.00"));
+        Assert.Equal("21.00", OcrFieldSelection.Extract("taxVat:21",
+            "TVA 21% 21.00 100.00"));
+        Assert.Null(OcrFieldSelection.Extract("taxVat:21",
+            "TVA 21% 100.00 99.00"));
     }
 
     [Fact]

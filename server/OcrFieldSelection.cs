@@ -67,7 +67,21 @@ public static class OcrFieldSelection
                         CultureInfo.InvariantCulture, out var expectedRate)
                     && percentage == expectedRate
                     && Regex.IsMatch(text, @"(?i)\b(?:TVA|VAT|TAX)\b"))
-                    value = field.StartsWith("taxBase:") ? matches[0] : matches[1];
+                {
+                    // Printed columns may be base/VAT or VAT/base. Determine
+                    // direction only when the arithmetic supports exactly one.
+                    // Never assume that the first number is a base.
+                    var firstIsBase = Math.Abs(matches[0] * expectedRate / 100m - matches[1]) <= .05m;
+                    var secondIsBase = Math.Abs(matches[1] * expectedRate / 100m - matches[0]) <= .05m;
+                    if (firstIsBase == secondIsBase)
+                        value = null;
+                    else
+                    {
+                        var taxableBase = firstIsBase ? matches[0] : matches[1];
+                        var paidVat = firstIsBase ? matches[1] : matches[0];
+                        value = field.StartsWith("taxBase:") ? taxableBase : paidVat;
+                    }
+                }
                 else
                     value = null;
             }
