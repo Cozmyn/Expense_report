@@ -60,6 +60,19 @@ async function mutationKey(path: string, method: string,
   rememberOperation(signature, { key, until: now + mutationLifetimeMs });
   return { key, signature };
 }
+function mutationPayloadIdentity(body: unknown): string | undefined {
+  if (body === undefined) return undefined;
+  if (!(body instanceof FormData)) return JSON.stringify(body);
+  // Avoid treating every multipart upload on the same path as the *same*
+  // operation. File metadata is stable on retry and does not require reading
+  // a 100-MiB upload into RAM to hash it. The server still verifies full
+  // request bytes and rejects any accidental metadata collision as a 409.
+  return JSON.stringify(Array.from(body.entries(), ([name, value]) =>
+    typeof value === 'string'
+      ? [name, 'text', value]
+      : [name, 'file', value.name, value.size, value.type, value.lastModified]
+  ));
+}
 /** Tell the authenticated workspace to offer a safe return to sign-in on a 401. */
 export const SESSION_EXPIRED_EVENT = 'decont:session-expired';
 function handleExpiredSession(path: string, status: number): boolean {
@@ -84,9 +97,9 @@ export async function api<T = any>(path: string, method = 'GET', body?: unknown,
     token = (await r.json()).token;
   }
   const headers: Record<string, string> = { 'X-Money-Format': 'exact-v1' };
-  const payload = body instanceof FormData ? undefined : body === undefined ? undefined : JSON.stringify(body);
+  const payload = body instanceof FormData ? undefined : mutationPayloadIdentity(body);
   const operation = method !== 'GET'
-    ? await mutationKey(path, method, payload, options.operationId) : null;
+    ? await mutationKey(path, method, mutationPayloadIdentity(body), options.operationId) : null;
   if (operation) {
     headers['X-CSRF-TOKEN'] = token;
     headers['Idempotency-Key'] = operation.key;
