@@ -43,14 +43,10 @@ public class IntervalConcurrencyTests
                 await tx.CommitAsync();
                 return true;
             }
-            catch (PostgresException ex) when (ex.SqlState is "40001" or "40P01" or "23505")
-            {
-                return false; // Serializable detected a conflict.
-            }
-            catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg
+            catch (Exception ex) when (ex.GetBaseException() is PostgresException pg
                 && pg.SqlState is "40001" or "40P01" or "23505")
             {
-                return false;
+                return false; // Serializable detected a conflict, including EF wrapper.
             }
         }
         var accepted = await Task.WhenAll(
