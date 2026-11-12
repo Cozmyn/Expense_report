@@ -63,7 +63,7 @@ class ReleaseGateTests(unittest.TestCase):
     def test_image_rebuild_or_different_promotion_digest_blocks(self):
         self.flows["promoted_image_digest"] = "sha256:" + "b" * 64
         self.write("workflows.json", self.flows)
-        with self.assertRaisesRegex(GateError, "identical OCI"):
+        with self.assertRaisesRegex(GateError, "immutable OCI image digest"):
             evaluate(self.path)
 
     def test_status_without_linked_artifact_is_not_evidence(self):
