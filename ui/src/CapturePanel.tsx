@@ -43,6 +43,7 @@ export default function CapturePanel({ report, t, run, refresh, reason, edit, ed
       W(true);
       let version = report.version;
       CompletedFiles(0);
+      let succeeded = 0;
       try {
         for (const [index, item] of selected.entries()) {
           const { file, mode } = item;
@@ -89,9 +90,14 @@ export default function CapturePanel({ report, t, run, refresh, reason, edit, ed
             { version, token: grant.token, reason },
           );
           version = done.version;
-          CompletedFiles(index + 1);
+          succeeded = index + 1;
+          CompletedFiles(succeeded);
         }
         Queued([]);
+      } catch (error) {
+        // Keep only unfinished files selected to avoid creating duplicate documents on retry.
+        Queued(selected.slice(succeeded));
+        throw error;
       } finally {
         W(false);
         ActiveFile('');
