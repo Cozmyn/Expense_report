@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage;
 
@@ -351,7 +352,10 @@ public static class SchemaUpgrades
             await db.Database.OpenConnectionAsync();
         try
         {
-            var tables = db.Model.GetEntityTypes()
+            // EF 10 omits check-constraint metadata from the runtime-optimized
+            // model; integrity verification uses the provider's design-time
+            // model, which retains all DDL constraints.
+            var tables = db.GetService<IDesignTimeModel>().Model.GetEntityTypes()
                 .Where(e => e.GetTableName() != null)
                 .GroupBy(e => (Name: e.GetTableName()!, Schema: e.GetSchema()))
                 .ToList();
