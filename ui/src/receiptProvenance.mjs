@@ -4,9 +4,9 @@
  */
 export function fieldProvenance({ value, source = null, changed = false, verified = false, calculated = false }) {
   const present = value !== null && value !== undefined && String(value).trim() !== '';
-  if (changed) return 'manual';
   if (!present) return 'unread';
   if (verified) return 'verified';
+  if (changed) return 'manual';
   if (source?.state === 'Ambiguous' || source?.state === 'Missing') return 'unread';
   if (calculated) return 'calculated';
   if (source && source.value !== null && source.value !== undefined
