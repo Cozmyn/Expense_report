@@ -142,7 +142,7 @@ public static class SchemaUpgrades
         foreach (
             var column in new[]
             {
-                ("Batches", "SnapshotJson", "TEXT NOT NULL DEFAULT '{}'"),
+                ("Batches", "SnapshotJson", "TEXT NOT NULL DEFAULT '{{}}'"),
                 ("Batches", "ReportVersion", "bigint NOT NULL DEFAULT 0"),
                 ("Batches", "FinanceHash", "TEXT NOT NULL DEFAULT ''"),
                 ("Batches", "BusinessKey", "TEXT NOT NULL DEFAULT ''"),
