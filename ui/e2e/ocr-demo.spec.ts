@@ -313,6 +313,17 @@ test('PDF02 recorded source-to-expense walkthrough', async ({ browser }, info) =
   }
   const verified = await detail();
   expect(verified.lines).toHaveLength(9);
+  let pageCoverage = await review();
+  expect(pageCoverage.coverageRequired).toBe(true);
+  expect(pageCoverage.missingCoveragePages).toHaveLength(11);
+  for (let left = 11; left > 0; left--) {
+    await board.getByRole('button',
+      { name: 'Confirm că toate bonurile sunt acoperite', exact: true }).first().click();
+    await expect.poll(async () => (await review()).missingCoveragePages.length).toBe(left - 1);
+  }
+  pageCoverage = await review();
+  expect(pageCoverage.missingCoveragePages).toEqual([]);
+
   const ids = verified.lines.map((l: any) => l.id).sort();
   await board.getByRole('button', { name: 'Istoric valori corectate', exact: true }).click();
   const corrections = await (
