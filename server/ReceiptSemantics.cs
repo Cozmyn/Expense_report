@@ -38,6 +38,10 @@ public static class ReceiptSemantics
         @"(?i)\b(?:SUB[-\s]?TOTAL|TOTAL\s*(?:TVA|VAT|TAX|BAZ[ĂA]|DISCOUNT|REDUCER)|REST(?:UL)?|CHANGE|AVANS|SOLD\s+ANTERIOR|PREVIOUS\s+BALANCE)\b",
         RegexOptions.Compiled
     );
+    static readonly Regex CurrencyPattern = new(
+        @"(?i)\b(?:RON|LEI|EUR|USD|GBP|CHF|HUF|PLN|CZK|BGN|DKK|NOK|SEK)\b",
+        RegexOptions.Compiled
+    );
     static readonly Regex MoneyPattern = new(
         @"(?<![\d])[-+]?\d+(?:[ .,\u00a0\u202f]\d{3})*[.,]\d{2}(?!\d)",
         RegexOptions.Compiled
@@ -70,6 +74,76 @@ public static class ReceiptSemantics
             return new(null, string.Join(" | ", preferred.Select(c => c.Evidence).Distinct().Take(4)),
                 true, alternatives);
         return new(preferred[0].Value, preferred[0].Evidence);
+    }
+
+
+    public static Choice Currency(IReadOnlyList<string> lines, Choice gross)
+    {
+        static List<string> Codes(string evidence)
+        {
+            var codes = CurrencyPattern.Matches(evidence)
+                .Select(m => m.Value.ToUpperInvariant() == "LEI" ? "RON" : m.Value.ToUpperInvariant())
+                .Distinct()
+                .ToList();
+            if (evidence.Contains('€') && !codes.Contains("EUR"))
+                codes.Add("EUR");
+            return codes;
+        }
+        var primary = gross.Evidence;
+        if (primary != "")
+        {
+            // An explicitly printed total is more relevant than currency
+            // symbols from an unrelated payment or accounting equivalent.
+            var equivalent = Regex.Match(primary, @"(?i)\b(?:ECHIVALENT|EQUIVALENT)\b");
+            if (equivalent.Success)
+                primary = primary[..equivalent.Index];
+            var printed = Codes(primary);
+            if (printed.Count == 1)
+                return new(printed[0], gross.Evidence);
+            if (printed.Count > 1)
+                return new(null, gross.Evidence, true,
+                    printed.Select(value => (value, gross.Evidence)).ToList());
+        }
+        var all = lines
+            .SelectMany(line => Codes(line).Select(value => (Value: value, Evidence: line)))
+            .ToList();
+        var distinct = all.Select(x => x.Value).Distinct().ToList();
+        if (distinct.Count == 1)
+            return new(distinct[0], all[0].Evidence);
+        if (distinct.Count > 1)
+            return new(null, string.Join(" | ", all.Select(x => x.Evidence).Distinct().Take(4)),
+                true, all.Distinct().ToList());
+        var symbol = lines.FirstOrDefault(l => l.Contains('
+        List<(string Value, string Evidence)> alternatives = [];
+        var ambiguousLine = false;
+        foreach (var line in lines.Where(l => TotalLabel.IsMatch(l) && !ExcludeTotal.IsMatch(l)))
+        {
+            // Equivalents are not a second charge; use the primary portion
+            // only if it unambiguously contains one monetary value.
+            var equivalent = Regex.Match(line, @"(?i)\b(?:ECHIVALENT|EQUIVALENT)\b");
+            var primary = equivalent.Success ? line[..equivalent.Index] : line;
+            var values = MoneyPattern.Matches(primary)
+                .Select(m => ReceiptParser.Number(m.Value))
+                .Where(n => n != null)
+                .Select(n => n!.Value.ToString("0.00", CultureInfo.InvariantCulture))
+                .Distinct()
+                .ToList();
+            if (values.Count > 1)
+                ambiguousLine = true;
+            foreach (var value in values)
+                alternatives.Add((value, line));
+        }
+        if (alternatives.Count == 0)
+            return new(null, "");
+        var distinct = alternatives.Select(x => x.Value).Distinct().ToList();
+        if (ambiguousLine || distinct.Count > 1)
+            return new(null, string.Join(" | ", alternatives.Select(c => c.Evidence).Distinct().Take(4)),
+                true, alternatives.Distinct().ToList());
+        return new(distinct[0], alternatives[0].Evidence);
+    }
+}
+) || l.Contains('£'));
+        return symbol == null ? new(null, "") : new(null, symbol, true);
     }
 
     public static Choice GrossTotal(IReadOnlyList<string> lines)

@@ -159,6 +159,7 @@ public static class ReceiptParser
                 if (segments.Count > 1 && !Regex.IsMatch(text, @"(?i)TOTAL|FACTUR|INVOICE|BON\s+FISCAL"))
                     continue;
                 Dictionary<string, OcrField> fields = [];
+                Dictionary<string, List<OcrField>> alternatives = [];
                 List<OcrTax> taxes = [];
                 List<string> warnings = [];
                 if (page.RecognitionRotation != 0)
@@ -180,6 +181,15 @@ public static class ReceiptParser
                             Source: page.Method
                         );
                     }
+                }
+                void KeepAlternatives(string key, ReceiptSemantics.Choice choice)
+                {
+                    if (choice.Alternatives is not { Count: > 0 })
+                        return;
+                    alternatives[key] = choice.Alternatives
+                        .Select(a => new OcrField(a.Value, page.Number, a.Evidence,
+                            "Ambiguous", RawValue: a.Evidence, Source: page.Method))
+                        .ToList();
                 }
                 var detectedType = Regex.Match(text, @"(?i)FACTUR[ĂA]|INVOICE|BON\s+FISCAL");
                 if (detectedType.Success)
@@ -220,6 +230,7 @@ public static class ReceiptParser
                     fields["date"] = new(null, page.Number, issueDate.Evidence,
                         "Ambiguous", geometry.Confidence, geometry.Box, issueDate.Evidence, page.Method);
                     warnings.Add("DATE_AMBIGUOUS: Au fost găsite mai multe date ori ordinea zi/lună este neclară. Selectează data emiterii. / Multiple dates or unclear day/month order; select the issue date.");
+                    KeepAlternatives("date", issueDate);
                 }
                 else
                     Put("date", issueDate.Value, issueDate.Evidence);
@@ -302,47 +313,25 @@ public static class ReceiptParser
                 );
                 if (invoice.Success)
                     Put("invoice", invoice.Groups[1].Value, invoice.Value);
-                var currency = Regex.Match(
-                    text,
-                    @"\b(RON|LEI|EUR|USD|GBP|CHF|HUF|PLN|CZK|BGN|DKK|NOK|SEK)\b",
-                    RegexOptions.IgnoreCase
-                );
-                if (currency.Success)
-                    Put(
-                        "currency",
-                        currency.Value.ToUpperInvariant() == "LEI" ? "RON" : currency.Value.ToUpperInvariant(),
-                        currency.Value
-                    );
-                else if (text.Contains('€'))
-                    Put("currency", "EUR", "€");
-                else
-                {
-                    var symbol = Regex.Match(text, @"[$£]");
-                    if (symbol.Success)
-                    {
-                        var geometry = DocumentGeometry.Find(page, symbol.Value, currentOffset, wordCount);
-                        fields["currency"] = new(
-                            null,
-                            page.Number,
-                            symbol.Value,
-                            "Ambiguous",
-                            geometry.Confidence,
-                            geometry.Box,
-                            symbol.Value,
-                            page.Method
-                        );
-                        warnings.Add(
-                            "CURRENCY_AMBIGUOUS: Simbolul nu identifică sigur moneda. Selectează moneda de pe document. / Currency symbol is ambiguous. Select the document currency."
-                        );
-                    }
-                }
                 var grossTotal = ReceiptSemantics.GrossTotal(lines);
+                var currency = ReceiptSemantics.Currency(lines, grossTotal);
+                if (currency.Ambiguous)
+                {
+                    var geometry = DocumentGeometry.Find(page, currency.Evidence, currentOffset, wordCount);
+                    fields["currency"] = new(null, page.Number, currency.Evidence,
+                        "Ambiguous", geometry.Confidence, geometry.Box, currency.Evidence, page.Method);
+                    warnings.Add("CURRENCY_AMBIGUOUS: Documentul conține monede diferite sau un simbol neclar. Selectează moneda sumei brute. / Different currencies or unclear symbol; select the gross amount currency.");
+                    KeepAlternatives("currency", currency);
+                }
+                else
+                    Put("currency", currency.Value, currency.Evidence);
                 if (grossTotal.Ambiguous)
                 {
                     var geometry = DocumentGeometry.Find(page, grossTotal.Evidence, currentOffset, wordCount);
                     fields["amount"] = new(null, page.Number, grossTotal.Evidence,
                         "Ambiguous", geometry.Confidence, geometry.Box, grossTotal.Evidence, page.Method);
                     warnings.Add("AMOUNT_AMBIGUOUS: Mai multe totaluri sau valori pe aceeași linie. Alege suma brută efectivă de pe original. / Multiple totals or amounts; choose the actual gross amount on the original.");
+                    KeepAlternatives("amount", grossTotal);
                 }
                 else
                     Put("amount", grossTotal.Value, grossTotal.Evidence);
@@ -415,7 +404,8 @@ public static class ReceiptParser
                             fields,
                             taxes,
                             warnings,
-                            DocumentSegmentation.RegionsFor(page, currentOffset, wordCount, segments.Count > 1)
+                            DocumentSegmentation.RegionsFor(page, currentOffset, wordCount, segments.Count > 1),
+                            Alternatives: alternatives.Count == 0 ? null : alternatives
                         )
                     );
             }

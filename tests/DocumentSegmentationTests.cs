@@ -227,6 +227,7 @@ public class DocumentSegmentationTests
             [new(1, "INVOICE NO A7\nISSUE DATE 10.11.2026\nTOTAL 100.00 EUR ECHIVALENT 500.00 RON\nREST 20.00 RON")],
             null).Candidates);
         Assert.Equal("100.00", c.Fields["amount"].Value);
+        Assert.Equal("EUR", c.Fields["currency"].Value);
     }
 
     [Fact]
@@ -238,6 +239,7 @@ public class DocumentSegmentationTests
         Assert.Null(c.Fields["amount"].Value);
         Assert.Equal("Ambiguous", c.Fields["amount"].State);
         Assert.Contains(c.Warnings, w => w.StartsWith("AMOUNT_AMBIGUOUS:"));
+        Assert.Equal(2, c.Alternatives!["amount"].Count);
     }
 
     [Fact]
@@ -248,6 +250,29 @@ public class DocumentSegmentationTests
             null).Candidates);
         Assert.Null(c.Fields["amount"].Value);
         Assert.Contains(c.Warnings, w => w.StartsWith("AMOUNT_AMBIGUOUS:"));
+    }
+
+
+
+    [Fact]
+    public void MultipleCurrenciesOnTheSameTotalLineDoNotGuessInvoiceCurrency()
+    {
+        var c = Assert.Single(ReceiptParser.Parse(
+            [new(1, "INVOICE NO A7\nTOTAL 100.00 EUR 500.00 RON")],
+            null).Candidates);
+        Assert.Null(c.Fields["currency"].Value);
+        Assert.Equal("Ambiguous", c.Fields["currency"].State);
+        Assert.Contains(c.Warnings, w => w.StartsWith("CURRENCY_AMBIGUOUS:"));
+        Assert.Equal(2, c.Alternatives!["currency"].Count);
+    }
+
+    [Fact]
+    public void CurrencyNearGrossTotalOutweighsMentionInUnrelatedInvoiceHeader()
+    {
+        var c = Assert.Single(ReceiptParser.Parse(
+            [new(1, "INVOICE NO A7\nPrevious balance in RON\nTOTAL 100.00 EUR")],
+            null).Candidates);
+        Assert.Equal("EUR", c.Fields["currency"].Value);
     }
 
 
