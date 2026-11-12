@@ -265,6 +265,7 @@ export default function OcrGroupBoard({
               type="button"
               className="secondary"
               onClick={() => {
+                if (advancedRef.current instanceof HTMLDetailsElement) advancedRef.current.open = true;
                 advancedRef.current?.scrollIntoView({ block: 'nearest' });
                 advancedRef.current?.querySelector<HTMLInputElement>('input')?.focus();
               }}
@@ -328,8 +329,18 @@ export default function OcrGroupBoard({
           </section>
         )}
         {(file.receiptMode !== 'Single' || review.unassignedPages.length > 0 || groups.length > 1) && (
-        <section className="ocr-group-tools" ref={advancedRef}>
-          <h4>{t('Verificarea paginilor și a bonurilor', 'Review pages and receipts')}</h4>
+        <details className="ocr-group-tools" ref={advancedRef}
+          open={review.unassignedPages.length > 0 ? true : undefined}>
+          <summary className="ocr-advanced-toggle">
+            {t('Instrumente avansate: pagini, unire și separare', 'Advanced tools: pages, merge and split')}
+            {review.unassignedPages.length > 0
+              ? ' · ' + review.unassignedPages.length + ' ' + t('pagini neatribuite', 'unassigned pages')
+              : ''}
+          </summary>
+          <p className="small muted">
+            {t('Folosește aceste instrumente numai dacă OCR a grupat greșit bonurile sau există pagini neatribuite. Bonurile verificate și originalele rămân disponibile.',
+              'Use these tools when OCR has grouped receipts incorrectly or pages remain unassigned. Verified receipts and originals stay available.')}
+          </p>
         <Field
           name={t('Motivul modificării grupării', 'Reason for grouping change')}
           note={t(
@@ -439,7 +450,7 @@ export default function OcrGroupBoard({
             {t('Separă paginile', 'Split pages')}
           </button>
         </div>
-        </section>
+        </details>
         )}
         {groups.length > 1 && (
           <div className="receipt-group-switcher" role="group" aria-label={t('Selectează bonul pentru verificare', 'Choose receipt to review')}>
