@@ -48,18 +48,30 @@ test('IndexedDB encrypted draft survives reload, protects bytes and does not era
   await page.reload();
   const recovery = await page.evaluate(async scope => {
     const mod = await import('/test-encrypted-draft.mjs');
-    const prior = (await mod.recoverEncryptedDrafts(scope))[0].snapshot;
+    const preserved = (await mod.recoverEncryptedDrafts(scope))[0];
+    const prior = preserved.snapshot;
     const newer = { ...prior, data: { ...prior.data, amount: '184.25' } };
-    await mod.stageEncryptedDraft(scope, newer);
+    // Different authenticated actors are always isolated by scope.
+    const otherActorBackups = (await mod.recoverEncryptedDrafts(scope + ':other-actor')).length;
+    // Concurrent encryption requests must commit in typed order.
+    await Promise.all([
+      mod.stageEncryptedDraft(scope, prior),
+      mod.stageEncryptedDraft(scope, newer),
+    ]);
     const deletedOld = await mod.clearOwnEncryptedDraftIfMatch(scope, prior);
     const latest = (await mod.recoverEncryptedDrafts(scope))[0].snapshot;
     const deletedLatest = await mod.clearOwnEncryptedDraftIfMatch(scope, newer);
+    const olderStillAvailable = (await mod.recoverEncryptedDrafts(scope)).length;
+    await mod.discardEncryptedDraft(preserved.id);
     const remaining = await mod.recoverEncryptedDrafts(scope);
-    return { deletedOld, latest, deletedLatest, remaining: remaining.length };
+    return { deletedOld, latest, deletedLatest, olderStillAvailable,
+      otherActorBackups, remaining: remaining.length };
   }, scoped);
   expect(recovery.deletedOld).toBe(false);
   expect(recovery.latest.data.amount).toBe('184.25');
   expect(recovery.deletedLatest).toBe(true);
+  expect(recovery.olderStillAvailable).toBe(1);
+  expect(recovery.otherActorBackups).toBe(0);
   expect(recovery.remaining).toBe(0);
 });
 
