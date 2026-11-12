@@ -3,6 +3,12 @@ on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
 jobs:
+  p0-ops-offline:
+    name: P0 restore and Production UAT safety checks (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s deploy -p 'test_*.py' -v
   audit-pilot-metrics-offline:
     name: Audit OCR pilot metrics (offline calculation, no real documents)
     runs-on: ubuntu-latest
@@ -42,6 +48,26 @@ jobs:
           ERP_REFERENCE_OUTPUT: tests/TestResults/erp-reference
           TEST_POSTGRES: ${{ matrix.database == 'postgres' && 'Host=localhost;Database=postgres;Username=postgres;Password=ci-test-only' || '' }}
         run: dotnet test tests/Decont.Tests.csproj --configuration Release --logger "trx;LogFileName=backend.trx"
+      - name: Export EF schema DDL for reviewed baseline and drift checks
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          Database__Provider: ${{ matrix.database == 'postgres' && 'Postgres' || 'Sqlite' }}
+          ConnectionStrings__Database: 'Host=localhost;Database=postgres;Username=postgres;Password=ci-test-only'
+        run: |
+          mkdir -p tests/TestResults
+          dotnet run --no-restore --project server/Decont.Api.csproj -c Release -- --schema > tests/TestResults/model-schema-${{ matrix.database }}.sql
+          test -s tests/TestResults/model-schema-${{ matrix.database }}.sql
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          # Release 14 schema is immutable: any future EF change must be paired
+          # with a separately reviewed, numbered migration script.
+          database = "${{ matrix.database }}"
+          actual = Path(f"tests/TestResults/model-schema-{database}.sql").read_text().replace("\\r\\n", "\\n").strip()
+          pinned = Path(f"server/Migrations/001-baseline.{database}.sql").read_text().replace("\\r\\n", "\\n").strip()
+          if actual != pinned:
+              raise SystemExit("EF model differs from pinned release-14 baseline; add reviewed migration")
+          PY
       - run: dotnet publish server/Decont.Api.csproj --configuration Release --output release
       - uses: actions/upload-artifact@v4
         if: always()

@@ -1,6 +1,8 @@
-using System.Text.RegularExpressions;
+using System.Security.Cryptography;
+using System.Text;
 using System.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage;
 
@@ -34,25 +36,110 @@ public static class SchemaUpgrades
         "Transactions",
     ];
 
+    // SHA-256 pins of the SQL reviewed for release 14. Old migrations are immutable:
+    // any intentional DDL change requires a *new* numbered migration, not editing
+    // these files. Do not use GenerateCreateScript to change production databases.
+    private static readonly IReadOnlyDictionary<string, string> SqlHashes =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["001-baseline.sqlite.sql"] = "A79ADBF1DD44568B1C378FAE7AF7EE62B2DE761401F629FB2DA48CC6746E6B22",
+            ["013a-legacy-tables.sqlite.sql"] = "EF9E315B6F888295196A8DB3BAD6C444ECF3598F36FCD0FD0CD6F353476DFFDB",
+            ["013b-legacy-indexes.sqlite.sql"] = "8E0F4C06504529193AEBF57F203E30640771306998D1CDC886541A91F3390CAF",
+            ["001-baseline.postgres.sql"] = "227BE2B029BDF3FD162B1204F4C3AA2B8169227BBBFD2BE250D7EBE15B7CF251",
+            ["013a-legacy-tables.postgres.sql"] = "B7D09F3DDB933911E6CB50F4529F459F2D95B0D2AD78C3BE62678A22184007E9",
+            ["013b-legacy-indexes.postgres.sql"] = "8E0F4C06504529193AEBF57F203E30640771306998D1CDC886541A91F3390CAF",
+        };
+
+    private static string ReviewedSql(Db db, string step)
+    {
+        var name = step + (db.Database.IsNpgsql() ? ".postgres.sql" : ".sqlite.sql");
+        if (!SqlHashes.TryGetValue(name, out var pinned))
+            throw new InvalidOperationException("Unreviewed schema migration: " + name);
+        using var stream = typeof(SchemaUpgrades).Assembly.GetManifestResourceStream("decont.migrations." + name)
+            ?? throw new InvalidOperationException("Missing embedded schema migration: " + name);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        var sql = reader.ReadToEnd();
+        if (Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sql))) != pinned)
+            throw new InvalidOperationException("Modified historical schema migration: " + name);
+        return sql;
+    }
+
+    private static async Task<bool> TableExists(Db db, string name)
+    {
+        await using var command = db.Database.GetDbConnection().CreateCommand();
+        command.Transaction = db.Database.CurrentTransaction?.GetDbTransaction();
+        command.CommandText = db.Database.IsNpgsql()
+            ? "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() AND table_name=@name)"
+            : "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name=@name)";
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "@name";
+        parameter.Value = name;
+        command.Parameters.Add(parameter);
+        return Convert.ToBoolean(await command.ExecuteScalarAsync());
+    }
+
+    private static async Task<long> TableCount(Db db)
+    {
+        await using var command = db.Database.GetDbConnection().CreateCommand();
+        command.Transaction = db.Database.CurrentTransaction?.GetDbTransaction();
+        command.CommandText = db.Database.IsNpgsql()
+            ? "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=current_schema() AND table_type='BASE TABLE'"
+            : "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'";
+        return Convert.ToInt64(await command.ExecuteScalarAsync());
+    }
+
+    public static async Task VerifyRuntime(Db db)
+    {
+        if (!await HasVerifiedBaseline(db) || !await db.SchemaReleases.AsNoTracking().AnyAsync(x => x.Id == 14))
+            throw new InvalidOperationException(
+                "Database release 14 is required. Apply reviewed schema migrations with the isolated --migrate job.");
+        if (await db.SchemaReleases.AsNoTracking().AnyAsync(x => x.Id > 14))
+            throw new InvalidOperationException("Database schema is newer than this application image.");
+        await VerifyModel(db);
+    }
+
+    /// <summary>
+    /// Separate privileged migration job. No DDL is executed by normal startup.
+    /// Lock, apply all reviewed statements transactionally, verify physical
+    /// constraints, then stamp the release. No destructive down-migrations.
+    /// </summary>
     public static async Task Apply(Db db)
     {
-        // A verified baseline is immutable. Later changes must arrive through
-        // an explicit reviewed migration, never silently through regex DDL.
-        if (await HasVerifiedBaseline(db))
-        {
-            await VerifyModel(db);
-            return;
-        }
-        var ddl = db.Database.GenerateCreateScript();
         await using var tx = await db.Database.BeginTransactionAsync();
-        foreach (
-            System.Text.RegularExpressions.Match table in Regex.Matches(
-                ddl,
-                @"CREATE TABLE ""(?:ReportAttachments|Preferences|Comments|Assignments|CostCenterOwners|SchemaReleases|SupplierAccounts|DocumentReviews|DocumentGroups|ExtractionAttempts|DocumentEvents|FinancePolicies|FxProposals|FxDecisions|Calculations|TaxPolicies|TaxPolicyDecisions|VerifiedVatComponents|ReportResets|ReportRestores|BankTreatments|BankTreatmentRevocations|FinanceAcceptanceRecords|PostingLines|PostingReviews)"" \(.*?\n\);",
-                RegexOptions.Singleline
-            )
-        )
-            await db.Database.ExecuteSqlRawAsync(table.Value.Replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS "));
+        if (db.Database.IsNpgsql())
+            await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(hashtext(current_database()), 20261112)");
+        var hasReleases = await TableExists(db, "SchemaReleases");
+        if (hasReleases)
+        {
+            var version = await db.SchemaReleases.AsNoTracking().MaxAsync(r => (int?)r.Id) ?? 0;
+            if (version > 14)
+                throw new InvalidOperationException("Refusing to downgrade a newer database schema.");
+            if (version >= 13)
+            {
+                // Existing verified baselines must never be silently repaired.
+                await VerifyModel(db);
+                if (version == 13)
+                {
+                    db.SchemaReleases.Add(new() { Id = 14, Name = "Explicit, pinned transactional migration baseline" });
+                    await db.SaveChangesAsync();
+                }
+                await tx.CommitAsync();
+                return;
+            }
+        }
+
+        if (!await TableExists(db, "Reports"))
+        {
+            if (await TableCount(db) != 0)
+                throw new InvalidOperationException("Refusing to adopt an unrelated or partially initialized database.");
+            await db.Database.ExecuteSqlRawAsync(ReviewedSql(db, "001-baseline"));
+        }
+        else
+        {
+            // The only supported historical transition is an additive bridge to
+            // the verified release-13 model. All table/index SQL is checked in
+            // and hash pinned; only explicit enumerated columns are permitted.
+            await db.Database.ExecuteSqlRawAsync(ReviewedSql(db, "013a-legacy-tables"));
         foreach (
             var column in new[]
             {
@@ -113,17 +200,38 @@ public static class SchemaUpgrades
                     "ALTER TABLE \"" + column.Item1 + "\" ADD COLUMN \"" + column.Item2 + "\" " + column.Item3
                 );
         }
-        foreach (
-            System.Text.RegularExpressions.Match index in Regex.Matches(
-                ddl,
-                @"CREATE (?:UNIQUE )?INDEX ""[^""]+"" ON ""(?:ReportAttachments|Preferences|Comments|Assignments|CostCenterOwners|SchemaReleases|SupplierAccounts|DocumentReviews|DocumentGroups|ExtractionAttempts|DocumentEvents|FinancePolicies|FxProposals|FxDecisions|Calculations|TaxPolicies|TaxPolicyDecisions|VerifiedVatComponents|ReportResets|ReportRestores|BankTreatments|BankTreatmentRevocations|FinanceAcceptanceRecords|PostingLines|PostingReviews)"".*?;"
-            )
-        )
-            await db.Database.ExecuteSqlRawAsync(
-                index
-                    .Value.Replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ")
-                    .Replace("CREATE UNIQUE INDEX ", "CREATE UNIQUE INDEX IF NOT EXISTS ")
-            );
+
+            await db.Database.ExecuteSqlRawAsync(ReviewedSql(db, "013b-legacy-indexes"));
+        }
+
+        await InstallImmutableGuards(db);
+        // Never acknowledge a baseline on partially upgraded financial data.
+        await VerifyModel(db);
+        var releases = new (int Id, string Name)[]
+        {
+            (3, "Receipt extraction and platform workflows"),
+            (4, "Report header and employee context"),
+            (5, "Versioned OCR document review and source groups"),
+            (6, "Document outbox and processing diagnostics"),
+            (7, "Finance FX policies and immutable calculation ledger"),
+            (8, "Controlled tax policies and financial provenance"),
+            (9, "Traceable workbook-compatible postings and Finance review"),
+            (10, "Unified receipt intake and report-level cost centre"),
+            (11, "Employee cost-centre defaults and manager ownership routing"),
+            (12, "Explicit fixed-approver exceptions for specified employees"),
+            (13, "Verified schema baseline"),
+            (14, "Explicit, pinned transactional migration baseline"),
+        };
+        var existing = (await db.SchemaReleases.AsNoTracking().Select(r => r.Id).ToListAsync()).ToHashSet();
+        foreach (var (id, name) in releases)
+            if (!existing.Contains(id))
+                db.SchemaReleases.Add(new() { Id = id, Name = name });
+        await db.SaveChangesAsync();
+        await tx.CommitAsync();
+    }
+
+    private static async Task InstallImmutableGuards(Db db)
+    {
         foreach (var table in ImmutableEvidenceTables)
         {
             if (db.Database.IsNpgsql())
@@ -204,72 +312,7 @@ public static class SchemaUpgrades
                 "CREATE TRIGGER IF NOT EXISTS immutable_batch_delete BEFORE DELETE ON \"Batches\" BEGIN SELECT RAISE(ABORT,'Immutable export batch'); END;"
             );
         }
-        if (!await db.SchemaReleases.AnyAsync(x => x.Id == 3))
-        {
-            db.SchemaReleases.Add(new() { Id = 3, Name = "Receipt extraction and platform workflows" });
-            await db.SaveChangesAsync();
-        }
-        if (!await db.SchemaReleases.AnyAsync(x => x.Id == 4))
-        {
-            db.SchemaReleases.Add(new() { Id = 4, Name = "Report header and employee context" });
-            await db.SaveChangesAsync();
-        }
-        if (!await db.SchemaReleases.AnyAsync(x => x.Id == 5))
-        {
-            db.SchemaReleases.Add(new() { Id = 5, Name = "Versioned OCR document review and source groups" });
-            await db.SaveChangesAsync();
-        }
-        if (!await db.SchemaReleases.AnyAsync(x => x.Id == 6))
-        {
-            db.SchemaReleases.Add(new() { Id = 6, Name = "Document outbox and processing diagnostics" });
-            await db.SaveChangesAsync();
-        }
-        if (!await db.SchemaReleases.AnyAsync(x => x.Id == 7))
-        {
-            db.SchemaReleases.Add(new() { Id = 7, Name = "Finance FX policies and immutable calculation ledger" });
-            await db.SaveChangesAsync();
-        }
-        if (!await db.SchemaReleases.AnyAsync(x => x.Id == 8))
-        {
-            db.SchemaReleases.Add(new() { Id = 8, Name = "Controlled tax policies and financial provenance" });
-            await db.SaveChangesAsync();
-        }
-        if (!await db.SchemaReleases.AnyAsync(x => x.Id == 9))
-        {
-            db.SchemaReleases.Add(new() { Id = 9, Name = "Traceable workbook-compatible postings and Finance review" });
-            await db.SaveChangesAsync();
-        }
-        if (!await db.SchemaReleases.AnyAsync(x => x.Id == 10))
-        {
-            db.SchemaReleases.Add(new() { Id = 10, Name = "Unified receipt intake and report-level cost centre" });
-            await db.SaveChangesAsync();
-        }
-        if (!await db.SchemaReleases.AnyAsync(x => x.Id == 11))
-        {
-            db.SchemaReleases.Add(new() { Id = 11, Name = "Employee cost-centre defaults and manager ownership routing" });
-            await db.SaveChangesAsync();
-        }
-        if (!await db.SchemaReleases.AnyAsync(x => x.Id == 12))
-        {
-            db.SchemaReleases.Add(new() { Id = 12, Name = "Explicit fixed-approver exceptions for specified employees" });
-            await db.SaveChangesAsync();
-        }
-        await db.Database.ExecuteSqlRawAsync(
-            "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_Batches_BusinessKey\" ON \"Batches\" (\"BusinessKey\") WHERE \"BusinessKey\" <> ''"
-        );
-        // A numbered baseline cannot be acknowledged until the physical database
-        // actually matches the EF model. Partial upgrades fail closed.
-        await VerifyModel(db);
-        if (!await db.SchemaReleases.AnyAsync(x => x.Id == 13))
-        {
-            db.SchemaReleases.Add(new()
-            {
-                Id = 13,
-                Name = "Verified schema baseline; future releases require reviewed explicit migrations"
-            });
-            await db.SaveChangesAsync();
-        }
-        await tx.CommitAsync();
+
     }
 
     private static async Task<bool> HasVerifiedBaseline(Db db)
@@ -309,7 +352,10 @@ public static class SchemaUpgrades
             await db.Database.OpenConnectionAsync();
         try
         {
-            var tables = db.Model.GetEntityTypes()
+            // EF 10 omits check-constraint metadata from the runtime-optimized
+            // model; integrity verification uses the provider's design-time
+            // model, which retains all DDL constraints.
+            var tables = db.GetService<IDesignTimeModel>().Model.GetEntityTypes()
                 .Where(e => e.GetTableName() != null)
                 .GroupBy(e => (Name: e.GetTableName()!, Schema: e.GetSchema()))
                 .ToList();
@@ -324,6 +370,9 @@ public static class SchemaUpgrades
                     .Select(index => index.GetDatabaseName())
                     .Where(name => name != null)
                     .ToHashSet(StringComparer.Ordinal);
+                var expectedForeignKeyCount = table.SelectMany(e => e.GetForeignKeys()).Count();
+                var expectedChecks = table.SelectMany(e => e.GetCheckConstraints())
+                    .Select(check => check.Name).ToHashSet(StringComparer.Ordinal);
 
                 async Task<HashSet<string>> ReadNames(string query, bool useNameParameter)
                 {
@@ -364,15 +413,54 @@ public static class SchemaUpgrades
                     : db.Database.IsNpgsql()
                         ? await ReadNames("SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON t.tgrelid=c.oid JOIN pg_namespace n ON c.relnamespace=n.oid WHERE NOT t.tgisinternal AND n.nspname=current_schema() AND c.relname=@table", true)
                         : await ReadNames("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name=@table", true);
+                // Validate real FK/check constraints too, not merely EF indexes.
+                // Otherwise a historical upgrade might pass while orphaning
+                // receipts or permitting invalid immutable posting amounts.
+                async Task<object?> Scalar(string query)
+                {
+                    await using var command = connection.CreateCommand();
+                    command.Transaction = db.Database.CurrentTransaction?.GetDbTransaction();
+                    command.CommandText = query;
+                    var parameter = command.CreateParameter();
+                    parameter.ParameterName = "@table";
+                    parameter.Value = table.Key.Name;
+                    command.Parameters.Add(parameter);
+                    return await command.ExecuteScalarAsync();
+                }
+                var actualForeignKeyCount = Convert.ToInt32(await Scalar(
+                    db.Database.IsNpgsql()
+                        ? "SELECT COUNT(*) FROM pg_constraint f JOIN pg_class c ON c.oid=f.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema() AND c.relname=@table AND f.contype='f'"
+                        : "SELECT COUNT(DISTINCT id) FROM pragma_foreign_key_list('" + table.Key.Name.Replace("'", "''") + "')"
+                ));
+                HashSet<string> actualChecks;
+                if (db.Database.IsNpgsql())
+                {
+                    actualChecks = await ReadNames(
+                        "SELECT f.conname FROM pg_constraint f JOIN pg_class c ON c.oid=f.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema() AND c.relname=@table AND f.contype='c'",
+                        true);
+                }
+                else
+                {
+                    var createStatement = Convert.ToString(await Scalar(
+                        "SELECT sql FROM sqlite_master WHERE type='table' AND name=@table")) ?? "";
+                    actualChecks = expectedChecks
+                        .Where(check => createStatement.Contains(check, StringComparison.Ordinal))
+                        .ToHashSet(StringComparer.Ordinal);
+                }
+                var missingChecks = expectedChecks.Except(actualChecks).ToArray();
+                var missingForeignKeys = Math.Max(0, expectedForeignKeyCount - actualForeignKeyCount);
                 var missingTriggers = requiredTriggers.Except(triggers).ToArray();
                 var missingColumns = expectedColumns.Except(columns).ToArray();
                 var missingIndexes = expectedIndexes.Except(indexes).ToArray();
-                if (columns.Count == 0 || missingColumns.Length > 0 || missingIndexes.Length > 0 || missingTriggers.Length > 0)
+                if (columns.Count == 0 || missingColumns.Length > 0 || missingIndexes.Length > 0
+                    || missingTriggers.Length > 0 || missingChecks.Length > 0 || missingForeignKeys > 0)
                     throw new InvalidOperationException(
                         "Database schema drift for " + table.Key.Name
                         + "; missing columns: " + string.Join(",", missingColumns)
                         + "; missing indexes: " + string.Join(",", missingIndexes)
                         + "; missing audit triggers: " + string.Join(",", missingTriggers)
+                        + "; missing check constraints: " + string.Join(",", missingChecks)
+                        + "; missing foreign keys: " + missingForeignKeys
                         + ". Stop startup and restore or apply reviewed migrations."
                     );
             }

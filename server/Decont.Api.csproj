@@ -23,4 +23,8 @@
     <PackageReference Include="PDFsharp" Version="6.2.4" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Pinned reviewed SQL must travel inside the immutable published image. -->
+    <EmbeddedResource Include="Migrations/*.sql" LogicalName="decont.migrations.%(Filename)%(Extension)" />
+  </ItemGroup>
 </Project>

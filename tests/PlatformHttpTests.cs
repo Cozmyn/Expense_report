@@ -135,6 +135,37 @@ public class PlatformHttpTests
     }
 
     [Fact]
+    public async Task ConcurrentApiReadsKeepAnActiveSessionWithoutUpdatingItsRow()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        using var client = await Login(f, "alice");
+        DateTime before;
+        using (var scope = f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<Db>();
+            before = await db.Sessions.Select(s => s.Expires).SingleAsync();
+        }
+        // Consecutive GETs should not attempt a write to Sessions every time.
+        // Under SQLite OCR/scan transactions those writes could return BUSY,
+        // which must never be translated into an authentication 401.
+        await Task.Delay(75);
+        var urls = new[] { "/api/me", "/api/masters", "/api/reports" };
+        var responses = await Task.WhenAll(
+            Enumerable.Range(0, 30).Select(i => client.GetAsync(urls[i % urls.Length])));
+        foreach (var response in responses)
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            response.Dispose();
+        }
+        using (var scope = f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<Db>();
+            Assert.Equal(before, await db.Sessions.Select(s => s.Expires).SingleAsync());
+        }
+    }
+
+    [Fact]
     public async Task MasterImportIsAtomicAndPreferencesAreUserScoped()
     {
         await using var f = new Factory();
