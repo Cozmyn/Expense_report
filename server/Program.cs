@@ -493,6 +493,7 @@ Admin.Map(api);
 Finance.Map(api);
 FinancialCalculations.Map(api);
 TaxPolicies.Map(api);
+SupplierOcrTemplates.Map(api);
 CalculationHistory.Map(api);
 ReportResets.Map(api);
 BankTreatments.Map(api);
