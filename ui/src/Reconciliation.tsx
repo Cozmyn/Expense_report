@@ -72,6 +72,17 @@ export default function Reconciliation({ t, masters, label, run, open }: Any) {
       </div>
       <section className="panel">
         <h2>{t('Import extras CSV / XLSX', 'Import CSV / XLSX statement')}</h2>
+        <ol className="bank-import-steps" aria-label={t('Pașii importului', 'Import steps')}>
+          <li className={card && csv ? 'complete' : ''}>
+            <strong>1.</strong> {t('Alege cardul și fișierul', 'Choose card and file')}
+          </li>
+          <li className={csv && !preview ? 'active' : preview ? 'complete' : ''}>
+            <strong>2.</strong> {t('Verifică maparea și previzualizarea', 'Review mapping and preview')}
+          </li>
+          <li className={preview ? 'active' : ''}>
+            <strong>3.</strong> {t('Confirmă numai datele corecte', 'Confirm only valid data')}
+          </li>
+        </ol>
         <Field name={t('Card companie', 'Company card')}>
           <select value={card} onChange={(e) => C(e.target.value)}>
             <option value="">{t('Selectează', 'Select')}</option>
@@ -161,10 +172,19 @@ export default function Reconciliation({ t, masters, label, run, open }: Any) {
         </div>
         {preview && (
           <>
-            <p>
-              {preview.count} {t('tranzacții', 'transactions')} · {preview.duplicates.length}{' '}
-              {t('duplicate', 'duplicates')}
-            </p>
+            <div className={preview.duplicates.length || preview.errors?.length ? 'issue blocking' : 'issue ready'}
+              role="status">
+              <strong>
+                {preview.duplicates.length || preview.errors?.length
+                  ? t('Importul este blocat până la corectarea datelor.', 'Import is blocked until the data is corrected.')
+                  : t('Verificare reușită. Confirmarea este disponibilă.', 'Preview passed. Confirmation is available.')}
+              </strong>
+              <p>
+                {preview.count} {t('tranzacții', 'transactions')} · {preview.duplicates.length}{' '}
+                {t('duplicate', 'duplicates')} · {preview.errors?.length || 0}{' '}
+                {t('erori', 'errors')}
+              </p>
+            </div>
             {preview.errors?.map((e: Any) => (
               <p className="issue blocking" key={e.row}>
                 {t('Rând', 'Row')} {e.row}: {e.message}
