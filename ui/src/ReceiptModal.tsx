@@ -162,7 +162,9 @@ export default function ReceiptModal({
   const dialogRef = useRef<HTMLElement>(null);
   const draftQueue = useRef<Promise<any>>(Promise.resolve());
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latestDraft = useRef<Any>({});
+  const latestDraft = useRef<{ data: Any; taxes: Any; sourceVersion?: number }>({
+    data: d, taxes, sourceVersion: expense.ocrVersion,
+  });
   latestDraft.current = { data: d, taxes, sourceVersion: expense.ocrVersion };
   // Crash recovery is opt-in on restore. Never prefer local over server silently.
   useEffect(() => {
