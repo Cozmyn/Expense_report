@@ -26,6 +26,8 @@ def plausible_configuration() -> dict[str, str]:
         "Storage__AccessKey": "unit-test-only-access-key",
         "Storage__SecretKey": "unit-test-only-secret-key",
         "Scanner__Host": "scanner.internal",
+        "Ocr__Enabled": "true",
+        "Ocr__ServiceUrl": "http://ocr:8750",
         "Data__Directory": "/var/lib/expense/keys",
         "Smtp__Host": "smtp.example.invalid",
         "Smtp__From": "notify@example.invalid",
@@ -98,6 +100,37 @@ class ProductionPreflightTests(unittest.TestCase):
         env = plausible_configuration()
         env["Application__BaseUrl"] = "https://test:password@expense.example.invalid/recovery?x=1"
         self.assertIn("PUBLIC_ORIGIN", blockers(env))
+
+
+    def test_paddleocr_is_mandatory_for_production_readiness(self) -> None:
+        env = plausible_configuration()
+        env.pop("Ocr__Enabled")
+        env.pop("Ocr__ServiceUrl")
+        self.assertTrue({"OCR_DISABLED", "OCR_SERVICE_URL"}.issubset(blockers(env)))
+        env["Ocr__Enabled"] = "false"
+        env["Ocr__ServiceUrl"] = "http://ocr:8750"
+        self.assertIn("OCR_DISABLED", blockers(env))
+
+    def test_ocr_service_is_never_a_public_or_localhost_url(self) -> None:
+        env = plausible_configuration()
+        for url in (
+            "https://ocr.vendor.example.com/api",
+            "http://127.0.0.1:8750",
+            "http://localhost:8750",
+            "http://0.0.0.0:8750",
+            "http://someone:secret@ocr.internal:8750",
+            "ftp://ocr.internal:8750",
+            "http://ocr.internal:8750/?token=secret",
+        ):
+            env["Ocr__ServiceUrl"] = url
+            self.assertIn("OCR_PRIVATE_ENDPOINT", blockers(env), url)
+
+    def test_private_ocr_service_url_is_checked_but_not_certified(self) -> None:
+        env = plausible_configuration()
+        for url in ("http://ocr:8750", "http://ocr.internal:8750", "http://10.12.5.8:8750"):
+            env["Ocr__ServiceUrl"] = url
+            self.assertNotIn("OCR_PRIVATE_ENDPOINT", blockers(env), url)
+            self.assertIn("OCR_SERVICE_VERIFICATION", {f.code for f in check(env)})
 
     def test_json_mode_never_prints_secret_values(self) -> None:
         env = plausible_configuration()

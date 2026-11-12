@@ -1,6 +1,6 @@
 # PaddleOCR rollout — single active OCR engine
 
-This branch switches **scanned image recognition** to PaddleOCR 3.7 / PP-OCRv6 (Romanian + English). The web API calls an **internal-only**, separate Python OCR service. It never sends receipts to a hosted third-party OCR API. The service has no published host port; its REST endpoint is available only on the Docker Compose network.
+The application uses **scanned image recognition** to PaddleOCR 3.7 / PP-OCRv6 (Romanian + English). The web API calls an **internal-only**, separate Python OCR service. It never sends receipts to a hosted third-party OCR API. The service has no published host port; its REST endpoint is available only on the Docker Compose network.
 
 The existing native `pdftotext -bbox-layout` path is intentionally retained: a searchable PDF already contains usable text and positional evidence, so there is no reason to degrade it through raster OCR. Rotated image retries call **PaddleOCR** again, not Tesseract. Legacy Tesseract source files/packages are retained as requested, but they are not invoked by active image extraction.
 
@@ -12,7 +12,7 @@ docker compose up -d db scanner ocr web
 docker compose ps
 ```
 
-The PaddleOCR model is downloaded **on initial startup** to the named `paddle-models` volume. This requires a configured download route to Hugging Face, sufficient bandwidth and disk capacity. The app waits for the OCR service's health check. Runtime models are then cached locally. It cannot work in an air-gapped environment until the weights are provisioned into that volume by an approved deployment process. The Python service runs as an unprivileged user, with a read-only root filesystem and a bounded temporary directory.
+The PaddleOCR model is downloaded **on initial startup** to the named `paddle-models` volume. This requires a configured download route to Hugging Face, sufficient bandwidth and disk capacity. The app waits for the OCR service's health check. Runtime models are then cached locally. It cannot work in an air-gapped environment until the weights are provisioned into that volume by an approved deployment process. The Python service runs as an unprivileged user, with a read-only root filesystem and a bounded temporary directory. Verify pinned package/image digests and the license terms of deployed model weights separately from the PaddleOCR software license.
 
 - Python package: `paddleocr==3.7.0`, which is Apache-2.0 licensed.
 - Model: `PP-OCRv6`, `lang="ro"`; the unified Latin model also covers English.
@@ -38,6 +38,14 @@ The new `OcrFieldSelection` endpoint maps a user-drawn source region to a specif
 The new candidate is marked `Source="SupplierTemplate"`, `State="ReviewRequired"` and has **no recognition-confidence claim**. It does not change a previously verified document, does not create or overwrite any accounting posting, and cannot bypass existing Finance controls. This learns a *position template*, not the supplier's amount or VAT rate. Multiple layouts from one supplier are conservatively rejected rather than forced into a single template. Users can continue to enter values manually.
 
 No database migrations or table deletes are required. Historical document groups, existing audit events and data are preserved. The original extraction JSON is written unchanged; only new group **suggestions** may include learned positions.
+
+## Release readiness — separate from a green CI build
+
+The **real PaddleOCR model** is exercised by `.github/workflows/paddle-live-smoke.yml`, which now runs on OCR-affecting pull requests and changes to `main`. The regular browser workflow also starts the actual OCR container and tests scanned, rotated, low-contrast and multi-document synthetic inputs. That shows the software **can run** and the supported flow works; it does **not** establish expected accuracy on all real thermal receipts.
+
+**No-go** until the owner has provided and approved a private real-document corpus, Finance has checked monetary fields, a backup/restore rehearsal has passed, and the production-only controls in `docs/FINAL-UI-OCR-ACCEPTANCE-2026-11-09.md` have signed evidence. The read-only `deploy/production_preflight.py` now blocks missing, disabled or publicly routed OCR service configuration.
+
+Keep the OCR model weights in a versioned deployment cache; **do not** expose `/ocr` or `/health` on the public internet. On outage, the UI can still support manual entries and review of prior documents, but scans awaiting extraction must not be marked verified. There is no automatic fallback to Tesseract.
 
 ## Validation / current limitations
 

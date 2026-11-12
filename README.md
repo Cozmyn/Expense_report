@@ -12,7 +12,7 @@ Cererea premium nu este complet implementată. Vezi [starea exactă](docs/counci
 
 Interfață React + TypeScript, în română implicit, cu schimbare în engleză; dashboard, deconturi, editor de cheltuieli, documente originale, aprobare manager, verificare Finance, furnizori, carduri, nomenclatoare, utilizatori, delegări și audit. Design responsive, verde profund, alb și tonuri deschise, cu navigation persistent și formulare cu etichete.
 
-Backend ASP.NET Core 10 + Identity; PostgreSQL pentru implementare, SQLite numai în development/test; sesiuni păstrate pe server, protecție CSRF, roluri și acces pe decont, versiuni concurente, jurnal și revizii, coadă de joburi, ClamAV, OCR Tesseract, SMTP, stocare privată locală în development sau S3 în producție. Motor ERP cu 24 de coloane și fișiere XLSX memorate, hash-uri, istoric de export și confirmare de postare. PDF bilingv și arhivă cu originale.
+Backend ASP.NET Core 10 + Identity; PostgreSQL pentru implementare, SQLite numai în development/test; sesiuni păstrate pe server, protecție CSRF, roluri și acces pe decont, versiuni concurente, jurnal și revizii, coadă de joburi, ClamAV, OCR local PaddleOCR PP-OCRv6 (RO/EN), SMTP, stocare privată locală în development sau S3 în producție. Motor ERP cu 24 de coloane și fișiere XLSX memorate, hash-uri, istoric de export și confirmare de postare. PDF bilingv și arhivă cu originale.
 
 Romanian is the default application language. The English switch changes labels without changing financial data or rules. The backend uses application-managed credentials and permissions. The repository includes the source, tests and container configuration. GitHub Actions builds the frontend and publishes application artifacts; no public production deployment or production credentials are included.
 
@@ -47,7 +47,7 @@ Necesită Docker Desktop cu Linux containers sau Docker Engine + Compose. Script
 - Alternativ: copiază `.env.example` în `.env`, înlocuiește parolele și datele de admin, apoi rulează:
 
 ```sh
-docker compose up -d db scanner
+docker compose up -d db scanner ocr
 docker compose --profile setup run --rm init
 docker compose up -d web
 ```
@@ -79,9 +79,9 @@ npm run build --prefix ui
 dotnet test tests/Decont.Tests.csproj --configuration Release
 ```
 
-GitHub Actions verifies the frontend build and tests, the backend suite on both SQLite and PostgreSQL, release publish and container launch. Tests cover CSRF, object permissions, disabling accounts, logout, stale writes, idempotency, card allocation overflow and actual settlement, immutable audit, VAT/vehicle synthetic cases and the exact values-only XLSX schema. Two Playwright workflows pass on desktop Chromium and a 390×844 mobile viewport: RO/EN login, forced password change, expense entry, real receipt scan, submit, manager approval, Finance review, duplicate exception, ERP XLSX export/posting, PDF and original-document ZIP download. Manager and Finance decisions use authenticated HTTP clients against the same running app; their full UI interactions are not covered by these two scenarios. A second browser scenario uploads a real two-page PDF, runs Tesseract after ClamAV, reviews prefilled values, creates two receipts and checks original-file coverage.
+GitHub Actions verifies the frontend build and tests, the backend suite on both SQLite and PostgreSQL, release publish and container launch. Tests cover CSRF, object permissions, disabling accounts, logout, stale writes, idempotency, card allocation overflow and actual settlement, immutable audit, VAT/vehicle synthetic cases and the exact values-only XLSX schema. Two Playwright workflows pass on desktop Chromium and a 390×844 mobile viewport: RO/EN login, forced password change, expense entry, real receipt scan, submit, manager approval, Finance review, duplicate exception, ERP XLSX export/posting, PDF and original-document ZIP download. Manager and Finance decisions use authenticated HTTP clients against the same running app; their full UI interactions are not covered by these two scenarios. A second browser scenario uploads a synthetic two-page PDF, uses native PDF text/PaddleOCR where appropriate after ClamAV, reviews suggestions, creates separate receipts and checks original-file coverage. A separate CI smoke starts the real PP-OCRv6 model on a synthetic image.
 
-Read `docs/STATUS.md`, `docs/REQUIREMENTS.md` and `docs/DEPLOYMENT.md` before deciding readiness. Application functions are mapped to their source in the requirements matrix; operational acceptance is tracked separately. Actual ERP golden files and operational acceptance tests are required before production. Automated verification covers the listed workflows; it does not establish every business scenario, production SLA or live ERP compatibility.
+Read `docs/STATUS.md`, `docs/REQUIREMENTS.md`, `docs/DEPLOYMENT.md` and **`docs/FINAL-UI-OCR-ACCEPTANCE-2026-11-09.md`** before deciding readiness. Application functions are mapped to their source in the requirements matrix; operational acceptance is tracked separately. Actual ERP golden files and operational acceptance tests are required before production. Automated verification covers the listed workflows; it does not establish every business scenario, production SLA or live ERP compatibility.
 
 ## PDF 02 — bulk OCR / OCR pentru documente multiple
 
