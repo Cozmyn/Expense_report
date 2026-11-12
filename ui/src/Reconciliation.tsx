@@ -48,7 +48,7 @@ export default function Reconciliation({ t, masters, label, run, open }: Any) {
   const transactionSuggestion = suggestions.find((entry: Any) => entry.transaction.id === tx);
   const remainingTransaction = transactionSuggestion?.remaining ?? transaction?.remaining ?? null;
   const enteredAmount = amount.trim();
-  const validAmount = /^-?\d+(?:\.\d{1,6})?$/.test(enteredAmount) &&
+  const validAmount = /^-?\d+(?:\.\d+)?$/.test(enteredAmount) &&
     compare(enteredAmount, '0') !== 0;
   const exceeds = validAmount && (
     (remainingTransaction != null &&
