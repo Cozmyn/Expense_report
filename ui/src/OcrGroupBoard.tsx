@@ -14,7 +14,7 @@ export default function OcrGroupBoard({
   propose,
   linkExisting,
 }: Any) {
-  const advancedRef = React.useRef<HTMLElement>(null);
+  const advancedRef = React.useRef<HTMLDetailsElement>(null);
   const [activeGroupId, ActiveGroup] = useState<string | null>(null);
   const [focus, Focus] = useState<Region | null>(null),
     [focusPage, FP] = useState(1),
