@@ -48,6 +48,7 @@ export default function ReceiptModal({
   save,
   saveDraft,
   onSourceSelected,
+  inline = false,
 }: Any) {
   const [d, D] = useState<Any>({
     ...expense.data,
@@ -151,6 +152,7 @@ export default function ReceiptModal({
   const saving = useRef(false);
   const modified = useRef(false);
   const requestCloseRef = useRef<() => void>(() => {});
+  const saveNextRequested = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
@@ -194,6 +196,7 @@ export default function ReceiptModal({
     return next;
   };
   useEffect(() => {
+    if (inline) return; // Embedded review is a normal region, never a modal trap.
     const previouslyFocused = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
@@ -211,7 +214,7 @@ export default function ReceiptModal({
       prior.forEach(({ element, inert }) => { element.inert = inert; });
       previouslyFocused?.focus();
     };
-  }, []);
+  }, [inline]);
   useEffect(() => {
     let active = true;
     if (!draftStorageKey || expense.id) {
@@ -338,6 +341,7 @@ export default function ReceiptModal({
   const domestic = d.country === 'RO',
     vat = domestic && d.hasCompanyCui === true;
   useEffect(() => {
+    if (inline) return; // Inline form must not intercept keyboard shortcuts globally.
     const listener = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -365,7 +369,7 @@ export default function ReceiptModal({
     };
     window.addEventListener('keydown', listener);
     return () => window.removeEventListener('keydown', listener);
-  }, []);
+  }, [inline]);
   useEffect(() => {
     let active = true;
     if (!expense.id && expense.reportId && d.date)
@@ -649,12 +653,12 @@ export default function ReceiptModal({
     </section>
   );
   return (
-    <div className="modal-overlay">
+    <div className={inline ? 'receipt-workbench-content' : 'modal-overlay'}>
       <section
-        className="modal receipt-modal"
+        className={inline ? 'receipt-modal receipt-modal-inline' : 'modal receipt-modal'}
         ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
+        role={inline ? 'region' : 'dialog'}
+        aria-modal={inline ? undefined : true}
         aria-labelledby="expense-title"
       >
         <div className="section-heading">
@@ -755,6 +759,8 @@ export default function ReceiptModal({
               if (draftTimer.current) clearTimeout(draftTimer.current);
               await draftQueue.current.catch(() => {});
               try {
+                const openNext = saveNextRequested.current;
+                saveNextRequested.current = false;
                 await save(
                   {
                     ...d,
@@ -788,6 +794,7 @@ export default function ReceiptModal({
                     cardId: d.payment === 'CompanyCard' ? d.cardId : null,
                   },
                   [],
+                  openNext,
                 );
               } finally {
                 saving.current = false;
@@ -1706,6 +1713,8 @@ export default function ReceiptModal({
               </button>
               <button
                 className="primary"
+                type="submit"
+                onClick={() => { saveNextRequested.current = false; }}
                 disabled={
                   busy ||
                   !d.country ||
@@ -1715,6 +1724,14 @@ export default function ReceiptModal({
                 }
               >
                 {busy ? t('Se salvează…', 'Saving…') : t('Salvează bonul', 'Save receipt')}
+              </button>
+              <button
+                type="submit" className="secondary"
+                onClick={() => { saveNextRequested.current = true; }}
+                disabled={busy || !d.country || (taxError && !finance) || supplierError
+                  || (domestic && d.hasCompanyCui === null)}
+              >
+                {t('Salvează și următorul', 'Save and next')}
               </button>
             </div>
           </form>
