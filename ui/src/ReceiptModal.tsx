@@ -225,6 +225,7 @@ export default function ReceiptModal({
       .then((saved) => {
         if (
           active &&
+          !modified.current &&
           saved.data &&
           (!expense.sourceGroupId || saved.sourceVersion === expense.ocrVersion) &&
           (!expense.ocrCandidate || expense.sourceGroupId) &&
@@ -323,6 +324,11 @@ export default function ReceiptModal({
         'Conflict: copy the local draft and compare it with the server version.'));
       return;
     }
+    if (!draftReady) {
+      DraftError(t('Ciorna încă se încarcă; nu închide până la finalizarea sincronizării.',
+        'Draft is loading; do not close before synchronization completes.'));
+      return;
+    }
     saving.current = true;
     if (draftTimer.current) clearTimeout(draftTimer.current);
     try {
@@ -410,8 +416,16 @@ export default function ReceiptModal({
         .then((result) => {
           if (!active) return;
           Lookup(result);
-          if (result.found)
-            D((old) => ({ ...old, supplier: result.name, supplierConfirmed: false }));
+          // UX-05: official supplier names never overwrite the printed
+          // merchant/trading name that OCR or the employee already entered.
+          // The displayed identity and fiscal CUI remain separate.
+          if (result.found && result.name)
+            D((old) => {
+              const requested = String(old.cui || '').replace(/^RO\s*/i, '').replace(/\D/g, '');
+              const returned = String(result.cui || '').replace(/^RO\s*/i, '').replace(/\D/g, '');
+              return !String(old.supplier || '').trim() && requested && requested === returned
+                ? { ...old, supplier: result.name, supplierConfirmed: false } : old;
+            });
         })
         .catch((e) => {
           if (active) LE((e as Error).message);
@@ -796,6 +810,16 @@ export default function ReceiptModal({
                   [],
                   openNext,
                 );
+                if (!expense.id && draftStorageKey && !draftConflicted.current) {
+                  try {
+                    const cleared = await api('/preferences/' + draftStorageKey, 'PUT',
+                      { draftRevision: draftRevision.current });
+                    draftRevision.current = Number(cleared.draftRevision || 0);
+                  } catch {
+                    // Saving the receipt succeeded. Preserve a possibly newer
+                    // concurrent draft instead of deleting someone else's work.
+                  }
+                }
               } finally {
                 saving.current = false;
               }
@@ -1230,11 +1254,21 @@ export default function ReceiptModal({
                   <input
                     data-ocr-field="supplier"
                     required
-                    readOnly={!!lookup?.found}
                     value={d.supplier || ''}
                     onChange={(e) => set('supplier', e.target.value)}
                   />
                 </Field>
+                {lookup?.found && lookup.name &&
+                  String(d.supplier || '').trim().toLocaleLowerCase() !== lookup.name.trim().toLocaleLowerCase() && (
+                  <div className="issue warning" role="status">
+                    {t('Numele comercial extras diferă de denumirea fiscală. Numele tipărit rămâne păstrat.',
+                      'The printed trading name differs from the fiscal name. The printed name is preserved.')}
+                    <button className="text-button" type="button" onClick={() =>
+                      D((old) => ({ ...old, supplier: lookup.name, supplierConfirmed: false }))}>
+                      {t('Folosește explicit denumirea fiscală', 'Explicitly use fiscal business name')}
+                    </button>
+                  </div>
+                )}
                 {lookup?.valid && !lookup.found && (
                   <label className="confirmation">
                     <input
