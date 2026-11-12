@@ -105,6 +105,19 @@ public static class Files
     }
 }
 
+// SMTP has no exactly-once acknowledgement protocol. Once an email may
+// have reached a provider, never automatically replay it: expired in-flight
+// jobs are quarantined for human reconciliation (message-id is deterministic).
+// DB-only scan/OCR/outbox jobs remain lease-recoverable.
+public static class JobRecovery
+{
+    public static System.Linq.Expressions.Expression<Func<Job, bool>> Claimable(DateTime now) =>
+        j => j.Due <= now && (
+            (j.State == "Pending" && (j.Kind != "Email" || j.Attempts == 0))
+            || (j.State == "Processing" && j.Kind != "Email")
+        );
+}
+
 public class Worker(
     IServiceScopeFactory scopes,
     IConfiguration config,
@@ -122,8 +135,15 @@ public class Worker(
                 using var scope = scopes.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<Db>();
                 var now = DateTime.UtcNow;
-                var candidate = await db
-                    .Jobs.Where(j => (j.State == "Pending" || j.State == "Processing") && j.Due <= now)
+                // A stopped sender may have submitted the email before
+                // crashing. Do not deliver a second copy on another instance.
+                await db.Jobs.Where(j => j.Kind == "Email" && j.State == "Processing" && j.Due <= now)
+                    .ExecuteUpdateAsync(u => u
+                        .SetProperty(j => j.State, "Failed")
+                        .SetProperty(j => j.FailureCode, "email_delivery_unknown")
+                        .SetProperty(j => j.Error, "SMTP outcome unknown after worker crash; verify with provider before manual retry.")
+                        .SetProperty(j => j.CompletedAt, (DateTime?)now), ct);
+                var candidate = await db.Jobs.Where(JobRecovery.Claimable(now))
                     .OrderBy(j => j.Due)
                     .FirstOrDefaultAsync(ct);
                 if (candidate == null)
@@ -132,9 +152,8 @@ public class Worker(
                     continue;
                 }
                 var claim = await db
-                    .Jobs.Where(j =>
-                        j.Id == candidate.Id && j.Due <= now && (j.State == "Pending" || j.State == "Processing")
-                    )
+                    .Jobs.Where(j => j.Id == candidate.Id)
+                    .Where(JobRecovery.Claimable(now))
                     .ExecuteUpdateAsync(
                         s =>
                             s.SetProperty(j => j.State, "Processing")
@@ -172,9 +191,12 @@ public class Worker(
                 catch (Exception ex) when (!ct.IsCancellationRequested)
                 {
                     log.LogError(ex, "Job {Id} failed", job.Id);
-                    job.State = job.Attempts >= 5 ? "Failed" : "Pending";
-                    job.Error = "Processing failed; see server logs.";
-                    job.FailureCode = ex is DomainException failure ? failure.Code : "processing_failed";
+                    job.State = job.Kind == "Email" || job.Attempts >= 5 ? "Failed" : "Pending";
+                    job.Error = job.Kind == "Email"
+                        ? "SMTP outcome unknown; review delivery before manually retrying."
+                        : "Processing failed; see server logs.";
+                    job.FailureCode = job.Kind == "Email" ? "email_delivery_unknown"
+                        : ex is DomainException failure ? failure.Code : "processing_failed";
                     if (job.State == "Failed")
                         job.CompletedAt = DateTime.UtcNow;
                     job.Due = DateTime.UtcNow.AddMinutes(Math.Pow(2, job.Attempts));
@@ -392,6 +414,9 @@ public class Worker(
             var data = System.Text.Json.JsonDocument.Parse(job.Json).RootElement;
             var host = config["Smtp:Host"] ?? throw new InvalidOperationException("SMTP is not configured");
             var message = new MimeMessage();
+            // Stable ID lets the recipient/provider recognize duplicates if an
+            // administrator explicitly opts for a manual resend.
+            message.MessageId = "decont-job-" + job.Id.ToString("N") + "@decont.invalid";
             message.From.Add(
                 MailboxAddress.Parse(config["Smtp:From"] ?? throw new InvalidOperationException("SMTP sender missing"))
             );
