@@ -266,16 +266,11 @@ test('PDF02 recorded source-to-expense walkthrough', async ({ browser }, info) =
     .selectOption('yes');
   await dialog.getByLabel('CUI furnizor', { exact: true }).fill('18546294');
   const confirmation = dialog.getByRole('checkbox', { name: /Am verificat CUI-ul/ });
-  await expect
-    .poll(
-      async () =>
-        (await confirmation.isVisible()) ||
-        (await dialog.getByLabel('Denumire furnizor', { exact: true }).getAttribute('readonly')) !==
-          null,
-    )
-    .toBeTruthy();
+  const merchant = dialog.getByLabel('Denumire furnizor', { exact: true });
+  await expect(merchant).toBeVisible();
+  await expect(merchant).not.toHaveAttribute('readonly', '');
   if (await confirmation.isVisible()) {
-    await dialog.getByLabel('Denumire furnizor', { exact: true }).fill('Synthetic vendor');
+    await merchant.fill('Synthetic vendor');
     await confirmation.check();
   }
   await dialog.getByLabel('Tip cheltuială', { exact: true }).selectOption(category);
