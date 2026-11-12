@@ -1267,16 +1267,13 @@ function ReportDetail({
                   },
                   editing.id ? 'PATCH' : 'POST',
                 );
-                if (!result) return;
-                if (!editing.id)
-                  await api(
-                    '/preferences/' +
-                      (editing.sourceGroupId
-                        ? 'ocr-draft:' + editing.sourceGroupId
-                        : 'receipt-draft:' + r.id),
-                    'PUT',
-                    {},
-                  ).catch(() => {});
+                if (!result) throw new Error(t(
+                  'Bonul nu a fost salvat. Păstrează formularul și reîncearcă.',
+                  'Receipt was not saved. Keep the form open and retry.'
+                ));
+                // ReceiptModal owns the current private draft revision and
+                // will clear only that version after a successful commit.
+                // Blind PUT {} here could overwrite another tab's newer draft.
                 const savedLine = editing.id
                   ? result.lines.find((l: Any) => l.id === editing.id)
                   : result.lines.find((l: Any) => !existingIds.has(l.id));
