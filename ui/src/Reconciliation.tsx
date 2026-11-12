@@ -262,6 +262,7 @@ export default function Reconciliation({ t, masters, label, run, open }: Any) {
               onChange={(e) => {
                 Tx(e.target.value);
                 Line('');
+                A('');
               }}
             >
               <option value="">{t('Selectează', 'Select')}</option>
@@ -273,7 +274,7 @@ export default function Reconciliation({ t, masters, label, run, open }: Any) {
             </select>
           </Field>
           <Field name={t('Bon eligibil', 'Eligible receipt')}>
-            <select value={line} onChange={(e) => Line(e.target.value)}>
+            <select value={line} onChange={(e) => { Line(e.target.value); A(''); }}>
               <option value="">{t('Selectează', 'Select')}</option>
               {lines
                 .filter((l) => {
