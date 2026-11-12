@@ -7,23 +7,11 @@
  */
 export const DRAFT_RECOVERY_DAYS = 7;
 const DATABASE = 'decont-encrypted-receipt-recovery';
-const TABS = 'decont-draft-tab';
 const keyId = 'v1';
-
-function currentTab() {
-  try {
-    const old = sessionStorage.getItem(TABS);
-    if (old && /^[0-9a-f-]{36}$/i.test(old)) return old;
-    const next = crypto.randomUUID();
-    sessionStorage.setItem(TABS, next);
-    return next;
-  } catch {
-    // When sessionStorage is disabled, each document can still be recovered by
-    // the scope index; it simply receives a new tab-specific backup.
-    return crypto.randomUUID();
-  }
-}
-const tabId = currentTab();
+// A fresh identity per document lifecycle avoids two duplicated browser tabs
+// accidentally sharing a cloned sessionStorage token. Previous backups are
+// still available by scoped lookup after a reload.
+const tabId = crypto.randomUUID();
 
 function reqValue(request) {
   return new Promise((resolve, reject) => {
@@ -127,9 +115,12 @@ export async function recoverEncryptedDrafts(scope) {
       request.onsuccess = () => {
         const rows = request.result;
         const now = Date.now();
+        const valid = rows.filter(row => row.expiresAt > now)
+          .sort((a, b) => b.updatedAt - a.updatedAt);
+        const keep = new Set(valid.slice(0, 8).map(row => row.id));
         for (const row of rows)
-          if (row.expiresAt <= now) store.delete(row.id);
-        resolve(rows);
+          if (!keep.has(row.id)) store.delete(row.id);
+        resolve(valid.slice(0, 8));
       };
       request.onerror = () => reject(request.error || new Error('Cannot read encrypted drafts'));
     });
