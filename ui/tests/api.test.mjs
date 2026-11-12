@@ -156,3 +156,32 @@ test('Caller-supplied operation ID remains unchanged for an explicit replay', as
   await api('/reports', 'POST', { purpose: 'Journey' }, { operationId: id });
   assert.deepEqual(keys, [id, id]);
 });
+
+test('Unknown-commit mutation key survives reload without storing any financial request payload', async () => {
+  const storage = new Map();
+  globalThis.sessionStorage = {
+    getItem: key => storage.get(key) ?? null,
+    setItem: (key, value) => storage.set(key, value),
+    removeItem: key => storage.delete(key),
+  };
+  const keys = [];
+  let attempt = 0;
+  globalThis.fetch = async (url, options) => {
+    if (url.endsWith('/csrf')) return Response.json({ token: 'csrf' });
+    keys.push(options.headers['Idempotency-Key']);
+    if (++attempt === 1) throw new TypeError('Lost committed response');
+    return Response.json({ receiptId: 'original' });
+  };
+  const first = await fresh();
+  const body = { amount: '987654.32', privateDescription: 'NOT_TO_BE_PERSISTED' };
+  await assert.rejects(() => first.api('/reports/42/lines', 'POST', body), /Lost/);
+  assert.equal(storage.size, 1);
+  assert.ok([...storage.keys(), ...storage.values()].every(text =>
+    !String(text).includes('NOT_TO_BE_PERSISTED') && !String(text).includes('987654.32')));
+  const second = await fresh();
+  assert.deepEqual(await second.api('/reports/42/lines', 'POST', body),
+    { receiptId: 'original' });
+  assert.equal(keys[0], keys[1]);
+  assert.equal(storage.size, 0);
+  delete globalThis.sessionStorage;
+});
