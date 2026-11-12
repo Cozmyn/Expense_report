@@ -377,6 +377,25 @@ function App() {
       ? [['audit', ShieldCheck, t('Jurnal de audit', 'Audit log')]]
       : []),
   ];
+  // Keep the complete role-filtered navigation while making task groups scannable.
+  const navGroups = [
+    {
+      title: t('Zilnic', 'Everyday tasks'),
+      ids: ['dashboard', 'reports', 'approvals', 'finance', 'cards'],
+    },
+    {
+      title: t('Analiză și control', 'Insights & controls'),
+      ids: ['reporting', 'posting', 'audit'],
+    },
+    {
+      title: t('Administrare', 'Administration'),
+      ids: ['finance-settings', 'settings', 'users', 'delegations', 'assignments', 'jobs'],
+    },
+    {
+      title: t('Contul meu', 'My account'),
+      ids: ['profile'],
+    },
+  ];
   const state = (s: string) => stateText[s]?.[lang === 'ro' ? 0 : 1] || s;
   const list = (rows: Any[]) => (
     <ReportList rows={rows} t={t} state={state} open={open} lang={lang} />
@@ -402,22 +421,31 @@ function App() {
             <X />
           </button>
         </div>
-        <span className="nav-caption">{t('SPAȚIU DE LUCRU', 'WORKSPACE')}</span>
         <nav id="primary-navigation" aria-label={t('Navigare principală', 'Main navigation')}>
-          {nav.map(([id, Icon, text]: any) => (
-            <button
-              key={id}
-              className={page === id || (page === 'detail' && id === 'reports') ? 'active' : ''}
-              aria-current={page === id || (page === 'detail' && id === 'reports') ? 'page' : undefined}
-              onClick={() => {
-                P(id);
-                Mobile(false);
-              }}
-            >
-              <Icon size={19} />
-              {text}
-            </button>
-          ))}
+          {navGroups.map((group) => {
+            const items = nav.filter(([id]: any) => group.ids.includes(id));
+            if (!items.length) return null;
+            return (
+              <div className="nav-group" key={group.title}>
+                <span className="nav-caption">{group.title}</span>
+                {items.map(([id, Icon, text]: any) => (
+                  <button
+                    key={id}
+                    className={page === id || (page === 'detail' && id === 'reports') ? 'active' : ''}
+                    aria-current={page === id || (page === 'detail' && id === 'reports') ? 'page' : undefined}
+                    onClick={() => {
+                      P(id);
+                      Mobile(false);
+                      SN(false);
+                    }}
+                  >
+                    <Icon size={19} aria-hidden="true" />
+                    {text}
+                  </button>
+                ))}
+              </div>
+            );
+          })}
         </nav>
         <div className="sidebar-note">
           {t(
