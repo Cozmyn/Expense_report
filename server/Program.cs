@@ -282,6 +282,17 @@ if (args.Contains("--init") || args.Contains("--bootstrap") || args.Contains("--
     }
     return;
 }
+// SQLite is Development/test-only. The pinned SQL baseline must not be
+// edited for a connection-level tuning change; enable WAL on the runtime
+// connection after the one-shot bootstrap transaction has committed. WAL
+// permits OCR/scan readers alongside a writer and prevents session-read
+// starvation that the old DELETE journaling mode allowed.
+if (app.Environment.IsDevelopment() && !postgres)
+{
+    using var scope = app.Services.CreateScope();
+    var sqlite = scope.ServiceProvider.GetRequiredService<Db>();
+    await sqlite.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;");
+}
 // Production application identity must have SELECT/DML only. Startup validates
 // the pinned release and physical schema but never attempts DDL repairs.
 if (!app.Environment.IsDevelopment())
