@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from './api';
 import { Field } from './Fields';
 import { ocrFieldLabel } from './OcrLabels';
+import { nextReceiptIndex } from './receiptAssist.mjs';
 type Any = Record<string, any>;
 type Region = { page: number; x: number; y: number; width: number; height: number };
 export default function OcrGroupBoard({
@@ -121,6 +122,12 @@ export default function OcrGroupBoard({
     || groups.find((g: Any) => g.state !== 'Verified') || groups[0];
   const select = (id: string, checked: boolean) =>
     S((old) => (checked ? [...old, id] : old.filter((x) => x !== id)));
+  const selectGroup = (g: Any) => {
+    ActiveGroup(g.id);
+    FP(g.pages?.[0] || 1);
+    Focus(g.regions?.[0] || null);
+    FT((n) => n + 1);
+  };
   const warning = (value: string) => {
     const parts = value.split(' / ');
     return parts.length > 1 ? t(parts[0], parts.slice(1).join(' / ')) : value;
@@ -207,6 +214,17 @@ export default function OcrGroupBoard({
           onClick={() => { RG({ id: 'new-region', pages: [1] }); Regions([]); }}>
           {t('Nu este detectat un bon? Selectează-l din PDF', 'Missing a receipt? Select it in the PDF')}
         </button>
+      )}
+      {groups.length > 0 && (
+        <p className="small muted" role="status">
+          {groups.filter((g: Any) => g.state === 'Verified').length}/{groups.length}{' '}
+          {t('bonuri confirmate', 'receipts verified')}.
+          {' '}{groups.some((g: Any) => g.state !== 'Verified')
+            ? t('Selectează următorul bon, verifică originalul și salvează-l.',
+                'Choose the next receipt, verify the original and save it.')
+            : t('Verifică și paginile neatribuite înainte de trimitere.',
+                'Also check unassigned pages before submitting.')}
+        </p>
       )}
       {review.attempts > 1 && (
         <p className="small muted">{t(
@@ -387,21 +405,33 @@ export default function OcrGroupBoard({
         </section>
         )}
         {groups.length > 1 && (
-          <div className="receipt-group-switcher" role="group" aria-label={t('Selectează bonul pentru verificare', 'Choose receipt to review')}>
-            {groups.map((g: Any, index: number) => (
-              <button type="button" key={g.id}
-                className={activeGroup?.id === g.id ? 'primary' : 'secondary'}
-                aria-pressed={activeGroup?.id === g.id}
-                onClick={() => {
-                  ActiveGroup(g.id);
-                  FP(g.pages?.[0] || 1);
-                  Focus(g.regions?.[0] || null);
-                  FT((n) => n + 1);
-                }}>
-                {t('Bon', 'Receipt')} {index + 1} · {g.state === 'Verified' ? t('Verificat', 'Verified') : t('De verificat', 'Needs review')}
-              </button>
-            ))}
-          </div>
+          <>
+            <p className="small muted" id={'receipt-picker-help-' + file.id}>
+              {t('Folosește Tab pentru a ajunge la selector; săgețile stânga/dreapta sau Home/End schimbă bonul.',
+                'Tab to the receipt selector; left/right arrows or Home/End change the active receipt.')}
+            </p>
+            <div className="receipt-group-switcher" role="group"
+              aria-label={t('Selectează bonul pentru verificare', 'Choose receipt to review')}
+              aria-describedby={'receipt-picker-help-' + file.id}
+              onKeyDown={(event) => {
+                if (!(event.target instanceof HTMLButtonElement)) return;
+                const index = groups.findIndex((g: Any) => g.id === activeGroup?.id);
+                const next = nextReceiptIndex(index < 0 ? 0 : index, groups.length, event.key);
+                if (next === null) return;
+                event.preventDefault();
+                selectGroup(groups[next]);
+                event.currentTarget.querySelectorAll('button')[next]?.focus();
+              }}>
+              {groups.map((g: Any, index: number) => (
+                <button type="button" key={g.id}
+                  className={activeGroup?.id === g.id ? 'primary' : 'secondary'}
+                  aria-pressed={activeGroup?.id === g.id}
+                  onClick={() => selectGroup(g)}>
+                  {t('Bon', 'Receipt')} {index + 1} · {g.state === 'Verified' ? t('Verificat', 'Verified') : t('De verificat', 'Needs review')}
+                </button>
+              ))}
+            </div>
+          </>
         )}
         <div className="ocr-review-layout">
           <aside className="ocr-review-original">
@@ -510,7 +540,9 @@ export default function OcrGroupBoard({
                           </span>
                         </section>
                         <button
+                          type="button"
                           className="text-button"
+                          aria-label={t('Arată sursa câmpului', 'Show field source') + ': ' + ocrFieldLabel(key, t)}
                           onClick={() => {
                             FP(f.page);
                             Focus(f.box ? { page: f.page, ...f.box } : null);

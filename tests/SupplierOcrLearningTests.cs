@@ -112,4 +112,80 @@ public class SupplierOcrLearningTests
         Assert.False(result.Candidates[1].Fields.ContainsKey("amount"));
     }
 
+
+    [Fact]
+    public void AmbiguousOcrFieldMustNotBeOverwrittenByHistoricalSupplierTemplate()
+    {
+        var region = new SourceBox(.10m, .72m, .5m, .04m);
+        var examples = new[]
+        {
+            new SupplierOcrLearning.Example("18546294", Guid.NewGuid(), "amount", region),
+            new SupplierOcrLearning.Example("18546294", Guid.NewGuid(), "amount", region)
+        };
+        var original = Receipt();
+        var ambiguous = original.Candidates[0] with
+        {
+            Fields = new Dictionary<string, OcrField>(original.Candidates[0].Fields)
+            {
+                ["amount"] = new(null, 1, "TOTAL 100.00 / 500.00", "Ambiguous")
+            }
+        };
+        var suggested = SupplierOcrLearning.Suggest(
+            original with { Candidates = [ambiguous] }, examples);
+        var value = suggested.Candidates[0].Fields["amount"];
+        Assert.Null(value.Value);
+        Assert.Equal("Ambiguous", value.State);
+        Assert.DoesNotContain(suggested.Candidates[0].Warnings,
+            warning => warning.StartsWith("SUPPLIER_HINT"));
+    }
+
+    [Fact]
+    public void SourceSelectionNeverGuessesWrongGrossOrTaxColumn()
+    {
+        Assert.Null(OcrFieldSelection.Extract("amount", "TOTAL 100.00 EUR / 500.00 RON"));
+        Assert.Equal("100.00", OcrFieldSelection.Extract("amount",
+            "TOTAL 100.00 EUR ECHIVALENT 500.00 RON"));
+        Assert.Equal("100.00", OcrFieldSelection.Extract("taxBase:21",
+            "TVA 21% 100.00 21.00"));
+        Assert.Equal("21.00", OcrFieldSelection.Extract("taxVat:21",
+            "TVA 21% 100.00 21.00"));
+        Assert.Null(OcrFieldSelection.Extract("taxBase:21",
+            "TVA 21% 100.00 21.00 121.00"));
+        Assert.Null(OcrFieldSelection.Extract("taxVat:11",
+            "TVA 21% 100.00 21.00"));
+        Assert.Equal("100.00", OcrFieldSelection.Extract("taxBase:21",
+            "TVA 21% 21.00 100.00"));
+        Assert.Equal("21.00", OcrFieldSelection.Extract("taxVat:21",
+            "TVA 21% 21.00 100.00"));
+        Assert.Null(OcrFieldSelection.Extract("taxVat:21",
+            "TVA 21% 100.00 99.00"));
+    }
+
+    [Fact]
+    public void MultiDateMultiCurrencyAndMultiCuiSelectionRequiresManualCorrection()
+    {
+        Assert.Null(OcrFieldSelection.Extract("date", "10.11.2026 12.11.2026"));
+        Assert.Null(OcrFieldSelection.Extract("date", "02/03/2026"));
+        Assert.Null(OcrFieldSelection.Extract("currency", "100.00 EUR / 500.00 RON"));
+        Assert.Equal("EUR", OcrFieldSelection.Extract("currency",
+            "TOTAL 100.00 EUR ECHIVALENT 500.00 RON"));
+        Assert.Null(OcrFieldSelection.Extract("cui", "CUI 18546294 CUI 35898037"));
+    }
+
+    [Fact]
+    public void LearnedHintHighlightsTheCurrentDocumentTextNotTheHistoricalBox()
+    {
+        var region = new SourceBox(.08m, .69m, .55m, .07m);
+        var examples = new[]
+        {
+            new SupplierOcrLearning.Example("18546294", Guid.NewGuid(), "amount", region),
+            new SupplierOcrLearning.Example("18546294", Guid.NewGuid(), "amount", region)
+        };
+        var hint = SupplierOcrLearning.Suggest(Receipt(), examples).Candidates[0].Fields["amount"];
+        Assert.Equal(new SourceBox(.10m, .72m, .5m, .04m), hint.Box);
+        Assert.Equal("SupplierTemplate", hint.Source);
+        Assert.Equal("ReviewRequired", hint.State);
+    }
+
+
 }

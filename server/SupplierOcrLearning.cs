@@ -59,8 +59,8 @@ public static class SupplierOcrLearning
             var warnings = new List<string>(candidate.Warnings);
             foreach (var group in matched.GroupBy(x => x.Field))
             {
-                if (fields.GetValueOrDefault(group.Key)?.Value != null)
-                    continue; // Parsed values always remain available; templates never override them.
+                if (fields.ContainsKey(group.Key))
+                    continue; // Never overwrite parsed or explicitly ambiguous OCR fields.
                 // Two separate verified documents, with consistent region geometry, are required.
                 var samples = group.DistinctBy(x => x.Bundle).ToList();
                 if (samples.Count < 2)
@@ -103,9 +103,18 @@ public static class SupplierOcrLearning
                 var suggestion = OcrFieldSelection.Extract(group.Key, evidence);
                 if (suggestion == null)
                     continue;
+                // Focus the actual text found on this document, not the
+                // historical training coordinates (which may have shifted).
+                var left = words.Min(w => w.Box.X);
+                var top = words.Min(w => w.Box.Y);
+                var box = new SourceBox(
+                    left, top,
+                    words.Max(w => w.Box.X + w.Box.Width) - left,
+                    words.Max(w => w.Box.Y + w.Box.Height) - top
+                );
                 fields[group.Key] = new OcrField(
                     suggestion, page.Number, evidence, "ReviewRequired", null,
-                    sample, evidence, "SupplierTemplate"
+                    box, evidence, "SupplierTemplate"
                 );
                 warnings.Add(
                     "SUPPLIER_HINT: Propunere din bonuri confirmate ale aceluiași furnizor. Verifică originalul; nu reprezintă o confirmare. / Suggested from verified receipts of the same supplier. Check the original; this is not confirmed."
