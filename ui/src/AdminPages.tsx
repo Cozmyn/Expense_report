@@ -175,6 +175,13 @@ export function MasterPage({ t, run, refresh }: Any) {
     });
   }, []);
   const set = (k: string, v: any) => F({ ...form, [k]: v });
+  const visibleUsers = users.filter((user) => {
+    const text = [user.userName, user.name, user.email, user.worker, user.costCenter]
+      .filter(Boolean).join(' ').toLocaleLowerCase();
+    return (!userSearch.trim() || text.includes(userSearch.trim().toLocaleLowerCase())) &&
+      (!userRole || user.roles?.includes(userRole)) &&
+      (userActivity === 'all' || (userActivity === 'active' ? user.active : !user.active));
+  });
   return (
     <>
       <div className="page-heading">
@@ -423,7 +430,12 @@ export function UsersPage({ t, run }: Any) {
       password: '',
       reason: '',
     }),
-    [id, I] = useState('');
+    [id, I] = useState(''),
+    [userSearch, UserSearch] = useState(''),
+    [userRole, UserRole] = useState(''),
+    [userActivity, UserActivity] = useState('all'),
+    [resetPassword, ResetPassword] = useState(''),
+    [resetReason, ResetReason] = useState('');
   const load = async () => {
     const [users, masters] = await Promise.all([
       api('/admin/users'), api('/configuration/masters'),
@@ -533,16 +545,13 @@ export function UsersPage({ t, run }: Any) {
                 </select>
               </Field>
             )}
-            <Field name={t('Parolă temporară', 'Temporary password')}>
-              <input
-                type="password"
-                minLength={12}
-                autoComplete="new-password"
-                required={!id}
-                value={form.password}
-                onChange={(e) => set('password', e.target.value)}
-              />
-            </Field>
+            {!id && (
+              <Field name={t('Parolă temporară', 'Temporary password')}>
+                <input type="password" minLength={12} autoComplete="new-password"
+                  required value={form.password}
+                  onChange={(e) => set('password', e.target.value)} />
+              </Field>
+            )}
             <Field name={t('Motiv', 'Reason')}>
               <input
                 value={form.reason || ''}
@@ -586,23 +595,6 @@ export function UsersPage({ t, run }: Any) {
                 <button
                   type="button"
                   className="secondary"
-                  disabled={!form.password || form.reason.length < 3}
-                  onClick={() =>
-                    run(async () => {
-                      await api('/admin/users/' + id + '/reset', 'POST', {
-                        password: form.password,
-                        reason: form.reason,
-                      });
-                      await load();
-                      set('password', '');
-                    })
-                  }
-                >
-                  {t('Resetează parola', 'Reset password')}
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
                   disabled={form.reason.length < 3}
                   onClick={() =>
                     run(async () => {
@@ -640,14 +632,89 @@ export function UsersPage({ t, run }: Any) {
             )}
           </div>
         </form>
+        {id && (
+          <section className="admin-password-reset" aria-label={t('Resetare parolă separată', 'Separate password reset')}>
+            <h3>{t('Resetare parolă – acțiune separată', 'Password reset – separate action')}</h3>
+            <p className="small muted">
+              {t('Resetarea afectează doar utilizatorul selectat și nu modifică celelalte date ale contului.',
+                'Reset affects only the selected user and does not modify other account fields.')}
+            </p>
+            <form onSubmit={(event) => {
+              event.preventDefault();
+              if (resetPassword.length < 12 || resetReason.trim().length < 3) return;
+              if (!window.confirm(t('Resetezi parola pentru ', 'Reset password for ') +
+                (users.find((user) => user.id === id)?.name || form.username) + '?')) return;
+              run(async () => {
+                await api('/admin/users/' + id + '/reset', 'POST', {
+                  password: resetPassword,
+                  reason: resetReason.trim(),
+                });
+                ResetPassword('');
+                ResetReason('');
+                await load();
+              });
+            }}>
+              <div className="form-grid">
+                <Field name={t('Parolă temporară nouă', 'New temporary password')}>
+                  <input type="password" autoComplete="new-password" required minLength={12}
+                    value={resetPassword} onChange={(event) => ResetPassword(event.target.value)} />
+                </Field>
+                <Field name={t('Motivul resetării', 'Reset reason')}>
+                  <input required minLength={3} value={resetReason}
+                    onChange={(event) => ResetReason(event.target.value)} />
+                </Field>
+              </div>
+              <button type="submit" className="secondary"
+                disabled={resetPassword.length < 12 || resetReason.trim().length < 3}>
+                {t('Confirmă resetarea parolei', 'Confirm password reset')}
+              </button>
+            </form>
+          </section>
+        )}
+        <section className="admin-user-search" aria-label={t('Căutare utilizatori', 'User search')}>
+          <h3>{t('Găsește un utilizator', 'Find a user')}</h3>
+          <div className="form-grid">
+            <Field name={t('Caută nume, email, cod sau centru', 'Search name, email, code or centre')}>
+              <input type="search" value={userSearch}
+                onChange={(event) => UserSearch(event.target.value)} />
+            </Field>
+            <Field name={t('Rol', 'Role')}>
+              <select value={userRole} onChange={(event) => UserRole(event.target.value)}>
+                <option value="">{t('Toate rolurile', 'All roles')}</option>
+                {['Employee', 'Manager', 'Finance', 'Admin', 'Auditor', 'FinanceReopen'].map((role) => (
+                  <option value={role} key={role}>{role}</option>
+                ))}
+              </select>
+            </Field>
+            <Field name={t('Activitate cont', 'Account activity')}>
+              <select value={userActivity} onChange={(event) => UserActivity(event.target.value)}>
+                <option value="all">{t('Toate conturile', 'All accounts')}</option>
+                <option value="active">{t('Active', 'Active')}</option>
+                <option value="inactive">{t('Dezactivate', 'Disabled')}</option>
+              </select>
+            </Field>
+          </div>
+          <div className="actions">
+            <p role="status" className="small muted">
+              {visibleUsers.length} {t('din', 'of')} {users.length} {t('utilizatori', 'users')}
+            </p>
+            <button type="button" className="secondary" onClick={() => {
+              UserSearch(''); UserRole(''); UserActivity('all');
+            }}>
+              {t('Resetează filtrele', 'Reset filters')}
+            </button>
+          </div>
+        </section>
         <div className="queue">
-          {users.map((u) => (
+          {visibleUsers.map((u) => (
             <button
               className="simple-row row-button"
               key={u.id}
               onClick={() => {
                 I(u.id);
                 F({ ...u, username: u.userName, password: '', reason: '' });
+                ResetPassword('');
+                ResetReason('');
               }}
             >
               <span>
