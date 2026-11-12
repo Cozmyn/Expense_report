@@ -935,6 +935,22 @@ export function RevisionComparison({ detail, t, run }: Any) {
   );
 }
 export function AuditSearch({ t, run }: Any) {
+  const auditActionLabels: Record<string, [string, string]> = {
+    Created: ['Decont creat', 'Report created'],
+    LineAdded: ['Bon adăugat', 'Receipt added'],
+    LineChanged: ['Bon modificat', 'Receipt edited'],
+    Submitted: ['Decont trimis spre aprobare', 'Report submitted'],
+    Returned: ['Decont returnat pentru corecții', 'Report returned'],
+    approve: ['Decont aprobat', 'Report approved'],
+    reject: ['Decont respins', 'Report rejected'],
+    ERPExported: ['Export ERP generat', 'ERP export generated'],
+    DocumentVerified: ['Document verificat', 'Document verified'],
+    PostedBatchReopened: ['Postare redeschisă după reversare', 'Posting reopened after reversal'],
+  };
+  const humanAction = (action: string) => {
+    const entry = auditActionLabels[action?.split(':')[0]];
+    return entry ? t(entry[0], entry[1]) : (action || '').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ');
+  };
   const [rows, R] = useState<Any[]>([]),
     [filter, F] = useState<Any>({ q: '', actor: '', action: '', from: '', to: '' });
   const query = () =>
@@ -987,9 +1003,16 @@ export function AuditSearch({ t, run }: Any) {
           <a className="secondary" href={'/api/audit/export?' + query()}>
             {t('Exportă auditul filtrat CSV', 'Export filtered audit CSV')}
           </a>
+          <button type="button" className="secondary" onClick={() => {
+            F({ q: '', actor: '', action: '', from: '', to: '' });
+            run(() => api('/audit').then(R));
+          }}>
+            {t('Resetează și afișează toate', 'Reset and show all')}
+          </button>
         </div>
       </form>
-      <p>
+      <p className="small muted" role="status">
+        {rows.length} {t('evenimente afișate', 'events shown')}.{' '}
         {t(
           'Maximum 1.000 evenimente afișate; exportul include maximum 50.000.',
           'Up to 1,000 displayed events; export includes up to 50,000.',
@@ -1011,15 +1034,26 @@ export function AuditSearch({ t, run }: Any) {
               <tr key={a.id}>
                 <td>{new Date(a.at).toLocaleString()}</td>
                 <td>{a.actor}</td>
-                <td>{a.action}</td>
+                <td>
+                  <strong>{humanAction(a.action)}</strong>
+                  <small className="audit-raw-code">{t('Cod audit', 'Audit code')}: {a.action}</small>
+                </td>
                 <td>{a.entity}</td>
                 <td>
-                  <p>{a.reason}</p>
-                  <section>
-                    <h4>{t('Înainte / după', 'Before / after')}</h4>
-                    <pre className="ocr-text">{a.before || '—'}</pre>
-                    <pre className="ocr-text">{a.after || '—'}</pre>
-                  </section>
+                  <p>{a.reason || t('Fără motiv suplimentar', 'No additional reason')}</p>
+                  <details className="audit-change-details">
+                    <summary>{t('Vezi valorile înainte / după', 'Show before / after values')}</summary>
+                    <div className="audit-change-grid">
+                      <div>
+                        <strong>{t('Înainte', 'Before')}</strong>
+                        <pre className="ocr-text">{a.before || '—'}</pre>
+                      </div>
+                      <div>
+                        <strong>{t('După', 'After')}</strong>
+                        <pre className="ocr-text">{a.after || '—'}</pre>
+                      </div>
+                    </div>
+                  </details>
                 </td>
               </tr>
             ))}
