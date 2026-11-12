@@ -15,6 +15,9 @@ export default function OcrGroupBoard({
   linkExisting,
 }: Any) {
   const advancedRef = React.useRef<HTMLDetailsElement>(null);
+  // Preserve advanced controls while the user works: resolving the final
+  // unassigned page must not suddenly collapse the in-progress editor.
+  const [advancedOpen, AdvancedOpen] = useState(false);
   const [activeGroupId, ActiveGroup] = useState<string | null>(null);
   const [focus, Focus] = useState<Region | null>(null),
     [focusPage, FP] = useState(1),
@@ -330,7 +333,8 @@ export default function OcrGroupBoard({
         )}
         {(file.receiptMode !== 'Single' || review.unassignedPages.length > 0 || groups.length > 1) && (
         <details className="ocr-group-tools" ref={advancedRef}
-          open={review.unassignedPages.length > 0 ? true : undefined}>
+          open={advancedOpen || review.unassignedPages.length > 0}
+          onToggle={(event) => AdvancedOpen(event.currentTarget.open)}>
           <summary className="ocr-advanced-toggle">
             {t('Instrumente avansate: pagini, unire și separare', 'Advanced tools: pages, merge and split')}
             {review.unassignedPages.length > 0
