@@ -70,7 +70,7 @@ function mutationPayloadIdentity(body: unknown): string | undefined {
   return JSON.stringify(Array.from(body.entries(), ([name, value]) =>
     typeof value === 'string'
       ? [name, 'text', value]
-      : [name, 'file', value.name, value.size, value.type, value.lastModified]
+      : [name, 'file', value.name, value.size, value.type]
   ));
 }
 /** Tell the authenticated workspace to offer a safe return to sign-in on a 401. */
