@@ -226,7 +226,7 @@ public static class ReceiptParser
                 var eligibleDates = issueDates.Count > 0 ? issueDates : dateCandidates.Where(x =>
                     !Regex.IsMatch(x.Line, @"(?i)\b(?:SCADEN[TȚ][AĂ]|DUE\s*DATE|PAY\s*BY)\b")).ToList();
                 var distinctDates = eligibleDates.Select(x => x.Match.Value).Distinct().ToList();
-                var date = eligibleDates.Count > 0 ? eligibleDates[0].Match : Match.Empty;
+                var date = eligibleDates.Count > 0 ? eligibleDates[0].Match : Regex.Match("", @"\d+");
                 if (distinctDates.Count > 1)
                 {
                     var geometry = DocumentGeometry.Find(page, date.Value, currentOffset, wordCount);
@@ -234,6 +234,7 @@ public static class ReceiptParser
                         "Ambiguous", geometry.Confidence, geometry.Box, date.Value, page.Method);
                     warnings.Add("DATE_MULTIPLE: Există mai multe date posibile. Selectează data emiterii. / Multiple candidate dates; select the issue date.");
                 }
+                DateOnly day = default;
                 if (
                     distinctDates.Count == 1 && date.Success
                     && DateOnly.TryParseExact(
@@ -241,7 +242,7 @@ public static class ReceiptParser
                         new[] { "dd.MM.yyyy", "dd/MM/yyyy", "dd-MM-yyyy", "yyyy-MM-dd" },
                         CultureInfo.InvariantCulture,
                         DateTimeStyles.None,
-                        out var day
+                        out day
                     )
                 )
                 {
