@@ -407,13 +407,15 @@ function App() {
   const list = (rows: Any[]) => (
     <ReportList rows={rows} t={t} state={state} open={open} lang={lang} />
   );
-  const unfinishedReport = role('Employee')
-    ? reports.find(
-        (r) =>
+  const unfinishedReports = role('Employee')
+    ? reports
+        .filter((r) =>
           r.employeeId === me.id &&
-          ['DRAFT', 'REJECTED', 'EMPLOYEE_CORRECTION'].includes(r.state),
-      )
-    : null;
+          ['DRAFT', 'REJECTED', 'EMPLOYEE_CORRECTION'].includes(r.state))
+        .sort((a, b) => new Date(b.updated || b.created).getTime() -
+          new Date(a.updated || a.created).getTime())
+    : [];
+  const unfinishedReport = unfinishedReports[0] || null;
   return (
     <div className="shell">
       <aside className={mobile ? 'sidebar open' : 'sidebar'}>
@@ -692,6 +694,29 @@ function App() {
                     {t('Continuă decontul', 'Continue report')}
                     <ArrowUpRight size={17} />
                   </button>
+                </section>
+              )}
+              {unfinishedReports.length > 1 && (
+                <section className="panel dashboard-drafts">
+                  <div className="section-heading">
+                    <h2>{t('Alte deconturi începute', 'Other reports in progress')}</h2>
+                    <button type="button" className="text-button" onClick={() => P('reports')}>
+                      {t('Vezi toate deconturile', 'See all reports')}
+                      <ArrowUpRight size={16} aria-hidden="true" />
+                    </button>
+                  </div>
+                  <div className="dashboard-drafts-list">
+                    {unfinishedReports.slice(1, 4).map((report) => (
+                      <button type="button" className="simple-row row-button"
+                        key={report.id} onClick={() => open(report.id)}>
+                        <span>
+                          <strong>{report.purpose || report.number}</strong>
+                          <small>{report.number} · {state(report.state)}</small>
+                        </span>
+                        <span>{money(report.total)} RON</span>
+                      </button>
+                    ))}
+                  </div>
                 </section>
               )}
               <div className="stats">
