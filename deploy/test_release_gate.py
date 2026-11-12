@@ -15,7 +15,7 @@ class ReleaseGateTests(unittest.TestCase):
         self.write("restore.json", {
             "status": "integrity_verified_requires_application_uat",
             "objects_verified": 3, "exports_verified": 1,
-            "data_protection_keys_verified": 2,
+            "data_protection_keys_verified": 2, "pitr_verified": True,
             "duration_seconds": 42, "rpo_minutes": 1,
         })
         for mode, filename in (("initial", "uat-initial.json"),
@@ -53,7 +53,7 @@ class ReleaseGateTests(unittest.TestCase):
         self.write("restore.json", {
             "status": "integrity_verified_requires_application_uat",
             "objects_verified": 3, "exports_verified": 1,
-            "data_protection_keys_verified": 2,
+            "data_protection_keys_verified": 2, "pitr_verified": True,
         })
         del self.flows["scenarios"]["rollback_old_image"]
         self.write("workflows.json", self.flows)
