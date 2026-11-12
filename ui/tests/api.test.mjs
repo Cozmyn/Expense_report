@@ -173,3 +173,18 @@ test('Client rejection clears the pending operation rather than reusing an inval
   await assert.rejects(() => api('/reports', 'POST', { purpose: 'A' }), /Validation failed/);
   assert.notEqual(seen[0], seen[1]);
 });
+
+test('Interrupted successful response body remains retryable with the original key', async () => {
+  const seen = [];
+  globalThis.fetch = async (url, options) => {
+    if (url.endsWith('/csrf')) return Response.json({ token: 'token' });
+    seen.push(options.headers['Idempotency-Key']);
+    if (seen.length === 1)
+      return { ok: true, status: 200, text: async () => { throw new Error('Response cut off'); } };
+    return Response.json({ id: 'committed' });
+  };
+  const { api } = await fresh();
+  await assert.rejects(() => api('/reports', 'POST', { purpose: 'Review' }), /Response cut off/);
+  assert.deepEqual(await api('/reports', 'POST', { purpose: 'Review' }), { id: 'committed' });
+  assert.equal(seen[0], seen[1]);
+});

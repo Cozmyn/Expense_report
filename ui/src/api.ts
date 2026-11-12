@@ -59,9 +59,9 @@ export async function api<T = any>(
     body: payload,
     signal: options.signal,
   });
-  // Successful or deterministic client-error responses terminate the command.
-  // A server failure can occur after a commit and therefore stays retryable.
-  if (signature && (response.ok || (response.status >= 400 && response.status < 500)))
+  // Only client errors settle immediately; a successful status without the
+  // complete response body is still an ambiguous committed operation.
+  if (signature && response.status >= 400 && response.status < 500)
     uncertainMutations.delete(signature);
   if (!response.ok) {
     if (handleExpiredSession(path, response.status)) throw new Error(expiredSessionMessage());
@@ -76,11 +76,17 @@ export async function api<T = any>(
     } catch {}
     throw new Error(message);
   }
+  // The reply is complete only after reading/parsing the response payload.
+  // A connection can fail while reading the body even after HTTP 200 headers.
+  const result = response.status === 204
+    ? (undefined as T)
+    : parseFinancialJson(await response.text());
+  if (signature) uncertainMutations.delete(signature);
   if (['/auth/login', '/auth/logout', '/auth/change-password'].includes(path)) {
     token = '';
     uncertainMutations.clear();
   }
-  return response.status === 204 ? (undefined as T) : parseFinancialJson(await response.text());
+  return result;
 }
 export async function upload(
   path: string,
