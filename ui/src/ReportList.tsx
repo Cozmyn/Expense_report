@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Search, ArrowUpRight, Receipt } from 'lucide-react';
 import { money, stateText } from './ReportDisplay';
+import { compare } from './decimal.mjs';
 
 type Any = Record<string, any>;
 
@@ -30,8 +31,8 @@ export function ReportList({ rows, t, state, open, lang = 'ro' }: Any) {
   ).sort((a: Any, b: Any) => {
     if (order === 'newest') return new Date(b.updated).getTime() - new Date(a.updated).getTime();
     if (order === 'oldest') return new Date(a.updated).getTime() - new Date(b.updated).getTime();
-    if (order === 'amount-high') return Number(b.total || 0) - Number(a.total || 0);
-    if (order === 'amount-low') return Number(a.total || 0) - Number(b.total || 0);
+    if (order === 'amount-high') return compare(b.total ?? '0', a.total ?? '0');
+    if (order === 'amount-low') return compare(a.total ?? '0', b.total ?? '0');
     return 0; // preserve ordering supplied by the caller
   });
   const locale = lang === 'en' ? 'en-GB' : 'ro-RO';
