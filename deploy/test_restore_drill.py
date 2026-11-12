@@ -35,6 +35,7 @@ class RecoveryTests(unittest.TestCase):
             backup_keys=str(self.keys), manifest=str(self.manifest), execute=False,
             database="", bucket="", confirm="", s3_endpoint="", target_keys="",
             incident_utc="", max_rpo_minutes=None, max_rto_seconds=None,
+            verify_existing=False, restore_start_utc=None,
         )
 
     def tearDown(self) -> None:
@@ -82,6 +83,11 @@ class RecoveryTests(unittest.TestCase):
         self.args.bucket = "decont-restore-test"
         self.args.confirm = "RESTORE_TO_ISOLATED_UAT_ONLY"
         with self.assertRaisesRegex(RecoveryError, "RPO and RTO"):
+            run(self.args)
+
+    def test_pitr_mode_cannot_be_claimed_by_offline_backup_inspection(self) -> None:
+        self.args.verify_existing = True
+        with self.assertRaisesRegex(RecoveryError, "requires --execute"):
             run(self.args)
 
     def test_rpo_breach_fails_without_running_pg_restore_or_s3(self) -> None:
