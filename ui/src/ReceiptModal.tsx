@@ -5,6 +5,7 @@ import { X, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { api } from './api';
 import { Field } from './Fields';
 import { ocrFieldLabel } from './OcrLabels';
+import { attentionFields, fieldProvenance } from './receiptProvenance.mjs';
 type Any = Record<string, any>;
 export function newReceipt() {
   return {
@@ -138,6 +139,8 @@ export default function ReceiptModal({
     ),
   );
   const [states, States] = useState<Any>({ project: 'OPTIONAL', costCenter: 'REQUIRED' });
+  const [manualFields, ManualFields] = useState<string[]>([]);
+  const [ocrVerified, OcrVerified] = useState(false);
   const [draftReady, DR] = useState(false),
     [draftStatus, DS] = useState('');
   const lastSaved = useRef('');
@@ -524,6 +527,35 @@ export default function ReceiptModal({
         {t('Selectează pe bon', 'Select on receipt')}
       </button>
     ) : null;
+  const trackedFields = vat
+    ? ['date', 'invoice', 'supplier', 'cui', 'description', 'currency', 'amount']
+    : ['date', 'description', 'currency', 'amount'];
+  const needsAttention = expense.ocrCandidate
+    ? attentionFields(d, expense.ocrCandidate.fields || {}, manualFields, ocrVerified, trackedFields)
+    : [];
+  const statusAction = (key: string) => {
+    const state = fieldProvenance({
+      value: d[key], source: expense.ocrCandidate?.fields?.[key] || null,
+      changed: manualFields.includes(key), verified: ocrVerified,
+      calculated: key === 'costCenter' || key === 'project',
+    });
+    const names: Record<string, [string, string]> = {
+      unread: ['Necitit · verifică', 'Unread · check source'],
+      ocr: ['Propus OCR', 'OCR proposal'],
+      calculated: ['Calculat', 'Calculated'],
+      manual: ['Modificat manual', 'Entered / changed manually'],
+      verified: ['Verificat de utilizator', 'Human verified'],
+    };
+    return (
+      <>
+        <span className={'small receipt-provenance status-' + state}
+          aria-label={t('Starea câmpului', 'Field status') + ': ' + t(...names[state])}>
+          {t(...names[state])}
+        </span>
+        {scanAction(key)}
+      </>
+    );
+  };
   const applyScan = async (reread = false) => {
     if (!scanField || !scanRegion || !expense.sourceGroupId || !expense.sourceAttachmentId) return;
     ScanBusy(true);
@@ -658,7 +690,12 @@ export default function ReceiptModal({
           )}
           <form
             ref={formRef}
-            onChangeCapture={() => { modified.current = true; }}
+            onChangeCapture={(event) => {
+              modified.current = true;
+              OcrVerified(false);
+              const key = (event.target as HTMLElement).dataset.ocrField;
+              if (key) ManualFields(old => old.includes(key) ? old : [...old, key]);
+            }}
             onFocusCapture={(e) => {
               const key = (e.target as HTMLElement).dataset.ocrField;
               if (!key || !expense.ocrCandidate) return;
@@ -719,6 +756,26 @@ export default function ReceiptModal({
               }
             }}
           >
+            {expense.ocrCandidate && (
+              <div className={'issue ' + (needsAttention.length ? 'warning' : 'success')}
+                role="status" aria-live="polite">
+                <strong>{needsAttention.length
+                  ? t(needsAttention.length + ' câmpuri necesită atenție înainte de confirmare',
+                      needsAttention.length + ' fields need review before confirmation')
+                  : t('Câmpurile completate au fost confirmate', 'Completed fields have been confirmed')
+                }</strong>
+                {needsAttention.length > 0 && (
+                  <div className="actions">
+                    {needsAttention.map(key => (
+                      <button type="button" key={key} className="text-button"
+                        onClick={() => focusOcrField(key)}>
+                        {ocrFieldLabel(key, t)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {expense.ocrCandidate && (
               <section className="receipt-ocr-review" aria-label={t('Propuneri OCR', 'OCR suggestions')}>
                 <h3>{t('Verifică datele propuse de OCR', 'Review the OCR suggestions')}</h3>
@@ -822,7 +879,7 @@ export default function ReceiptModal({
                     ))}
                   </select>
                 </Field>
-                <Field name={t('Data bonului / documentului', 'Receipt / document date')} action={scanAction('date')}>
+                <Field name={t('Data bonului / documentului', 'Receipt / document date')} action={statusAction('date')}>
                   <input
                     data-ocr-field="date"
                     required
@@ -971,7 +1028,7 @@ export default function ReceiptModal({
                   )}
                 </h3>
                 <div className="form-grid">
-                  <Field name={t('CUI furnizor', 'Supplier VAT ID')} action={scanAction('cui')}>
+                  <Field name={t('CUI furnizor', 'Supplier VAT ID')} action={statusAction('cui')}>
                     <input
                       data-ocr-field="cui"
                       required
@@ -986,7 +1043,7 @@ export default function ReceiptModal({
                       }
                     />
                   </Field>
-                  <Field name={t('Număr bon / document', 'Receipt / document number')} action={scanAction('invoice')}>
+                  <Field name={t('Număr bon / document', 'Receipt / document number')} action={statusAction('invoice')}>
                     <input
                       data-ocr-field="invoice"
                       required
@@ -1102,7 +1159,7 @@ export default function ReceiptModal({
                     {lookupError}
                   </p>
                 )}
-                <Field name={t('Denumire furnizor', 'Supplier name')} action={scanAction('supplier')}>
+                <Field name={t('Denumire furnizor', 'Supplier name')} action={statusAction('supplier')}>
                   <input
                     data-ocr-field="supplier"
                     required
@@ -1129,7 +1186,7 @@ export default function ReceiptModal({
             )}
             <section className="receipt-section">
               <h3>{t('Descriere și sumă', 'Description and amount')}</h3>
-              <Field name={t('Descriere / justificare', 'Description / business justification')} action={scanAction('description')}>
+              <Field name={t('Descriere / justificare', 'Description / business justification')} action={statusAction('description')}>
                 <textarea
                   data-ocr-field="description"
                   required
@@ -1138,7 +1195,7 @@ export default function ReceiptModal({
                 />
               </Field>
               <div className="form-grid">
-                <Field name={t('Moneda bonului', 'Receipt currency')} action={scanAction('currency')}>
+                <Field name={t('Moneda bonului', 'Receipt currency')} action={statusAction('currency')}>
                   <input
                     data-ocr-field="currency"
                     required
@@ -1155,7 +1212,7 @@ export default function ReceiptModal({
                   />
                 </Field>
                 <Field
-                  name={t('Total bon în moneda documentului', 'Receipt total in document currency')} action={scanAction('amount')}
+                  name={t('Total bon în moneda documentului', 'Receipt total in document currency')} action={statusAction('amount')}
                 >
                   <input
                     data-ocr-field="amount"
@@ -1545,7 +1602,8 @@ export default function ReceiptModal({
             )}
             {expense.ocrCandidate && (
               <label className="confirmation">
-                <input type="checkbox" required />
+                <input type="checkbox" required checked={ocrVerified}
+                  onChange={(event) => OcrVerified(event.target.checked)} />
                 {t(
                   'Am verificat gruparea paginilor, valorile și TVA-ul pe documentul original.',
                   'I verified the page grouping, values and VAT against the original document.',
