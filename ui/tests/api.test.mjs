@@ -202,3 +202,30 @@ test('A 409 serializable commit race preserves the exact idempotency key for rep
     { id: 'original-financial-row' });
   assert.equal(keys[0], keys[1]);
 });
+
+test('Multipart retries distinguish different files on identical endpoint and recover same uploaded file', async () => {
+  const keys = [];
+  let requests = 0;
+  globalThis.fetch = async (url, options) => {
+    if (url.endsWith('/csrf')) return Response.json({ token: 'csrf' });
+    keys.push(options.headers['Idempotency-Key']);
+    if (++requests < 3) return Response.json({ en: 'Upstream unavailable' }, { status: 503 });
+    return Response.json({ id: 'already-committed' });
+  };
+  const { api } = await fresh();
+  const first = new FormData();
+  first.set('version', '5');
+  first.set('file', new Blob(['one document'], { type: 'text/plain' }), 'one.txt');
+  const second = new FormData();
+  second.set('version', '5');
+  second.set('file', new Blob(['second document'], { type: 'text/plain' }), 'two.txt');
+  await assert.rejects(() => api('/reports/42/evidence', 'POST', first), /unavailable/);
+  await assert.rejects(() => api('/reports/42/evidence', 'POST', second), /unavailable/);
+  const exactRetry = new FormData();
+  exactRetry.set('version', '5');
+  exactRetry.set('file', new Blob(['one document'], { type: 'text/plain' }), 'one.txt');
+  const replay = await api('/reports/42/evidence', 'POST', exactRetry);
+  assert.equal(replay.id, 'already-committed');
+  assert.notEqual(keys[0], keys[1]);
+  assert.equal(keys[0], keys[2]);
+});
