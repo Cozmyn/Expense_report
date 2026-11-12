@@ -19,14 +19,21 @@ export function Stat({ title, value, note, icon }: Any) {
 
 export function ReportList({ rows, t, state, open, lang = 'ro' }: Any) {
   const [q, Q] = useState(''),
-    [filter, F] = useState('');
+    [filter, F] = useState(''),
+    [order, Order] = useState('default');
   const shown = rows.filter(
     (r: Any) =>
       (r.number + ' ' + r.purpose + ' ' + (r.employeeName || '') + ' ' + (r.managerName || ''))
         .toLowerCase()
         .includes(q.toLowerCase()) &&
       (!filter || r.state === filter),
-  );
+  ).sort((a: Any, b: Any) => {
+    if (order === 'newest') return new Date(b.updated).getTime() - new Date(a.updated).getTime();
+    if (order === 'oldest') return new Date(a.updated).getTime() - new Date(b.updated).getTime();
+    if (order === 'amount-high') return Number(b.total || 0) - Number(a.total || 0);
+    if (order === 'amount-low') return Number(a.total || 0) - Number(b.total || 0);
+    return 0; // preserve ordering supplied by the caller
+  });
   const locale = lang === 'en' ? 'en-GB' : 'ro-RO';
   const updated = (r: Any) => new Date(r.updated).toLocaleDateString(locale);
   const age = (r: Any) =>
@@ -60,7 +67,27 @@ export function ReportList({ rows, t, state, open, lang = 'ro' }: Any) {
             </option>
           ))}
         </select>
+        <select aria-label={t('Ordonează deconturile', 'Sort reports')}
+          value={order} onChange={(event) => Order(event.target.value)}>
+          <option value="default">{t('Ordine implicită', 'Default order')}</option>
+          <option value="newest">{t('Actualizate recent', 'Recently updated')}</option>
+          <option value="oldest">{t('Actualizate demult', 'Least recently updated')}</option>
+          <option value="amount-high">{t('Sumă descrescător', 'Amount, high to low')}</option>
+          <option value="amount-low">{t('Sumă crescător', 'Amount, low to high')}</option>
+        </select>
+        {(q || filter || order !== 'default') && (
+          <button type="button" className="secondary" onClick={() => {
+            Q('');
+            F('');
+            Order('default');
+          }}>
+            {t('Resetează', 'Reset')}
+          </button>
+        )}
       </div>
+      <p className="small muted report-list-result" role="status">
+        {shown.length} {t('din', 'of')} {rows.length} {t('deconturi afișate', 'reports shown')}
+      </p>
       <div className="table-wrap report-list-table">
         <table>
           <thead>
@@ -93,7 +120,7 @@ export function ReportList({ rows, t, state, open, lang = 'ro' }: Any) {
                 <td>
                   <button
                     className="icon"
-                    aria-label={t('Deschide', 'Open')}
+                    aria-label={t('Deschide decontul', 'Open report') + ': ' + title(r)}
                     onClick={() => open(r.id)}
                   >
                     <ArrowUpRight size={17} />
