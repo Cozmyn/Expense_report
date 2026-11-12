@@ -59,6 +59,7 @@ import { JobsPage, ReportJobs } from './BackgroundJobs';
 import { FinanceQueue, BatchPanel } from './FinanceQueues';
 import { ManagerNextActions } from './ManagerFinanceActions';
 import { MasterPage, UsersPage, CardsPage, DelegationPage, DataPage } from './AdminPages';
+import SupplierTemplates from './SupplierTemplates';
 type Any = Record<string, any>;
 type Master = Any;
 const today = () => new Date().toISOString().slice(0, 10);
@@ -762,7 +763,10 @@ function App() {
           {page === 'profile' && <ProfilePage me={me as any} lang={lang} setLanguage={L} />}{' '}
           {page === 'reporting' && <Reporting t={t} run={run} open={open} />}{' '}
           {page === 'assignments' && <Assignments t={t} run={run} />}{' '}
-          {page === 'settings' && <MasterPage t={t} run={run} refresh={load} />}
+          {page === 'settings' && (<> 
+            <MasterPage t={t} run={run} refresh={load} />
+            <SupplierTemplates t={t} run={run} />
+          </>)}
           {page === 'users' && <UsersPage t={t} run={run} />}
           {page === 'cards' && (
             <Reconciliation t={t} masters={masters} label={label} run={run} open={open} />
