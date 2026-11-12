@@ -13,3 +13,5 @@ export function draftSnapshot<T>(
   taxes: Record<string, unknown>,
   sourceVersion: unknown
 ): { data: T; taxes: Record<string, unknown>; sourceVersion: unknown };
+
+export function nextReceiptIndex(current: number, length: number, key: string): number | null;

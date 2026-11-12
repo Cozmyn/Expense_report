@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { adoptSupplierLookup, offersRegistryName, draftSnapshot } from '../src/receiptAssist.mjs';
+import { adoptSupplierLookup, offersRegistryName, draftSnapshot, nextReceiptIndex } from '../src/receiptAssist.mjs';
 
 const match = { found: true, valid: true, cui: '18546294', name: 'Official Vendor SRL' };
 
@@ -39,4 +39,14 @@ test('Draft snapshot preserves the newest receipt, tax rows and OCR version', ()
   const taxes = { 21: { base: '100', vat: '23.45' } };
   assert.deepEqual(draftSnapshot(data, taxes, 8),
     { data, taxes, sourceVersion: 8 });
+});
+
+test('Receipt selector keyboard navigation wraps and supports first/last', () => {
+  assert.equal(nextReceiptIndex(0, 4, 'ArrowRight'), 1);
+  assert.equal(nextReceiptIndex(0, 4, 'ArrowLeft'), 3);
+  assert.equal(nextReceiptIndex(3, 4, 'ArrowRight'), 0);
+  assert.equal(nextReceiptIndex(2, 4, 'Home'), 0);
+  assert.equal(nextReceiptIndex(1, 4, 'End'), 3);
+  assert.equal(nextReceiptIndex(0, 0, 'ArrowRight'), null);
+  assert.equal(nextReceiptIndex(0, 4, 'Enter'), null);
 });

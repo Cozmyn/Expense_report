@@ -27,3 +27,13 @@ export function offersRegistryName(current, lookup) {
 export function draftSnapshot(data, taxes, sourceVersion) {
   return { data, taxes, sourceVersion };
 }
+
+/** Roving-key navigation for the receipt selector; ordinary Tab still works. */
+export function nextReceiptIndex(current, length, key) {
+  if (length <= 0) return null;
+  if (key === 'Home') return 0;
+  if (key === 'End') return length - 1;
+  if (key === 'ArrowRight') return (current + 1 + length) % length;
+  if (key === 'ArrowLeft') return (current - 1 + length) % length;
+  return null;
+}
