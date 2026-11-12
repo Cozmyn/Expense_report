@@ -9,6 +9,10 @@ on:
       - deploy/test_production_uat.py
       - deploy/restore_drill.py
       - deploy/test_restore_drill.py
+      - deploy/uat_dependencies.py
+      - deploy/test_uat_dependencies.py
+      - deploy/release_gate.py
+      - deploy/test_release_gate.py
       - .github/workflows/production-preflight.yml
   pull_request:
     paths:
