@@ -366,6 +366,9 @@ public static class SchemaUpgrades
                     .Select(index => index.GetDatabaseName())
                     .Where(name => name != null)
                     .ToHashSet(StringComparer.Ordinal);
+                var expectedForeignKeyCount = table.SelectMany(e => e.GetForeignKeys()).Count();
+                var expectedChecks = table.SelectMany(e => e.GetCheckConstraints())
+                    .Select(check => check.Name).ToHashSet(StringComparer.Ordinal);
 
                 async Task<HashSet<string>> ReadNames(string query, bool useNameParameter)
                 {
@@ -406,15 +409,54 @@ public static class SchemaUpgrades
                     : db.Database.IsNpgsql()
                         ? await ReadNames("SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON t.tgrelid=c.oid JOIN pg_namespace n ON c.relnamespace=n.oid WHERE NOT t.tgisinternal AND n.nspname=current_schema() AND c.relname=@table", true)
                         : await ReadNames("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name=@table", true);
+                // Validate real FK/check constraints too, not merely EF indexes.
+                // Otherwise a historical upgrade might pass while orphaning
+                // receipts or permitting invalid immutable posting amounts.
+                async Task<object?> Scalar(string query)
+                {
+                    await using var command = connection.CreateCommand();
+                    command.Transaction = db.Database.CurrentTransaction?.GetDbTransaction();
+                    command.CommandText = query;
+                    var parameter = command.CreateParameter();
+                    parameter.ParameterName = "@table";
+                    parameter.Value = table.Key.Name;
+                    command.Parameters.Add(parameter);
+                    return await command.ExecuteScalarAsync();
+                }
+                var actualForeignKeyCount = Convert.ToInt32(await Scalar(
+                    db.Database.IsNpgsql()
+                        ? "SELECT COUNT(*) FROM pg_constraint f JOIN pg_class c ON c.oid=f.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema() AND c.relname=@table AND f.contype='f'"
+                        : "SELECT COUNT(DISTINCT id) FROM pragma_foreign_key_list('" + table.Key.Name.Replace("'", "''") + "')"
+                ));
+                HashSet<string> actualChecks;
+                if (db.Database.IsNpgsql())
+                {
+                    actualChecks = await ReadNames(
+                        "SELECT f.conname FROM pg_constraint f JOIN pg_class c ON c.oid=f.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema() AND c.relname=@table AND f.contype='c'",
+                        true);
+                }
+                else
+                {
+                    var createStatement = Convert.ToString(await Scalar(
+                        "SELECT sql FROM sqlite_master WHERE type='table' AND name=@table")) ?? "";
+                    actualChecks = expectedChecks
+                        .Where(check => createStatement.Contains(check, StringComparison.Ordinal))
+                        .ToHashSet(StringComparer.Ordinal);
+                }
+                var missingChecks = expectedChecks.Except(actualChecks).ToArray();
+                var missingForeignKeys = Math.Max(0, expectedForeignKeyCount - actualForeignKeyCount);
                 var missingTriggers = requiredTriggers.Except(triggers).ToArray();
                 var missingColumns = expectedColumns.Except(columns).ToArray();
                 var missingIndexes = expectedIndexes.Except(indexes).ToArray();
-                if (columns.Count == 0 || missingColumns.Length > 0 || missingIndexes.Length > 0 || missingTriggers.Length > 0)
+                if (columns.Count == 0 || missingColumns.Length > 0 || missingIndexes.Length > 0
+                    || missingTriggers.Length > 0 || missingChecks.Length > 0 || missingForeignKeys > 0)
                     throw new InvalidOperationException(
                         "Database schema drift for " + table.Key.Name
                         + "; missing columns: " + string.Join(",", missingColumns)
                         + "; missing indexes: " + string.Join(",", missingIndexes)
                         + "; missing audit triggers: " + string.Join(",", missingTriggers)
+                        + "; missing check constraints: " + string.Join(",", missingChecks)
+                        + "; missing foreign keys: " + missingForeignKeys
                         + ". Stop startup and restore or apply reviewed migrations."
                     );
             }
