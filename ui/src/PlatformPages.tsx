@@ -1,4 +1,5 @@
 import { formatMoney, parseFinancialJson, compare } from './decimal.mjs';
+import { stateText } from './ReportDisplay';
 import React, { useEffect, useState } from 'react';
 import { api } from './api';
 import { Field } from './Fields';
@@ -424,7 +425,23 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
       exception: '',
       sort: 'age',
     }),
-    [loaded, L] = useState(false);
+    [loaded, L] = useState(false),
+    [compact, Compact] = useState(false);
+  const readableState = (state: string) => {
+    const names = stateText[state];
+    return names ? t(names[0], names[1]) : state.replace(/_/g, ' ');
+  };
+  const exceptionLabels: Record<string, [string, string]> = {
+    VENDOR_UNRESOLVED: ['Cont furnizor lipsă', 'Supplier account missing'],
+    MISSING_VENDOR_ACCOUNT: ['Cont furnizor lipsă', 'Supplier account missing'],
+    MISSING_COST_CENTER: ['Centru de cost lipsă', 'Cost centre missing'],
+    OCR_REVIEW_REQUIRED: ['Bon de verificat', 'Receipt requires review'],
+    MISSING_EVIDENCE: ['Document justificativ lipsă', 'Supporting document missing'],
+  };
+  const readableException = (code: string) => {
+    const name = exceptionLabels[code];
+    return name ? t(name[0], name[1]) : code.replace(/_/g, ' ').toLowerCase();
+  };
   useEffect(() => {
     run(async () => {
       R(await api('/finance/queue'));
@@ -484,8 +501,14 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
     age: ['Vechime minimă (zile)', 'Minimum age (days)'],
   };
   return (
-    <section className="panel">
-      <h2>{t('Coada Finance și excepții', 'Finance queue and exceptions')}</h2>
+    <section className={compact ? 'panel finance-queue-compact' : 'panel'}>
+      <div className="section-heading">
+        <h2>{t('Coada Finance și excepții', 'Finance queue and exceptions')}</h2>
+        <button type="button" className="secondary"
+          aria-pressed={compact} onClick={() => Compact((value) => !value)}>
+          {compact ? t('Afișare confortabilă', 'Comfortable view') : t('Afișare compactă', 'Compact view')}
+        </button>
+      </div>
       <p className="muted">
         {t(
           'Verifică excepțiile și documentele înainte de orice acțiune contabilă.',
@@ -522,7 +545,7 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
           <select value={filter.state} onChange={(e) => F({ ...filter, state: e.target.value })}>
             <option value="">{t('Toate', 'All')}</option>
             {Array.from(new Set(rows.map((r) => r.report.state))).map((s) => (
-              <option key={s}>{s}</option>
+              <option key={s} value={s}>{readableState(s)}</option>
             ))}
           </select>
         </Field>
@@ -533,7 +556,7 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
           >
             <option value="">{t('Toate', 'All')}</option>
             {Array.from(new Set(rows.flatMap((r) => r.exceptionCodes))).map((s: any) => (
-              <option key={s}>{s}</option>
+              <option key={s} value={s}>{readableException(s)}</option>
             ))}
           </select>
         </Field>
@@ -593,14 +616,14 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
         </button>
       </div>
       </section>
-      <p>
-        {shown.length} {t('deconturi', 'reports')}
+      <p role="status" className="small muted">
+        {shown.length} {t('deconturi afișate', 'reports shown')} {activeFilters
+          ? ' · ' + activeFilters + ' ' + t('filtre active', 'active filters') : ''}
       </p>
       {shown.map((x) => (
         <button
           key={x.report.id}
           className="simple-row row-button"
-          aria-label={t('Deschide ', 'Open ') + x.report.number}
           onClick={() => open(x.report.id)}
         >
           <span>
@@ -608,16 +631,28 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
               {x.report.number} · {x.report.purpose}
             </strong>
             <small>
-              {x.employee} · {x.manager} · {x.ageDays} {t(x.ageDays === 1 ? 'zi' : 'zile', x.ageDays === 1 ? 'day' : 'days')}
+              {x.employee || t('Angajat nespecificat', 'Unspecified employee')}
+              {' · '}{x.manager || t('Manager nespecificat', 'Unspecified manager')}
+              {' · '}{x.ageDays} {t(x.ageDays === 1 ? 'zi' : 'zile', x.ageDays === 1 ? 'day' : 'days')}
+            </small>
+            <small className="finance-queue-money">
+              {t('Total decont', 'Report total')}: {formatMoney(x.report.total ?? 0, t('ro-RO', 'en-GB'))} RON
+              {' · '}{x.report.lines?.length || 0} {t('bonuri', 'receipts')}
             </small>
           </span>
           <span>
-            <strong>{x.report.state}</strong>
+            <strong>{readableState(x.report.state)}</strong>
             <small>
               {x.exceptionCodes.length
-                ? x.exceptionCodes.join(' · ')
+                ? t('Necesită atenție: ', 'Needs attention: ') +
+                  x.exceptionCodes.map(readableException).join(' · ')
                 : t('Fără excepții detectate', 'No flagged exceptions')}
             </small>
+            {x.exceptionCodes.length > 0 && (
+              <small className="muted">
+                {t('Coduri pentru audit', 'Audit codes')}: {x.exceptionCodes.join(', ')}
+              </small>
+            )}
           </span>
         </button>
       ))}
@@ -627,9 +662,24 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
 export function Reporting({ t, run, open }: Any) {
   const [rows, R] = useState<Any[]>([]),
     [group, G] = useState('month'),
-    [q, Q] = useState('');
+    [q, Q] = useState(''),
+    [savedReady, SavedReady] = useState(false),
+    [filterFeedback, FilterFeedback] = useState('');
+  const allowedGroups = ['month', 'employee', 'costCenter', 'category', 'supplier',
+    'gl', 'project', 'cardId', 'state'];
   useEffect(() => {
-    run(async () => R(await api('/reporting')));
+    run(async () => {
+      const [results, preferences] = await Promise.all([
+        api('/reporting'),
+        api('/preferences/reporting-filters'),
+      ]);
+      R(results);
+      if (preferences && typeof preferences === 'object') {
+        if (allowedGroups.includes(preferences.group)) G(preferences.group);
+        if (typeof preferences.q === 'string') Q(preferences.q.slice(0, 300));
+      }
+      SavedReady(true);
+    });
   }, []);
   const scoped = rows.filter((r) => JSON.stringify(r).toLowerCase().includes(q.toLowerCase()));
   const totals: Any = {};
@@ -717,9 +767,31 @@ export function Reporting({ t, run, open }: Any) {
           <input value={q} onChange={(e) => Q(e.target.value)} />
         </Field>
       </div>
-      <button className="secondary" onClick={download}>
-        {t('Exportă rezultatele CSV', 'Export results CSV')}
-      </button>
+      <div className="actions reporting-preferences">
+        <button type="button" className="secondary" disabled={!savedReady}
+          onClick={() => run(async () => {
+            await api('/preferences/reporting-filters', 'PUT', { group, q: q.slice(0, 300) });
+            FilterFeedback(t('Filtrele tale de raportare au fost salvate.',
+              'Your reporting filters have been saved.'));
+          })}>
+          {t('Memorează filtrele mele', 'Save my reporting filters')}
+        </button>
+        <button type="button" className="secondary" onClick={() => {
+          G('month'); Q('');
+          FilterFeedback(t('Filtrele afișate au fost resetate. Preferința salvată nu s-a schimbat.',
+            'Visible filters reset. Your saved preference is unchanged.'));
+        }}>
+          {t('Resetează afișarea', 'Reset view')}
+        </button>
+        <button type="button" className="secondary" disabled={!scoped.length}
+          onClick={download}>
+          {t('Exportă rezultatele CSV', 'Export results CSV')}
+        </button>
+      </div>
+      <p className="small muted" role="status">
+        {scoped.length} {t('bonuri afișate', 'receipts shown')}
+        {filterFeedback ? ' · ' + filterFeedback : ''}
+      </p>
       <div className="table-wrap">
         <table>
           <thead>
@@ -870,6 +942,22 @@ export function RevisionComparison({ detail, t, run }: Any) {
   );
 }
 export function AuditSearch({ t, run }: Any) {
+  const auditActionLabels: Record<string, [string, string]> = {
+    Created: ['Decont creat', 'Report created'],
+    LineAdded: ['Bon adăugat', 'Receipt added'],
+    LineChanged: ['Bon modificat', 'Receipt edited'],
+    Submitted: ['Decont trimis spre aprobare', 'Report submitted'],
+    Returned: ['Decont returnat pentru corecții', 'Report returned'],
+    approve: ['Decont aprobat', 'Report approved'],
+    reject: ['Decont respins', 'Report rejected'],
+    ERPExported: ['Export ERP generat', 'ERP export generated'],
+    DocumentVerified: ['Document verificat', 'Document verified'],
+    PostedBatchReopened: ['Postare redeschisă după reversare', 'Posting reopened after reversal'],
+  };
+  const humanAction = (action: string) => {
+    const entry = auditActionLabels[action?.split(':')[0]];
+    return entry ? t(entry[0], entry[1]) : (action || '').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ');
+  };
   const [rows, R] = useState<Any[]>([]),
     [filter, F] = useState<Any>({ q: '', actor: '', action: '', from: '', to: '' });
   const query = () =>
@@ -922,9 +1010,16 @@ export function AuditSearch({ t, run }: Any) {
           <a className="secondary" href={'/api/audit/export?' + query()}>
             {t('Exportă auditul filtrat CSV', 'Export filtered audit CSV')}
           </a>
+          <button type="button" className="secondary" onClick={() => {
+            F({ q: '', actor: '', action: '', from: '', to: '' });
+            run(() => api('/audit').then(R));
+          }}>
+            {t('Resetează și afișează toate', 'Reset and show all')}
+          </button>
         </div>
       </form>
-      <p>
+      <p className="small muted" role="status">
+        {rows.length} {t('evenimente afișate', 'events shown')}.{' '}
         {t(
           'Maximum 1.000 evenimente afișate; exportul include maximum 50.000.',
           'Up to 1,000 displayed events; export includes up to 50,000.',
@@ -946,15 +1041,26 @@ export function AuditSearch({ t, run }: Any) {
               <tr key={a.id}>
                 <td>{new Date(a.at).toLocaleString()}</td>
                 <td>{a.actor}</td>
-                <td>{a.action}</td>
+                <td>
+                  <strong>{humanAction(a.action)}</strong>
+                  <small className="audit-raw-code">{t('Cod audit', 'Audit code')}: {a.action}</small>
+                </td>
                 <td>{a.entity}</td>
                 <td>
-                  <p>{a.reason}</p>
-                  <section>
-                    <h4>{t('Înainte / după', 'Before / after')}</h4>
-                    <pre className="ocr-text">{a.before || '—'}</pre>
-                    <pre className="ocr-text">{a.after || '—'}</pre>
-                  </section>
+                  <p>{a.reason || t('Fără motiv suplimentar', 'No additional reason')}</p>
+                  <details className="audit-change-details">
+                    <summary>{t('Vezi valorile înainte / după', 'Show before / after values')}</summary>
+                    <div className="audit-change-grid">
+                      <div>
+                        <strong>{t('Înainte', 'Before')}</strong>
+                        <pre className="ocr-text">{a.before || '—'}</pre>
+                      </div>
+                      <div>
+                        <strong>{t('După', 'After')}</strong>
+                        <pre className="ocr-text">{a.after || '—'}</pre>
+                      </div>
+                    </div>
+                  </details>
                 </td>
               </tr>
             ))}

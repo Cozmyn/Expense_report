@@ -1,4 +1,5 @@
 import { ArrowUpRight, CheckCheck } from 'lucide-react';
+import { useState } from 'react';
 
 type Any = Record<string, any>;
 type Translate = (ro: string, en: string) => string;
@@ -7,6 +8,7 @@ type Translate = (ro: string, en: string) => string;
 export function ManagerNextActions({
   reports, open, t,
 }: { reports: Any[]; open: (id: string) => void; t: Translate }) {
+  const [showAll, ShowAll] = useState(false);
   const pending = reports
     .filter((report) => report.canApprove)
     .sort((a, b) => (b.ageDays || 0) - (a.ageDays || 0));
@@ -26,7 +28,7 @@ export function ManagerNextActions({
           {pending.length}
         </strong>
       </div>
-      {pending.slice(0, 4).map((report) => (
+      {(showAll ? pending : pending.slice(0, 4)).map((report) => (
         <button key={report.id} className="simple-row row-button" onClick={() => open(report.id)}>
           <span>
             <strong>{report.purpose || report.number}</strong>
@@ -44,6 +46,18 @@ export function ManagerNextActions({
           </span>
         </button>
       ))}
+      {pending.length > 4 && (
+        <button
+          type="button"
+          className="secondary manager-show-more"
+          aria-expanded={showAll}
+          onClick={() => ShowAll((value) => !value)}
+        >
+          {showAll
+            ? t('Afișează numai primele 4 aprobări', 'Show only the first 4 approvals')
+            : t('Arată toate aprobările', 'Show every pending approval') + ' (' + pending.length + ')'}
+        </button>
+      )}
     </section>
   );
 }

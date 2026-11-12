@@ -23,7 +23,7 @@ import CapturePanel from './CapturePanel';
 import ReceiptAuditReview from './ReceiptAuditReview';
 import ExpenseModal, { newReceipt } from './ReceiptModal';
 import { Field } from './Fields';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   LayoutDashboard,
@@ -129,6 +129,22 @@ function App() {
     [notices, Notices] = useState<Any[]>([]),
     [showNotices, SN] = useState(false),
     [sessionExpired, SessionExpired] = useState(false);
+  // In-memory only; never expose another user's report after reauthentication.
+  const resumeAfterLogin = useRef<{ userId: string; page: string; reportId?: string } | null>(null);
+  const mobileMenuClose = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!mobile) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    mobileMenuClose.current?.focus();
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') Mobile(false);
+    };
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('keydown', escape);
+      previousFocus?.focus();
+    };
+  }, [mobile]);
   useEffect(() => {
     const onExpired = () => SessionExpired(true);
     window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
@@ -220,7 +236,27 @@ function App() {
                 const u = await api('/me');
                 M(u);
                 SessionExpired(false);
-                if (!u.changePassword) await load();
+                if (!u.changePassword) {
+                  await load();
+                  const previous = resumeAfterLogin.current;
+                  resumeAfterLogin.current = null;
+                  if (previous && previous.userId === u.id) {
+                    if (previous.page === 'detail' && previous.reportId) {
+                      try {
+                        D(await api('/reports/' + previous.reportId));
+                        P('detail');
+                      } catch {
+                        D(null);
+                        P('reports');
+                        N(t('Sesiune refăcută. Redeschide decontul din listă.', 'Session restored. Open the report from the list.'));
+                      }
+                    } else {
+                      P(previous.page);
+                    }
+                  } else {
+                    P('dashboard');
+                  }
+                }
               });
             }}
           >
@@ -341,17 +377,45 @@ function App() {
       ? [['audit', ShieldCheck, t('Jurnal de audit', 'Audit log')]]
       : []),
   ];
+  // Keep the complete role-filtered navigation while making task groups scannable.
+  const navGroups = [
+    {
+      title: t('Zilnic', 'Everyday tasks'),
+      ids: ['dashboard', 'reports', 'approvals', 'finance', 'cards'],
+    },
+    {
+      title: t('Analiză și control', 'Insights & controls'),
+      ids: ['reporting', 'posting', 'audit'],
+    },
+    {
+      title: t('Administrare', 'Administration'),
+      ids: ['finance-settings', 'settings', 'users', 'delegations', 'assignments', 'jobs'],
+    },
+    {
+      title: t('Contul meu', 'My account'),
+      ids: ['profile'],
+    },
+  ];
+  const noticeDestination = () => {
+    // A job link must never strand Finance / Employee users in an Admin-only page.
+    if (role('Admin')) return 'jobs';
+    if (role('Finance')) return 'finance';
+    if (role('Manager')) return 'approvals';
+    return 'dashboard';
+  };
   const state = (s: string) => stateText[s]?.[lang === 'ro' ? 0 : 1] || s;
   const list = (rows: Any[]) => (
     <ReportList rows={rows} t={t} state={state} open={open} lang={lang} />
   );
-  const unfinishedReport = role('Employee')
-    ? reports.find(
-        (r) =>
+  const unfinishedReports = role('Employee')
+    ? reports
+        .filter((r) =>
           r.employeeId === me.id &&
-          ['DRAFT', 'REJECTED', 'EMPLOYEE_CORRECTION'].includes(r.state),
-      )
-    : null;
+          ['DRAFT', 'REJECTED', 'EMPLOYEE_CORRECTION'].includes(r.state))
+        .sort((a, b) => new Date(b.updated || b.created).getTime() -
+          new Date(a.updated || a.created).getTime())
+    : [];
+  const unfinishedReport = unfinishedReports[0] || null;
   return (
     <div className="shell">
       <aside className={mobile ? 'sidebar open' : 'sidebar'}>
@@ -359,28 +423,38 @@ function App() {
           <span className="brand-symbol">d.</span> decont
           <button
             className="mobile-only icon"
+            ref={mobileMenuClose}
             aria-label={t('Închide meniul', 'Close menu')}
             onClick={() => Mobile(false)}
           >
             <X />
           </button>
         </div>
-        <span className="nav-caption">{t('SPAȚIU DE LUCRU', 'WORKSPACE')}</span>
-        <nav>
-          {nav.map(([id, Icon, text]: any) => (
-            <button
-              key={id}
-              className={page === id || (page === 'detail' && id === 'reports') ? 'active' : ''}
-              aria-current={page === id || (page === 'detail' && id === 'reports') ? 'page' : undefined}
-              onClick={() => {
-                P(id);
-                Mobile(false);
-              }}
-            >
-              <Icon size={19} />
-              {text}
-            </button>
-          ))}
+        <nav id="primary-navigation" aria-label={t('Navigare principală', 'Main navigation')}>
+          {navGroups.map((group) => {
+            const items = nav.filter(([id]: any) => group.ids.includes(id));
+            if (!items.length) return null;
+            return (
+              <div className="nav-group" key={group.title}>
+                <span className="nav-caption">{group.title}</span>
+                {items.map(([id, Icon, text]: any) => (
+                  <button
+                    key={id}
+                    className={page === id || (page === 'detail' && id === 'reports') ? 'active' : ''}
+                    aria-current={page === id || (page === 'detail' && id === 'reports') ? 'page' : undefined}
+                    onClick={() => {
+                      P(id);
+                      Mobile(false);
+                      SN(false);
+                    }}
+                  >
+                    <Icon size={19} aria-hidden="true" />
+                    {text}
+                  </button>
+                ))}
+              </div>
+            );
+          })}
         </nav>
         <div className="sidebar-note">
           {t(
@@ -402,6 +476,7 @@ function App() {
                 await api('/auth/logout', 'POST');
                 M(null);
                 D(null);
+                resumeAfterLogin.current = null;
                 Password('');
               })
             }
@@ -416,6 +491,8 @@ function App() {
             <button
               className="icon mobile-only"
               aria-label={t('Deschide meniul', 'Open menu')}
+              aria-expanded={mobile}
+              aria-controls="primary-navigation"
               onClick={() => Mobile(true)}
             >
               <Menu />
@@ -436,7 +513,9 @@ function App() {
             <button
               className="icon bell"
               aria-label={t('Notificări', 'Notifications')}
-              onClick={() => SN(!showNotices)}
+              aria-expanded={showNotices}
+              aria-controls="notification-list"
+              onClick={() => SN((current) => !current)}
             >
               <Bell size={20} />
               {notices.some((n) => !n.read) && <i />}
@@ -451,28 +530,45 @@ function App() {
           </div>
         </header>
         {showNotices && (
-          <div className="notifications panel">
-            <h3>{t('Notificări', 'Notifications')}</h3>
+          <section className="notifications panel" id="notification-list" aria-label={t('Notificări', 'Notifications')}>
+            <div className="section-heading">
+              <h3>{t('Notificări', 'Notifications')}</h3>
+              <button type="button" className="icon"
+                aria-label={t('Închide notificările', 'Close notifications')} onClick={() => SN(false)}>
+                <X size={16} aria-hidden="true" />
+              </button>
+            </div>
             {!notices.length && <p>{t('Nu ai notificări noi.', 'No notifications yet.')}</p>}
             {notices.map((n) => (
               <button
                 key={n.id}
-                onClick={() =>
-                  run(async () => {
+                type="button"
+                className={n.read ? 'notification-item' : 'notification-item unread'}
+                onClick={() => {
+                  void run(async () => {
+                    const hasReport = !!n.reportId &&
+                      n.reportId !== '00000000-0000-0000-0000-000000000000';
+                    if (hasReport) {
+                      // Fetch the accessible report first; do not expose stale data.
+                      D(await api('/reports/' + n.reportId));
+                      P('detail');
+                    } else {
+                      P(noticeDestination());
+                    }
                     await api('/notices/' + n.id + '/read', 'POST');
-                    if (n.reportId !== '00000000-0000-0000-0000-000000000000')
-                      await open(n.reportId);
-                    else P('jobs');
                     SN(false);
                     await load();
-                  })
-                }
+                  });
+                }}
               >
-                <span className={n.read ? '' : 'unread'}>{eventTitle(n.event, t)}</span>
-                <small>{new Date(n.at).toLocaleString(lang)}</small>
+                <span>
+                  <strong>{eventTitle(n.event, t)}</strong>
+                  <small>{new Date(n.at).toLocaleString(lang === 'ro' ? 'ro-RO' : 'en-GB')}</small>
+                </span>
+                <ArrowUpRight size={16} aria-hidden="true" />
               </button>
             ))}
-          </div>
+          </section>
         )}
         <main>
           {sessionExpired && (
@@ -482,8 +578,8 @@ function App() {
                 <strong>{t('Sesiunea a expirat', 'Your session has expired')}</strong>
                 <p>
                   {t(
-                    'Nu mai poți salva până nu te autentifici din nou. Copiază orice informații încă nesalvate înainte să continui.',
-                    'You cannot save until you sign in again. Copy any unsaved details before continuing.',
+                    'Nu mai poți salva până nu te autentifici din nou. Ciornele salvate pot fi recuperate; verifică orice modificare nesincronizată.',
+                    'You cannot save until you sign in again. Saved drafts can be recovered; review any unsynced changes.',
                   )}
                 </p>
               </div>
@@ -495,6 +591,11 @@ function App() {
                     'Dacă ai modificări nesalvate, acestea se pot pierde. Te autentifici din nou?',
                     'Any unsaved changes may be lost. Sign in again?',
                   ))) return;
+                  resumeAfterLogin.current = {
+                    userId: me.id,
+                    page,
+                    reportId: page === 'detail' ? detail?.report.id : undefined,
+                  };
                   SessionExpired(false);
                   D(null);
                   M(null);
@@ -593,6 +694,29 @@ function App() {
                     {t('Continuă decontul', 'Continue report')}
                     <ArrowUpRight size={17} />
                   </button>
+                </section>
+              )}
+              {unfinishedReports.length > 1 && (
+                <section className="panel dashboard-drafts">
+                  <div className="section-heading">
+                    <h2>{t('Alte deconturi începute', 'Other reports in progress')}</h2>
+                    <button type="button" className="text-button" onClick={() => P('reports')}>
+                      {t('Vezi toate deconturile', 'See all reports')}
+                      <ArrowUpRight size={16} aria-hidden="true" />
+                    </button>
+                  </div>
+                  <div className="dashboard-drafts-list">
+                    {unfinishedReports.slice(1, 4).map((report) => (
+                      <button type="button" className="simple-row row-button"
+                        key={report.id} onClick={() => open(report.id)}>
+                        <span>
+                          <strong>{report.purpose || report.number}</strong>
+                          <small>{report.number} · {state(report.state)}</small>
+                        </span>
+                        <span>{money(report.total)} RON</span>
+                      </button>
+                    ))}
+                  </div>
                 </section>
               )}
               <div className="stats">

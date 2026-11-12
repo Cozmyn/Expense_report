@@ -30,7 +30,7 @@ async function login(c: APIRequestContext, name: string, password: string) {
 async function openReport(p: any, purpose: string) {
   await p.goto('/');
   await expect(p.getByRole('heading', { name: 'Privire de ansamblu', exact: true })).toBeVisible();
-  await p.getByRole('button', { name: purpose }).click();
+  await p.locator('.report-link:visible').filter({ hasText: purpose }).first().click();
   await expect(p.getByRole('heading', { name: purpose, exact: true })).toBeVisible();
 }
 async function navigate(p: any, label: string) {
@@ -261,6 +261,8 @@ test('Reversible reset, statement charges and independent Finance policy approva
   await fxRow.getByText('Compară versiunile calculate', { exact: true }).click();
   await expect(fxRow.getByText('Prima versiune acceptată.', { exact: true })).toBeVisible();
   await fp.screenshot({ path: info.outputPath('03-calculation-provenance.png'), fullPage: true });
+  // Global Finance policy editors were intentionally moved out of the per-report calculation tab.
+  await navigate(fp, 'Configurare Finance');
   await fp.getByText('Politici TVA și aprobare', { exact: true }).click();
   await fp.getByLabel('Companie', { exact: true }).fill('CI-' + tag);
   await fp.getByLabel('Valabil din', { exact: true }).first().fill('2020-01-01');
@@ -279,7 +281,7 @@ test('Reversible reset, statement charges and independent Finance policy approva
   const reviewerContext = await browser.newContext({ storageState: await reviewer.storageState() });
   const rp = await reviewerContext.newPage();
   await openReport(rp, report.purpose);
-  await rp.getByRole('button', { name: 'Calcul și FX', exact: true }).click();
+  await navigate(rp, 'Configurare Finance');
   await rp.getByText('Politici TVA și aprobare', { exact: true }).click();
   await rp
     .getByLabel('Motiv politică', { exact: true })

@@ -304,6 +304,16 @@ export function PostingPreview({ report, detail, t, run, finance, refresh, busy,
               )}
             </p>
           )}
+          <div className="posting-preview-summary" aria-label={t('Rezumat export contabil', 'Accounting export summary')}>
+            <div><strong>{data.rows?.length || 0}</strong><span>{t('rânduri în fișier', 'rows in file')}</span></div>
+            <div><strong>{data.reconciliation?.length || 0}</strong><span>{t('bonuri reconciliate', 'reconciled receipts')}</span></div>
+            <div><strong>{data.issues?.filter((issue: Any) => issue.blocking).length || 0}</strong>
+              <span>{t('probleme care blochează', 'blocking issues')}</span></div>
+          </div>
+          <p className="small muted">
+            {t('Verifică rezumatul și bonurile. Tabelul complet cu cele 24 de coloane rămâne disponibil pentru audit.',
+              'Review the summary and receipts. The complete 24-column file remains available for audit.')}
+          </p>
           {data.issues?.map((p: Any, i: number) => (
             <p className={'issue ' + (p.blocking ? 'blocking' : 'warning')} key={i}>
               {p.lineId &&
@@ -374,10 +384,10 @@ export function PostingPreview({ report, detail, t, run, finance, refresh, busy,
             </section>
           )}
           {data.rows.length > 0 && (
-            <section>
-              <h4>
+            <details className="posting-technical-details">
+              <summary>
                 {t('Fișierul Import — toate cele 24 de coloane', 'Import file — all 24 columns')}
-              </h4>
+              </summary>
               <div className="table-wrap">
                 <table>
                   <thead>
@@ -398,7 +408,7 @@ export function PostingPreview({ report, detail, t, run, finance, refresh, busy,
                   </tbody>
                 </table>
               </div>
-            </section>
+            </details>
           )}
           {finance &&
             !data.frozen &&

@@ -182,6 +182,18 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   await expect(
     page.getByRole('heading', { name: 'Privire de ansamblu', exact: true }),
   ).toBeVisible();
+  // Wave 3: task navigation must remain visible per role, even on touch screens.
+  const menuTrigger = page.getByRole('button', { name: 'Deschide meniul', exact: true });
+  const openedMobileMenu = await menuTrigger.isVisible();
+  if (openedMobileMenu) await menuTrigger.click();
+  const primaryNav = page.getByRole('navigation', { name: 'Navigare principală' });
+  await expect(primaryNav.getByText('Zilnic', { exact: true })).toBeVisible();
+  await expect(primaryNav.getByRole('button', { name: 'Deconturi', exact: true })).toBeVisible();
+  await expect(primaryNav.getByRole('button', { name: 'Utilizatori și acces', exact: true })).toHaveCount(0);
+  if (openedMobileMenu) {
+    await page.keyboard.press('Escape');
+    await expect(menuTrigger).toBeFocused();
+  }
   await shot(page, '02-dashboard');
   const ocrHelp = page.locator('.report-instructions .quick-help').filter({
     hasText: 'Cum citește aplicația un bon?',
@@ -339,7 +351,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     const mp = await ctx.newPage();
     await mp.goto('/');
     await mp.getByRole('button', { name: 'Aprobări', exact: true }).click();
-    await mp.getByRole('button', { name: report.purpose }).click();
+    await mp.locator('.report-link:visible').filter({ hasText: report.purpose }).first().click();
     const managerEvidence = mp.getByRole('region', { name: 'Verificare bonuri și OCR' });
     await expect(managerEvidence).toBeVisible();
     await expect(managerEvidence.getByText('câmpuri OCR identice cu cele salvate')).toBeVisible();
@@ -382,7 +394,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   const financeMenu = financePage.getByRole('button', { name: 'Deschide meniul', exact: true });
   if (await financeMenu.isVisible()) await financeMenu.click();
   await financePage.getByRole('button', { name: 'Finance', exact: true }).click();
-  await financePage.getByRole('button', { name: report.purpose }).click();
+  await financePage.locator('.report-link:visible').filter({ hasText: report.purpose }).first().click();
   const financeEvidence = financePage.getByRole('region', { name: 'Verificare bonuri și OCR' });
   await expect(financeEvidence).toBeVisible();
   await expect(financeEvidence.getByRole('button', { name: 'Corectează bonul și câmpurile OCR' })).toBeVisible();
@@ -443,7 +455,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     await fp.getByRole('button', { name: 'Finance', exact: true }).click();
     await expect(fp.getByRole('heading', { name: 'Verificare financiară' })).toBeVisible();
     await shot(fp, '06-finance-queue');
-    await fp.getByRole('button', { name: report.purpose }).click();
+    await fp.locator('.report-link:visible').filter({ hasText: report.purpose }).first().click();
     await expect(fp.getByRole('heading', { name: report.purpose, exact: true })).toBeVisible();
     await shot(fp, '07-finance-report');
     await fp.getByRole('button', { name: 'ERP', exact: true }).click();
