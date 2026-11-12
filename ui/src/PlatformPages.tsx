@@ -655,9 +655,24 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
 export function Reporting({ t, run, open }: Any) {
   const [rows, R] = useState<Any[]>([]),
     [group, G] = useState('month'),
-    [q, Q] = useState('');
+    [q, Q] = useState(''),
+    [savedReady, SavedReady] = useState(false),
+    [filterFeedback, FilterFeedback] = useState('');
+  const allowedGroups = ['month', 'employee', 'costCenter', 'category', 'supplier',
+    'gl', 'project', 'cardId', 'state'];
   useEffect(() => {
-    run(async () => R(await api('/reporting')));
+    run(async () => {
+      const [results, preferences] = await Promise.all([
+        api('/reporting'),
+        api('/preferences/reporting-filters'),
+      ]);
+      R(results);
+      if (preferences && typeof preferences === 'object') {
+        if (allowedGroups.includes(preferences.group)) G(preferences.group);
+        if (typeof preferences.q === 'string') Q(preferences.q.slice(0, 300));
+      }
+      SavedReady(true);
+    });
   }, []);
   const scoped = rows.filter((r) => JSON.stringify(r).toLowerCase().includes(q.toLowerCase()));
   const totals: Any = {};
@@ -745,9 +760,31 @@ export function Reporting({ t, run, open }: Any) {
           <input value={q} onChange={(e) => Q(e.target.value)} />
         </Field>
       </div>
-      <button className="secondary" onClick={download}>
-        {t('Exportă rezultatele CSV', 'Export results CSV')}
-      </button>
+      <div className="actions reporting-preferences">
+        <button type="button" className="secondary" disabled={!savedReady}
+          onClick={() => run(async () => {
+            await api('/preferences/reporting-filters', 'PUT', { group, q: q.slice(0, 300) });
+            FilterFeedback(t('Filtrele tale de raportare au fost salvate.',
+              'Your reporting filters have been saved.'));
+          })}>
+          {t('Memorează filtrele mele', 'Save my reporting filters')}
+        </button>
+        <button type="button" className="secondary" onClick={() => {
+          G('month'); Q('');
+          FilterFeedback(t('Filtrele afișate au fost resetate. Preferința salvată nu s-a schimbat.',
+            'Visible filters reset. Your saved preference is unchanged.'));
+        }}>
+          {t('Resetează afișarea', 'Reset view')}
+        </button>
+        <button type="button" className="secondary" disabled={!scoped.length}
+          onClick={download}>
+          {t('Exportă rezultatele CSV', 'Export results CSV')}
+        </button>
+      </div>
+      <p className="small muted" role="status">
+        {scoped.length} {t('bonuri afișate', 'receipts shown')}
+        {filterFeedback ? ' · ' + filterFeedback : ''}
+      </p>
       <div className="table-wrap">
         <table>
           <thead>
