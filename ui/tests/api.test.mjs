@@ -110,3 +110,49 @@ test('Empty-body 401 during receipt upload still reports the expired session', a
   );
   assert.deepEqual(events, [SESSION_EXPIRED_EVENT]);
 });
+
+test('Ambiguous network failure reuses the same key and successful replay clears it', async () => {
+  const keys = [];
+  let attempt = 0;
+  globalThis.fetch = async (url, options) => {
+    if (url.endsWith('/csrf')) return Response.json({ token: 'csrf' });
+    keys.push(options.headers['Idempotency-Key']);
+    if (++attempt === 1) throw new TypeError('Network response lost');
+    return Response.json({ id: 'existing-receipt' });
+  };
+  const { api } = await fresh();
+  await assert.rejects(() => api('/reports/42/lines', 'POST', { amount: '10.00' }), /Network response lost/);
+  const replay = await api('/reports/42/lines', 'POST', { amount: '10.00' });
+  assert.equal(replay.id, 'existing-receipt');
+  await api('/reports/42/lines', 'POST', { amount: '10.00' });
+  assert.equal(keys[0], keys[1]);
+  assert.notEqual(keys[1], keys[2]);
+});
+test('A transient server error preserves the operation key until successful replay', async () => {
+  const keys = [];
+  let count = 0;
+  globalThis.fetch = async (url, options) => {
+    if (url.endsWith('/csrf')) return Response.json({ token: 'csrf' });
+    keys.push(options.headers['Idempotency-Key']);
+    return ++count === 1
+      ? Response.json({ en: 'Temporary' }, { status: 503 })
+      : Response.json({ ok: true });
+  };
+  const { api } = await fresh();
+  await assert.rejects(() => api('/reports', 'POST', { purpose: 'Unique purpose' }), /Temporary/);
+  await api('/reports', 'POST', { purpose: 'Unique purpose' });
+  assert.equal(keys[0], keys[1]);
+});
+test('Caller-supplied operation ID remains unchanged for an explicit replay', async () => {
+  const keys = [];
+  globalThis.fetch = async (url, options) => {
+    if (url.endsWith('/csrf')) return Response.json({ token: 'csrf' });
+    keys.push(options.headers['Idempotency-Key']);
+    return Response.json({ ok: true });
+  };
+  const { api, newOperationId } = await fresh();
+  const id = newOperationId();
+  await api('/reports', 'POST', { purpose: 'Journey' }, { operationId: id });
+  await api('/reports', 'POST', { purpose: 'Journey' }, { operationId: id });
+  assert.deepEqual(keys, [id, id]);
+});

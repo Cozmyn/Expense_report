@@ -7,6 +7,9 @@ namespace Decont;
 
 public static class Documents
 {
+    private const long MaximumPackBytes = 128L * 1024 * 1024;
+    private static readonly SemaphoreSlim PackSlots = new(2, 2);
+
     public static void CheckExcelAmount(decimal amount) =>
         Guard.Require(
             Math.Abs(amount) <= long.MaxValue / 100m && (decimal)(double)amount == amount,
@@ -97,7 +100,19 @@ public static class Documents
             async (Guid id, Db db, Reports svc, IStore store, HttpContext c) =>
             {
                 var r = await svc.Get(id, c.User);
-                using var output = new MemoryStream();
+                Guard.Require(await PackSlots.WaitAsync(TimeSpan.FromSeconds(15), c.RequestAborted),
+                    "pack_busy", "Prea multe arhive simultane. Reîncearcă.", "Too many concurrent archives. Retry.", 429);
+                FileStream? output = null;
+                try
+                {
+                // Delete-on-close keeps temporary exports private, even if the
+                // client disconnects. Never clone the full ZIP into a byte[].
+                output = new FileStream(Path.Combine(Path.GetTempPath(), "decont-" + Guid.NewGuid().ToString("N") + ".zip"),
+                    new FileStreamOptions
+                    {
+                        Mode = FileMode.CreateNew, Access = FileAccess.ReadWrite,
+                        Share = FileShare.None, Options = FileOptions.Asynchronous | FileOptions.DeleteOnClose
+                    });
                 using (var zip = new ZipArchive(output, ZipArchiveMode.Create, true))
                 {
                     async Task Write(string name, byte[] bytes)
@@ -138,6 +153,8 @@ public static class Documents
                         .Concat(r.Attachments)
                         .Where(e => e.Scan == "Clean")
                         .ToList();
+                    Guard.Require(docs.Count <= 200 && docs.Sum(e => (long)e.Size) <= MaximumPackBytes,
+                        "pack_limit", "Arhiva depășește limita permisă.", "Archive exceeds the supported size limit.", 413);
                     await Write(
                         "manifest.json",
                         Encoding.UTF8.GetBytes(
@@ -165,9 +182,18 @@ public static class Documents
                         await Write("originals/" + e.Id + Path.GetExtension(e.Name), bytes);
                     }
                 }
+                output.Position = 0;
                 svc.Log(c.User, id, "Report", "PackDownloaded");
                 await db.SaveChangesAsync();
-                return Results.File(output.ToArray(), "application/zip", r.Number + ".zip");
+                var response = Results.File((Stream)output, "application/zip", r.Number + ".zip");
+                output = null; // Response owns and closes the delete-on-close stream.
+                return response;
+                }
+                finally
+                {
+                    if (output != null) await output.DisposeAsync();
+                    PackSlots.Release();
+                }
             }
         );
         api.MapGet(

@@ -41,7 +41,10 @@ export default function DocumentViewer({
     [page, P] = useState(doc.initialPage || Number(doc.url.match(/#page=(\d+)/)?.[1]) || 1),
     [pages, Pages] = useState(doc.pageCount || 1),
     [crop, Crop] = useState(false),
-    [draft, Draft] = useState<Region | null>(null);
+    [draft, Draft] = useState<Region | null>(null),
+    [keyboardSelection, KeyboardSelection] = useState<Region>({
+      page: 1, x: .1, y: .1, width: .8, height: .8,
+    });
   const [viewer, Viewer] = useState('');
   const start = useRef<{ x: number; y: number } | null>(null);
   const pdf = doc.mime === 'application/pdf',
@@ -79,6 +82,7 @@ export default function DocumentViewer({
     L(false);
     F(false);
     Draft(null);
+    KeyboardSelection(r => ({ ...r, page: Math.max(1, Math.min(pages, value)) }));
   };
   const src = paged
     ? '/api/reports/' +
@@ -226,12 +230,45 @@ export default function DocumentViewer({
         </div>
       )}
       {crop && (
-        <p className="small" role="status">
-          {t(
-            'Trage pe imagine de la un colț al bonului la colțul opus. Poți folosi și câmpurile procentuale de mai jos.',
-            'Drag across the receipt from one corner to the opposite corner. You can also use the percentage inputs below.',
-          )}
-        </p>
+        <div>
+          <p className="small" role="status">
+            {t(
+              'Trage pe imagine sau folosește câmpurile procentuale și butonul de confirmare.',
+              'Drag across the image, or use the percentage fields and confirm button.',
+            )}
+          </p>
+          <fieldset>
+            <legend>{t('Regiune accesibilă prin tastatură', 'Keyboard accessible source region')}</legend>
+            {([
+              ['x', t('Stânga (%)', 'Left (%)')],
+              ['y', t('Sus (%)', 'Top (%)')],
+              ['width', t('Lățime (%)', 'Width (%)')],
+              ['height', t('Înălțime (%)', 'Height (%)')],
+            ] as const).map(([axis, name]) => (
+              <label key={axis}>
+                {name}{' '}
+                <input type="number" min={0} max={100} step={1}
+                  value={Math.round(keyboardSelection[axis] * 100)}
+                  onChange={e => {
+                    const value = Math.max(0, Math.min(1, Number(e.target.value) / 100));
+                    KeyboardSelection(old => ({ ...old, page, [axis]: value }));
+                  }}
+                />
+              </label>
+            ))}
+            <button type="button" className="secondary"
+              disabled={rotation !== 0 || keyboardSelection.width <= 0 || keyboardSelection.height <= 0
+                || keyboardSelection.x + keyboardSelection.width > 1
+                || keyboardSelection.y + keyboardSelection.height > 1}
+              onClick={() => {
+                const selected = { ...keyboardSelection, page };
+                Draft(selected);
+                onRegionSelect?.(selected);
+              }}>
+              {t('Confirmă regiunea', 'Confirm source region')}
+            </button>
+          </fieldset>
+        </div>
       )}
       {unsupported ? (
         <p>
@@ -358,6 +395,7 @@ export default function DocumentViewer({
                     .map((r, n) => outline(r, 'recognised' + n, '#16a34a'))}
                   {focus?.page === page && outline(focus, 'focus', '#1d4ed8')}
                   {draft?.page === page && outline(draft, 'draft', '#b45309')}
+                  {crop && outline({ ...keyboardSelection, page }, 'keyboard', '#2563eb')}
                 </div>
               </div>
             </div>

@@ -141,19 +141,34 @@ export default function ReceiptModal({
   const [draftReady, DR] = useState(false),
     [draftStatus, DS] = useState('');
   const lastSaved = useRef('');
+  const draftRevision = useRef(0);
+  const draftConflicted = useRef(false);
   const saving = useRef(false);
   const modified = useRef(false);
   const requestCloseRef = useRef<() => void>(() => {});
   const formRef = useRef<HTMLFormElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
   const draftQueue = useRef<Promise<any>>(Promise.resolve());
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     const previouslyFocused = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
+    // Only the active dialog may be reached by sequential keyboard navigation.
+    // Inert siblings prevent background controls from leaking into the focus order.
+    const dialog = dialogRef.current;
+    const overlay = dialog?.parentElement;
+    const siblings = overlay ? Array.from(overlay.parentElement?.children || []) : [];
+    const prior = siblings.filter((element): element is HTMLElement =>
+      element instanceof HTMLElement && element !== overlay)
+      .map(element => ({ element, inert: element.inert }));
+    prior.forEach(({ element }) => { element.inert = true; });
     titleRef.current?.focus();
-    return () => previouslyFocused?.focus();
+    return () => {
+      prior.forEach(({ element, inert }) => { element.inert = inert; });
+      previouslyFocused?.focus();
+    };
   }, []);
   useEffect(() => {
     let active = true;
@@ -184,7 +199,12 @@ export default function ReceiptModal({
           DS(t('Ciornă restaurată', 'Draft restored'));
         }
         if (active) {
-          lastSaved.current = JSON.stringify(saved);
+          // The server-side revision is metadata, not part of the editable draft.
+          // Compare only user-visible fields to avoid a spurious autosave on load.
+          lastSaved.current = saved.data
+            ? JSON.stringify({ data: saved.data, taxes: saved.taxes, sourceVersion: saved.sourceVersion })
+            : '';
+          draftRevision.current = Number(saved.draftRevision || 0);
           DR(true);
         }
       })
@@ -196,7 +216,7 @@ export default function ReceiptModal({
     };
   }, []);
   useEffect(() => {
-    if (!draftReady || !draftStorageKey || expense.id || saving.current) return;
+    if (!draftReady || !draftStorageKey || expense.id || saving.current || draftConflicted.current) return;
     const value = { data: d, taxes, sourceVersion: expense.ocrVersion };
     const json = JSON.stringify(value);
     if (json === lastSaved.current) return;
@@ -205,12 +225,23 @@ export default function ReceiptModal({
       DS(t('Se salvează ciorna…', 'Saving draft…'));
       draftQueue.current = draftQueue.current
         .catch(() => {})
-        .then(() => api('/preferences/' + draftStorageKey, 'PUT', value))
-        .then(() => {
+        .then(() => api('/preferences/' + draftStorageKey, 'PUT',
+          { ...value, draftRevision: draftRevision.current }))
+        .then((saved: Any) => {
+          draftRevision.current = Number(saved.draftRevision);
           lastSaved.current = json;
           DS(t('Ciornă salvată automat', 'Draft autosaved'));
         })
-        .catch(() => DS(t('Ciorna nu a putut fi salvată', 'Draft could not be saved')));
+        .catch((error: Error) => {
+          if (error.message.includes('altă filă') || error.message.includes('another tab')) {
+            draftConflicted.current = true; // Stop writes; leave the user's local edits visible.
+            DS(t('Conflict între file: modificările tale nu au fost suprascrise. Copiază-le înainte de reîncărcare.',
+              'Draft conflict: your edits remain on screen. Copy them before reloading.'));
+          } else {
+            DS(t('Ciorna nu a putut fi salvată. Reîncearcă după reconectare.',
+              'Draft could not be saved. Retry after reconnecting.'));
+          }
+        });
     }, 800);
     draftTimer.current = timer;
     return () => clearTimeout(timer);
@@ -273,16 +304,19 @@ export default function ReceiptModal({
       }
       if (e.key === 'Tab') {
         const elements = Array.from(
-          document.querySelectorAll<HTMLElement>(
-            '.receipt-modal button,.receipt-modal input,.receipt-modal select,.receipt-modal textarea,.receipt-modal a',
-          ),
-        ).filter((el) => el.offsetParent !== null && !el.hasAttribute('disabled'));
+          dialogRef.current?.querySelectorAll<HTMLElement>(
+            'a[href], button, input, select, textarea, iframe, [tabindex]:not([tabindex="-1"])',
+          ) || [],
+        ).filter((el) => el.getClientRects().length > 0
+          && !el.hasAttribute('disabled') && !el.closest('[inert]'));
         const first = elements[0],
           last = elements[elements.length - 1];
-        if (e.shiftKey && document.activeElement === first) {
+        if (e.shiftKey && (document.activeElement === first
+          || !dialogRef.current?.contains(document.activeElement))) {
           e.preventDefault();
           last?.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
+        } else if (!e.shiftKey && (document.activeElement === last
+          || !dialogRef.current?.contains(document.activeElement))) {
           e.preventDefault();
           first?.focus();
         }
@@ -548,6 +582,7 @@ export default function ReceiptModal({
     <div className="modal-overlay">
       <section
         className="modal receipt-modal"
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="expense-title"
@@ -664,7 +699,7 @@ export default function ReceiptModal({
                       : d.documentType,
                     hasCompanyCui: domestic ? d.hasCompanyCui : false,
                     cui: vat ? d.cui : null,
-                    supplier: vat ? d.supplier : '',
+                    supplier: String(d.supplier || '').trim(),
                     supplierConfirmed: vat && !lookup?.found ? d.supplierConfirmed : false,
                     taxes: vat
                       ? d.vatTreatment && d.vatTreatment !== 'STANDARD'
@@ -843,7 +878,7 @@ export default function ReceiptModal({
                       hasCompanyCui: e.target.value === 'yes'
                         ? (old.country === 'RO' ? old.hasCompanyCui : null) : false,
                       cui: e.target.value === 'yes' ? old.cui : null,
-                      supplier: e.target.value === 'yes' ? old.supplier : '',
+                      supplier: old.supplier,
                       supplierConfirmed: e.target.value === 'yes' ? old.supplierConfirmed : false,
                       taxCurrency: old.currency,
                     }))

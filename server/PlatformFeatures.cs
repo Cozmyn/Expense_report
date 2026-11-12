@@ -83,6 +83,28 @@ public static class PlatformFeatures
                             };
                             db.Preferences.Add(row);
                         }
+                        if (key.StartsWith("ocr-draft:", StringComparison.Ordinal)
+                            || key.StartsWith("receipt-draft:", StringComparison.Ordinal))
+                        {
+                            var provided = json.TryGetProperty("draftRevision", out var supplied)
+                                && supplied.ValueKind == JsonValueKind.Number && supplied.TryGetInt64(out var revision)
+                                ? revision : 0;
+                            long current = 0;
+                            if (!string.IsNullOrWhiteSpace(row.Json))
+                            {
+                                using var previous = JsonDocument.Parse(row.Json);
+                                if (previous.RootElement.TryGetProperty("draftRevision", out var existing)
+                                    && existing.ValueKind == JsonValueKind.Number)
+                                    current = existing.GetInt64();
+                            }
+                            Guard.Require(provided == current, "draft_conflict",
+                                "Ciorna a fost modificată în altă filă. Reîncarcă și compară modificările.",
+                                "Draft changed in another tab. Reload and compare your changes.", 409);
+                            var updated = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json.GetRawText())!;
+                            updated["draftRevision"] = JsonSerializer.SerializeToElement(current + 1);
+                            row.Json = JsonSerializer.Serialize(updated);
+                            return new { saved = true, draftRevision = current + 1 };
+                        }
                         row.Json = json.GetRawText();
                         return new { saved = true };
                     }

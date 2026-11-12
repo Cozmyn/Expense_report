@@ -1,5 +1,27 @@
 import { parseFinancialJson } from './decimal.mjs';
 let token = '';
+// Keep an operation key after an ambiguous transport/server failure. Retrying the
+// same command in this tab must recover the server's committed response instead of
+// creating a second receipt, export or notification. Never persist payloads locally.
+const unresolvedMutations = new Map<string, { key: string; until: number }>();
+const mutationLifetimeMs = 30 * 60 * 1000;
+export type ApiOptions = { operationId?: string; signal?: AbortSignal };
+export function newOperationId(): string { return crypto.randomUUID(); }
+function mutationKey(path: string, method: string, payload: string | undefined, explicit?: string) {
+  if (explicit) return { key: explicit, signature: '' };
+  if (path.startsWith('/auth/')) return { key: newOperationId(), signature: '' };
+  const signature = method + '\\u0000' + path + '\\u0000' + (payload ?? '');
+  const now = Date.now();
+  for (const [id, value] of unresolvedMutations)
+    if (value.until <= now) unresolvedMutations.delete(id);
+  const prior = unresolvedMutations.get(signature);
+  if (prior) return { key: prior.key, signature };
+  if (unresolvedMutations.size >= 64)
+    unresolvedMutations.delete(unresolvedMutations.keys().next().value!);
+  const key = newOperationId();
+  unresolvedMutations.set(signature, { key, until: now + mutationLifetimeMs });
+  return { key, signature };
+}
 /** Tell the authenticated workspace to offer a safe return to sign-in on a 401. */
 export const SESSION_EXPIRED_EVENT = 'decont:session-expired';
 function handleExpiredSession(path: string, status: number): boolean {
@@ -17,25 +39,32 @@ function expiredSessionMessage(): string {
     ? 'Session expired. Sign in again.'
     : 'Sesiunea a expirat. Autentifică-te din nou.';
 }
-export async function api<T = any>(path: string, method = 'GET', body?: unknown): Promise<T> {
+export async function api<T = any>(path: string, method = 'GET', body?: unknown, options: ApiOptions = {}): Promise<T> {
   if (method !== 'GET' && !token) {
     const r = await fetch('/api/auth/csrf', { credentials: 'same-origin' });
     if (!r.ok) throw new Error('Conexiunea cu serverul a eșuat. / Server connection failed.');
     token = (await r.json()).token;
   }
   const headers: Record<string, string> = { 'X-Money-Format': 'exact-v1' };
-  if (method !== 'GET') {
+  const payload = body instanceof FormData ? undefined : body === undefined ? undefined : JSON.stringify(body);
+  const operation = method !== 'GET'
+    ? mutationKey(path, method, payload, options.operationId) : null;
+  if (operation) {
     headers['X-CSRF-TOKEN'] = token;
-    headers['Idempotency-Key'] = crypto.randomUUID();
+    headers['Idempotency-Key'] = operation.key;
   }
   if (body && !(body instanceof FormData)) headers['Content-Type'] = 'application/json';
   const response = await fetch('/api' + path, {
     method,
     headers,
     credentials: 'same-origin',
-    body: body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body),
+    signal: options.signal,
+    body: body instanceof FormData ? body : payload,
   });
   if (!response.ok) {
+    // A 5xx/timeout may occur after commit, so keep the key for a safe retry.
+    if (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429
+        && operation?.signature) unresolvedMutations.delete(operation.signature);
     if (handleExpiredSession(path, response.status)) throw new Error(expiredSessionMessage());
     const p = await response
       .json()
@@ -48,8 +77,10 @@ export async function api<T = any>(path: string, method = 'GET', body?: unknown)
     } catch {}
     throw new Error(message);
   }
+  const result = response.status === 204 ? (undefined as T) : parseFinancialJson(await response.text());
+  if (operation?.signature) unresolvedMutations.delete(operation.signature);
   if (['/auth/login', '/auth/logout', '/auth/change-password'].includes(path)) token = '';
-  return response.status === 204 ? (undefined as T) : parseFinancialJson(await response.text());
+  return result;
 }
 export async function upload(
   path: string,

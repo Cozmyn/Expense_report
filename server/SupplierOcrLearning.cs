@@ -120,22 +120,35 @@ public static class SupplierOcrLearning
     {
         if (!result.Candidates.Any(c => !string.IsNullOrWhiteSpace(c.Fields.GetValueOrDefault("cui")?.Value)))
             return result;
-        var verified = await db.DocumentGroups
+        // Select verified history by vendor before bounding any result set.
+        // A global Take(300) silently forgets rare suppliers. The persisted
+        // corrected expense is JSON, so on legacy schemas the fiscal identifier
+        // cannot be indexed here: query vendor-specific batches in bounded pages
+        // instead of imposing a global 300-row cutoff. A normalized indexed
+        // supplier identity is still recommended for high-volume installations.
+        var detected = result.Candidates
+            .Select(c => Cui(c.Fields.GetValueOrDefault("cui")?.Value))
+            .Where(c => c.Length > 0 && Rules.ValidCui(c))
+            .ToHashSet(StringComparer.Ordinal);
+        if (detected.Count == 0)
+            return result;
+        var verified = db.DocumentGroups
             .AsNoTracking()
             .Where(g => g.State == "Verified" && g.CorrectedExpense != null)
             .OrderByDescending(g => g.VerifiedAt)
-            .Take(300)
             .Select(g => new { g.BundleId, g.Fields, g.CorrectedExpense })
-            .ToListAsync();
+            .AsAsyncEnumerable();
         List<Example> examples = [];
-        foreach (var item in verified)
+        var perVendorCounts = detected.ToDictionary(c => c, _ => 0, StringComparer.Ordinal);
+        await foreach (var item in verified)
         {
             try
             {
                 var expense = Serialization.Read<ExpenseData>(item.CorrectedExpense!);
                 var cui = Cui(expense.Cui);
-                if (cui.Length == 0 || !Rules.ValidCui(cui))
+                if (!detected.Contains(cui) || perVendorCounts[cui] >= 300)
                     continue;
+                perVendorCounts[cui]++;
                 var fields = Serialization.Read<Dictionary<string, OcrField>>(item.Fields);
                 foreach (var (key, field) in fields)
                     if (field.Source == "HumanSelected" && field.Box != null
@@ -146,6 +159,8 @@ public static class SupplierOcrLearning
             {
                 // Invalid legacy rows are ignored, never used to train.
             }
+            if (perVendorCounts.Values.All(n => n >= 300))
+                break;
         }
         return Suggest(result, examples);
     }

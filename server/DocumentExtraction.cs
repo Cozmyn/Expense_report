@@ -213,15 +213,36 @@ public static class ReceiptParser
                         ],
                         description
                     );
-                var date = Regex.Match(text, @"\b(\d{2}[./-]\d{2}[./-]\d{4}|\d{4}-\d{2}-\d{2})\b");
+                // Distinguish issue date from due date before proposing a date.
+                // A bare date is safe only when no competing printed dates exist.
+                var dateCandidates = lines
+                    .SelectMany((line, lineIndex) => Regex.Matches(line,
+                        @"\b(\d{2}[./-]\d{2}[./-]\d{4}|\d{4}-\d{2}-\d{2})\b")
+                        .Select(m => new { Match = m, Line = line, LineIndex = lineIndex }))
+                    .ToList();
+                var issueDates = dateCandidates.Where(x => Regex.IsMatch(x.Line,
+                    @"(?i)\b(?:DATA\s*(?:EMITERII|EMISIEI|BONULUI|FACTURII)|EMIS(?:A|Ă)|ISSUE\s*DATE|INVOICE\s*DATE|DATE\s*OF\s*ISSUE)\b")
+                    && !Regex.IsMatch(x.Line, @"(?i)\b(?:SCADEN[TȚ][AĂ]|DUE\s*DATE|PAY\s*BY)\b")).ToList();
+                var eligibleDates = issueDates.Count > 0 ? issueDates : dateCandidates.Where(x =>
+                    !Regex.IsMatch(x.Line, @"(?i)\b(?:SCADEN[TȚ][AĂ]|DUE\s*DATE|PAY\s*BY)\b")).ToList();
+                var distinctDates = eligibleDates.Select(x => x.Match.Value).Distinct().ToList();
+                var date = eligibleDates.Count > 0 ? eligibleDates[0].Match : Regex.Match("", @"\d+");
+                if (distinctDates.Count > 1)
+                {
+                    var geometry = DocumentGeometry.Find(page, date.Value, currentOffset, wordCount);
+                    fields["date"] = new(null, page.Number, string.Join(" / ", distinctDates),
+                        "Ambiguous", geometry.Confidence, geometry.Box, date.Value, page.Method);
+                    warnings.Add("DATE_MULTIPLE: Există mai multe date posibile. Selectează data emiterii. / Multiple candidate dates; select the issue date.");
+                }
+                DateOnly day = default;
                 if (
-                    date.Success
+                    distinctDates.Count == 1 && date.Success
                     && DateOnly.TryParseExact(
                         date.Value,
                         new[] { "dd.MM.yyyy", "dd/MM/yyyy", "dd-MM-yyyy", "yyyy-MM-dd" },
                         CultureInfo.InvariantCulture,
                         DateTimeStyles.None,
-                        out var day
+                        out day
                     )
                 )
                 {
@@ -366,17 +387,40 @@ public static class ReceiptParser
                         );
                     }
                 }
-                var totalLine = lines.LastOrDefault(l =>
-                    Regex.IsMatch(
-                        l,
-                        @"(?i)\b(?:TOTAL\s*(?:DE\s*PLAT[ĂA]|GENERAL|AMOUNT|DUE|DE\s*ACHITAT|ACHITAT)?|SUMA(?:\s+TOTAL[ĂA])?\s+(?:DE\s+)?(?:PLAT[ĂA]|ACHITAT[ĂA])|VALOARE(?:A)?\s+TOTAL[ĂA]|AMOUNT\s+DUE|GRAND\s+TOTAL)\b"
-                    ) && !Regex.IsMatch(l, @"(?i)SUBTOTAL|SUB-TOTAL|TOTAL\s*(?:TVA|TAX|VAT|BAZ[ĂA])")
-                );
-                if (totalLine != null)
+                // A last matching number can be change, an advance, or a RON
+                // equivalent. Prefer labelled payable/gross totals; ambiguous
+                // alternatives need a human choice rather than a silent guess.
+                var totalCandidates = lines
+                    .Where(l => Regex.IsMatch(l,
+                        @"(?i)\b(?:TOTAL|SUMA(?:\s+TOTAL[ĂA])?\s+(?:DE\s+)?(?:PLAT[ĂA]|ACHITAT[ĂA])|VALOARE(?:A)?\s+TOTAL[ĂA]|AMOUNT\s+DUE|GRAND\s+TOTAL)\b")
+                        && !Regex.IsMatch(l,
+                            @"(?i)SUB[ -]?TOTAL|TOTAL\s*(?:TVA|TAX|VAT|BAZ[ĂA])|REST|CHANGE|AVANS|ADVANCE|ECHIVALENT|EQUIVALENT|BALANCE\s+BROUGHT"))
+                    .Select(l => new
+                    {
+                        Line = l,
+                        Amounts = Amounts.Matches(l).Select(m => Number(m.Value))
+                            .Where(v => v != null).Select(v => v!.Value).ToList(),
+                        Score = Regex.IsMatch(l,
+                            @"(?i)TOTAL\s*DE\s*PLAT[ĂA]|TOTAL\s*GENERAL|GRAND\s+TOTAL|AMOUNT\s+DUE|(?:DE\s+)?ACHITAT[ĂA]?")
+                            ? 2 : 1
+                    })
+                    .Where(x => x.Amounts.Count > 0)
+                    .ToList();
+                if (totalCandidates.Count > 0)
                 {
-                    var amounts = Amounts.Matches(totalLine);
-                    if (amounts.Count > 0 && Number(amounts[^1].Value) is decimal total)
-                        Put("amount", total.ToString("0.00", CultureInfo.InvariantCulture), totalLine);
+                    var bestScore = totalCandidates.Max(x => x.Score);
+                    var best = totalCandidates.Where(x => x.Score == bestScore).ToList();
+                    var alternatives = best.SelectMany(x => x.Amounts).Distinct().ToList();
+                    if (alternatives.Count == 1)
+                        Put("amount", alternatives[0].ToString("0.00", CultureInfo.InvariantCulture), best[0].Line);
+                    else
+                    {
+                        var evidence = string.Join(" / ", best.Select(x => x.Line).Distinct());
+                        var geometry = DocumentGeometry.Find(page, best[0].Line, currentOffset, wordCount);
+                        fields["amount"] = new(null, page.Number, evidence, "Ambiguous",
+                            geometry.Confidence, geometry.Box, evidence, page.Method);
+                        warnings.Add("TOTAL_AMBIGUOUS: Sunt mai multe totaluri posibile. Confirmă suma de plată pe original. / Multiple possible totals; verify the payable amount.");
+                    }
                 }
                 foreach (var line in lines)
                 {
