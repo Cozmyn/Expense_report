@@ -37,3 +37,12 @@ export function nextReceiptIndex(current, length, key) {
   if (key === 'ArrowLeft') return (current - 1 + length) % length;
   return null;
 }
+
+/** Do not replace edits typed before a delayed private draft has loaded. */
+export function canRestoreDraft(saved, options) {
+  if (!saved?.data || options.modified) return false;
+  if (options.sourceGroupId && saved.sourceVersion !== options.ocrVersion) return false;
+  if (options.ocrCandidate && !options.sourceGroupId) return false;
+  if (options.sourceAttachmentId && !options.sourceGroupId) return false;
+  return true;
+}

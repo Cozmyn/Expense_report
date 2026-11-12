@@ -5,7 +5,7 @@ import { X, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { api } from './api';
 import { Field } from './Fields';
 import { ocrFieldLabel } from './OcrLabels';
-import { adoptSupplierLookup, offersRegistryName, draftSnapshot } from './receiptAssist.mjs';
+import { adoptSupplierLookup, offersRegistryName, draftSnapshot, canRestoreDraft } from './receiptAssist.mjs';
 type Any = Record<string, any>;
 export function newReceipt() {
   return {
@@ -165,13 +165,13 @@ export default function ReceiptModal({
     }
     api('/preferences/' + draftStorageKey)
       .then((saved) => {
-        if (
-          active &&
-          saved.data &&
-          (!expense.sourceGroupId || saved.sourceVersion === expense.ocrVersion) &&
-          (!expense.ocrCandidate || expense.sourceGroupId) &&
-          (!expense.sourceAttachmentId || expense.sourceGroupId)
-        ) {
+        if (active && canRestoreDraft(saved, {
+          modified: modified.current,
+          sourceGroupId: expense.sourceGroupId,
+          sourceAttachmentId: expense.sourceAttachmentId,
+          ocrCandidate: expense.ocrCandidate,
+          ocrVersion: expense.ocrVersion,
+        })) {
           D((current: Any) => {
             const merged = { ...current, ...saved.data };
             // A stale or incomplete private draft must not erase a new

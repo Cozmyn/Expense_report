@@ -15,3 +15,12 @@ export function draftSnapshot<T>(
 ): { data: T; taxes: Record<string, unknown>; sourceVersion: unknown };
 
 export function nextReceiptIndex(current: number, length: number, key: string): number | null;
+
+export function canRestoreDraft(saved: { data?: unknown; sourceVersion?: unknown } | null,
+  options: {
+    modified: boolean;
+    sourceGroupId?: string | null;
+    sourceAttachmentId?: string | null;
+    ocrVersion?: unknown;
+    ocrCandidate?: unknown;
+  }): boolean;

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { adoptSupplierLookup, offersRegistryName, draftSnapshot, nextReceiptIndex } from '../src/receiptAssist.mjs';
+import { adoptSupplierLookup, offersRegistryName, draftSnapshot, nextReceiptIndex, canRestoreDraft } from '../src/receiptAssist.mjs';
 
 const match = { found: true, valid: true, cui: '18546294', name: 'Official Vendor SRL' };
 
@@ -49,4 +49,15 @@ test('Receipt selector keyboard navigation wraps and supports first/last', () =>
   assert.equal(nextReceiptIndex(1, 4, 'End'), 3);
   assert.equal(nextReceiptIndex(0, 0, 'ArrowRight'), null);
   assert.equal(nextReceiptIndex(0, 4, 'Enter'), null);
+});
+
+test('Async draft restore cannot overwrite text already entered by the employee', () => {
+  const saved = { data: { amount: '10' }, sourceVersion: 7 };
+  const options = { modified: false, sourceGroupId: 'source-1', ocrVersion: 7 };
+  assert.equal(canRestoreDraft(saved, options), true);
+  assert.equal(canRestoreDraft(saved, { ...options, modified: true }), false);
+  assert.equal(canRestoreDraft(saved, { ...options, ocrVersion: 8 }), false);
+  assert.equal(canRestoreDraft(null, options), false);
+  assert.equal(canRestoreDraft(saved,
+    { modified: false, ocrCandidate: true, sourceAttachmentId: 'attachment', sourceGroupId: null }), false);
 });
