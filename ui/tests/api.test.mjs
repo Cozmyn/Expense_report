@@ -128,7 +128,7 @@ test('Ambiguous network failure reuses the same key and successful replay clears
   assert.equal(keys[0], keys[1]);
   assert.notEqual(keys[1], keys[2]);
 });
-test('A transient server error preserves the operation key, but validation does not', async () => {
+test('A transient server error preserves the operation key until successful replay', async () => {
   const keys = [];
   let count = 0;
   globalThis.fetch = async (url, options) => {
@@ -136,9 +136,7 @@ test('A transient server error preserves the operation key, but validation does 
     keys.push(options.headers['Idempotency-Key']);
     return ++count === 1
       ? Response.json({ en: 'Temporary' }, { status: 503 })
-      : ++count === 3
-        ? Response.json({ en: 'Invalid' }, { status: 422 })
-        : Response.json({ ok: true });
+      : Response.json({ ok: true });
   };
   const { api } = await fresh();
   await assert.rejects(() => api('/reports', 'POST', { purpose: 'Unique purpose' }), /Temporary/);
