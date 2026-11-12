@@ -931,6 +931,58 @@ export default function ReceiptModal({
                 {draftStatus}
               </p>
             )}
+            {localBackupError && (
+              <p className="issue warning" role="alert">{localBackupError}</p>
+            )}
+            {encryptedBackups.length > 0 && (
+              <section className="issue warning receipt-encrypted-recovery"
+                aria-label={t('Recuperare criptată locală', 'Encrypted local recovery')}>
+                <h4>{t('Ciorne locale recuperabile', 'Recoverable local drafts')}</h4>
+                <p>{t(
+                  'După o închidere neașteptată poți restaura copia locală criptată. Nu înlocuim automat ciorna de pe server; copiile nu se sincronizează între dispozitive.',
+                  'After an unexpected close, recover a local encrypted draft. The server draft is never replaced automatically; copies do not synchronize across devices.'
+                )}</p>
+                {encryptedBackups.slice(0, 8).map((backup: Any) => (
+                  <div className="simple-row" key={backup.id}>
+                    <span>{new Date(backup.updatedAt).toLocaleString()}
+                      {' · '}{backup.ownTab ? t('Fila curentă', 'Current tab')
+                        : t('Altă filă sau sesiune', 'Another tab/session')}</span>
+                    <button type="button" className="secondary"
+                      onClick={() => {
+                        if (expense.sourceGroupId
+                          && backup.snapshot.sourceVersion !== expense.ocrVersion) {
+                          DraftError(t('Copia locală aparține altei versiuni OCR; compară manual.',
+                            'Backup belongs to a different OCR revision; compare manually.'));
+                          return;
+                        }
+                        if (modified.current && !window.confirm(t(
+                          'Înlocuiești valorile din formularul curent cu această copie?',
+                          'Replace current form values with this local backup?'
+                        ))) return;
+                        D((old: Any) => ({ ...old, ...backup.snapshot.data }));
+                        Taxes(backup.snapshot.taxes || taxes);
+                        modified.current = true;
+                        DS(t('Copia locală a fost încărcată pentru revizuire; verifică înainte de salvare.',
+                          'Local backup loaded for review; verify before saving.'));
+                      }}>
+                      {t('Revizuiește copia', 'Review local backup')}
+                    </button>
+                    <button type="button" className="text-button"
+                      onClick={() => void discardEncryptedDraft(backup.id).then(() =>
+                        EncryptedBackups((current: Any[]) => current.filter(b => b.id !== backup.id)))
+                        .catch(() => LocalBackupError(t(
+                          'Nu s-a putut șterge copia locală.', 'Could not discard encrypted backup.')))}>
+                      {t('Șterge copia', 'Discard backup')}
+                    </button>
+                    <details>
+                      <summary>{t('Compară valorile locale', 'Inspect local values')}</summary>
+                      <textarea readOnly rows={5}
+                        value={JSON.stringify(backup.snapshot, null, 2)}/>
+                    </details>
+                  </div>
+                ))}
+              </section>
+            )}
             {draftSaveFailed && !draftConflicted.current && (
               <button type="button" className="secondary" onClick={() =>
                 void persistDraft().catch(() => {})}>
