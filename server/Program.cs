@@ -287,11 +287,14 @@ if (args.Contains("--init") || args.Contains("--bootstrap") || args.Contains("--
 // connection after the one-shot bootstrap transaction has committed. WAL
 // permits OCR/scan readers alongside a writer and prevents session-read
 // starvation that the old DELETE journaling mode allowed.
-if (app.Environment.IsDevelopment() && !postgres)
+if (app.Environment.IsDevelopment())
 {
     using var scope = app.Services.CreateScope();
-    var sqlite = scope.ServiceProvider.GetRequiredService<Db>();
-    await sqlite.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;");
+    var database = scope.ServiceProvider.GetRequiredService<Db>();
+    // Integration tests can replace the provider after configuration; always
+    // inspect the actual EF connection, not only Database:Provider.
+    if (database.Database.IsSqlite())
+        await database.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;");
 }
 // Production application identity must have SELECT/DML only. Startup validates
 // the pinned release and physical schema but never attempts DDL repairs.
