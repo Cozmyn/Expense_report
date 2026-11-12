@@ -80,13 +80,14 @@ def require_isolated(db_name: str, bucket: str, confirm: str) -> None:
         raise RecoveryError("Explicit isolated-target confirmation required")
 
 
-def read_manifest(path: Path, dump: Path, keys_root: Path) -> dict:
+def read_manifest(path: Path, dump: Path, keys_root: Path, pitr: bool = False) -> dict:
     manifest = json.loads(path.read_text(encoding="utf-8"))
     if sha256(dump) != str(manifest.get("database_sha256", "")).upper():
         raise RecoveryError("PostgreSQL backup SHA-256 differs from immutable manifest")
-    with dump.open("rb") as stream:
-        if stream.read(5) != b"PGDMP":
-            raise RecoveryError("Expected a PostgreSQL custom-format archive")
+    if not pitr:
+        with dump.open("rb") as stream:
+            if stream.read(5) != b"PGDMP":
+                raise RecoveryError("Expected a PostgreSQL custom-format archive")
     keys = manifest.get("keys")
     if not isinstance(keys, dict) or not keys:
         raise RecoveryError("Data Protection key-ring manifest must contain keys")
@@ -159,7 +160,8 @@ def copy_keys(source: Path, target: Path, manifest: dict) -> int:
     return len(manifest["keys"])
 
 
-def restore_objects(rows: list[dict], root: Path, endpoint: str, bucket: str) -> tuple[int, int, int]:
+def restore_objects(rows: list[dict], root: Path, endpoint: str, bucket: str,
+                    already_restored: bool = False) -> tuple[int, int, int]:
     seen: dict[str, str] = {}
     counts = {"attachment": 0, "evidence": 0, "batch": 0}
     size_total = 0
@@ -176,13 +178,14 @@ def restore_objects(rows: list[dict], root: Path, endpoint: str, bucket: str) ->
             if seen[key] != digest:
                 raise RecoveryError("Conflicting stored hashes for the same object")
             continue
-        source = verified_file(root, key)
-        if sha256(source) != digest:
-            raise RecoveryError("Original or export bytes mismatch the restored database")
-        if row["size"] != "-1" and source.stat().st_size != int(row["size"]):
-            raise RecoveryError("Original document size differs from persisted size")
-        aws(endpoint, "put-object", "--bucket", bucket, "--key", key,
-            "--body", str(source), "--server-side-encryption", "AES256")
+        if not already_restored:
+            source = verified_file(root, key)
+            if sha256(source) != digest:
+                raise RecoveryError("Original or export bytes mismatch the restored database")
+            if row["size"] != "-1" and source.stat().st_size != int(row["size"]):
+                raise RecoveryError("Original document size differs from persisted size")
+            aws(endpoint, "put-object", "--bucket", bucket, "--key", key,
+                "--body", str(source), "--server-side-encryption", "AES256")
         # Round trip through the actual recovered S3 bucket; neither ETag nor a
         # 200 from PUT proves object integrity for multi-part/encrypted objects.
         with tempfile.TemporaryDirectory(prefix="decont-restored-") as work:
@@ -190,7 +193,9 @@ def restore_objects(rows: list[dict], root: Path, endpoint: str, bucket: str) ->
             aws(endpoint, "get-object", "--bucket", bucket, "--key", key, str(download))
             if sha256(download) != digest:
                 raise RecoveryError("Restored S3 object SHA-256 does not match database")
-        size_total += source.stat().st_size
+            if row["size"] != "-1" and download.stat().st_size != int(row["size"]):
+                raise RecoveryError("Restored S3 object size does not match database")
+            size_total += download.stat().st_size
         seen[key] = digest
     if sum(counts.values()) == 0 or counts["batch"] == 0:
         raise RecoveryError("Acceptance fixture requires original documents and at least one export")
@@ -202,12 +207,12 @@ def run(args: argparse.Namespace) -> dict:
     dump = Path(args.database_dump)
     keys = Path(args.backup_keys)
     objects = Path(args.backup_objects)
-    manifest = read_manifest(Path(args.manifest), dump, keys)
+    manifest = read_manifest(Path(args.manifest), dump, keys, args.verify_existing)
     if not args.execute:
         return {"status": "backup_integrity_only", "dump_sha256": sha256(dump),
                 "data_protection_keys": len(manifest["keys"]), "release_approved": False}
     require_isolated(args.database, args.bucket, args.confirm)
-    if not objects.is_dir():
+    if not args.verify_existing and not objects.is_dir():
         raise RecoveryError("Object snapshot directory is unavailable")
     if not args.incident_utc or not args.max_rpo_minutes or not args.max_rto_seconds:
         raise RecoveryError("Business-approved incident time, RPO and RTO limits are mandatory")
@@ -217,17 +222,35 @@ def run(args: argparse.Namespace) -> dict:
     if not 0 <= rpo <= args.max_rpo_minutes:
         raise RecoveryError("Restore point exceeds business-approved RPO")
     target_keys = Path(args.target_keys)
-    if target_keys.exists():
-        raise RecoveryError("Data Protection restore destination must not exist")
     verify_private_bucket(args.s3_endpoint, args.bucket)
-    verify_empty_targets(args.database, args.s3_endpoint, args.bucket, target_keys)
-    command(["pg_restore", "--dbname", args.database, "--exit-on-error",
-             "--single-transaction", "--no-owner", "--no-privileges", str(dump)])
+    if args.verify_existing:
+        # After an operator-run WAL/PITR restore, verify in place without
+        # re-uploading originals. Include the external recovery time.
+        if not args.restore_start_utc:
+            raise RecoveryError("PITR verification requires the external restore start time")
+        since = datetime.fromisoformat(args.restore_start_utc.replace("Z", "+00:00"))
+        elapsed = (datetime.now(timezone.utc) - since).total_seconds()
+        if elapsed < 0:
+            raise RecoveryError("Restore start cannot be in the future")
+        key_count = 0
+        for name, expected in manifest["keys"].items():
+            if sha256(verified_file(target_keys, name)) != expected.upper():
+                raise RecoveryError("PITR recovered key-ring differs from backup")
+            key_count += 1
+    else:
+        if target_keys.exists():
+            raise RecoveryError("Data Protection restore destination must not exist")
+        verify_empty_targets(args.database, args.s3_endpoint, args.bucket, target_keys)
+        command(["pg_restore", "--dbname", args.database, "--exit-on-error",
+                 "--single-transaction", "--no-owner", "--no-privileges", str(dump)])
     rows = refs_from_database(args.database)
     object_count, object_bytes, export_count = restore_objects(
-        rows, objects, args.s3_endpoint, args.bucket)
-    key_count = copy_keys(keys, target_keys, manifest)
-    elapsed = time.monotonic() - started
+        rows, objects, args.s3_endpoint, args.bucket, args.verify_existing)
+    if not args.verify_existing:
+        key_count = copy_keys(keys, target_keys, manifest)
+        elapsed = time.monotonic() - started
+    else:
+        elapsed = (datetime.now(timezone.utc) - since).total_seconds()
     if elapsed > args.max_rto_seconds:
         raise RecoveryError("Recovery duration exceeds business-approved RTO")
     return {
@@ -237,6 +260,7 @@ def run(args: argparse.Namespace) -> dict:
         "object_bytes": object_bytes, "exports_verified": export_count,
         "data_protection_keys_verified": key_count,
         "duration_seconds": round(elapsed, 2), "rpo_minutes": round(rpo, 2),
+        "pitr_verified": bool(args.verify_existing),
         "release_approved": False,
         "requires": "Restart application with restored keys; verify login, evidence, PDF, XLSX and Finance approval in HTTPS UAT",
     }
@@ -247,6 +271,10 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("database-dump", "backup-objects", "backup-keys", "manifest"):
         parser.add_argument("--" + name, required=True)
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--verify-existing", action="store_true",
+                        help="Verify an already completed isolated PostgreSQL PITR + S3 + key restore.")
+    parser.add_argument("--restore-start-utc",
+                        help="UTC timestamp when the external PITR recovery began.")
     parser.add_argument("--database", default="")
     parser.add_argument("--bucket", default="")
     parser.add_argument("--s3-endpoint", default="")
