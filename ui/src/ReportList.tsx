@@ -121,7 +121,7 @@ export function ReportList({ rows, t, state, open, lang = 'ro' }: Any) {
                 <td>
                   <button
                     className="icon"
-                    aria-label={t('Deschide decontul', 'Open report') + ': ' + title(r)}
+                    aria-label={t('Deschide decontul cu numărul ', 'Open report number ') + r.number}
                     onClick={() => open(r.id)}
                   >
                     <ArrowUpRight size={17} />
