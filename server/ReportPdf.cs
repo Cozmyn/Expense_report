@@ -32,6 +32,9 @@ public static class ReportPdf
         int pageNumber = 0;
         void Page()
         {
+            Guard.Require(pageNumber < 120, "pdf_pages",
+                "Raportul PDF ar depăși 120 de pagini. Reduceți cantitatea de text sau exportați separat.",
+                "PDF would exceed 120 pages. Reduce content or export separately.", 413);
             gfx?.Dispose();
             var page = pdf.AddPage();
             page.Size = PdfSharp.PageSize.A4;
