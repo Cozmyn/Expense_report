@@ -425,7 +425,8 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
       exception: '',
       sort: 'age',
     }),
-    [loaded, L] = useState(false);
+    [loaded, L] = useState(false),
+    [compact, Compact] = useState(false);
   const readableState = (state: string) => {
     const names = stateText[state];
     return names ? t(names[0], names[1]) : state.replace(/_/g, ' ');
@@ -500,8 +501,14 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
     age: ['Vechime minimă (zile)', 'Minimum age (days)'],
   };
   return (
-    <section className="panel">
-      <h2>{t('Coada Finance și excepții', 'Finance queue and exceptions')}</h2>
+    <section className={compact ? 'panel finance-queue-compact' : 'panel'}>
+      <div className="section-heading">
+        <h2>{t('Coada Finance și excepții', 'Finance queue and exceptions')}</h2>
+        <button type="button" className="secondary"
+          aria-pressed={compact} onClick={() => Compact((value) => !value)}>
+          {compact ? t('Afișare confortabilă', 'Comfortable view') : t('Afișare compactă', 'Compact view')}
+        </button>
+      </div>
       <p className="muted">
         {t(
           'Verifică excepțiile și documentele înainte de orice acțiune contabilă.',
