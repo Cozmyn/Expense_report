@@ -4,27 +4,23 @@
 
 `compose.yaml` is a local evaluation setup bound to loopback. It uses PostgreSQL, private local files and ClamAV. It sets Development mode to allow local HTTP. Do not expose this Compose configuration publicly or use its local generated admin email/password in production. Docker image build executes tests and stops on failure.
 
-Node 22 builds the frontend. .NET 10 builds/publishes the backend. Runtime image uses the official `10.0-noble` Ubuntu variant and installs Romanian/English Tesseract, Poppler and DejaVu Unicode fonts. Image tags are mutable: pin approved digests in the release pipeline. Bootstrap creates new installations and applies the application’s repeatable additive schema upgrades. Do not point `--init` at an existing unrelated database.
+Node 22 builds the frontend. .NET 10 builds/publishes the backend. Runtime image uses the official `10.0-noble` Ubuntu variant and installs Romanian/English Tesseract, Poppler and DejaVu Unicode fonts. Image tags are mutable: pin approved digests in the release pipeline. Development setup uses reviewed versioned migrations; Production uses a separate privileged --migrate job. Do not point `--init` at an existing unrelated database.
 
-## Control de schemă / Schema integrity gate
+## Control de schemă / Schema integrity gate — P0 DB-01
 
-Schema release 13 introduces a read-only physical model check during `--init` / `--bootstrap` on both PostgreSQL and SQLite. Missing tables, expected columns, indexes or immutable-evidence triggers stop the upgrade rather than silently accepting a partial migration. Verify the database and retain a backup before updating; never remove financial tables to make this check pass.
+**Release 14:** schema nouă și actualizările legacy sunt bazate pe SQL **explicit și versionat** (fișierele `server/Migrations/`), cu SHA-256 fixat, tranzacție și lock advisory PostgreSQL. Nu se extrage DDL cu regex și nu se rulează `EnsureCreated` în migrator. VerifyModel controlează structura fizică; baza cu release 13 nu este modificată în tăcere.
 
-**Transition limitation:** the historical schema 3–12 updater still uses the legacy additive DDL extraction for old installations. Release 13 adds verification and a numbered baseline, **not yet a complete EF migration replacement**. On any installation that already has release 13, bootstrap validates the existing schema and refuses to modify it implicitly; future changes require a reviewed explicit migration. Before moving an existing production database to the new migration model, approve a baseline and rehearse upgrade/rollback on its restored copy. New schema changes must use reviewed, numbered migration scripts rather than extend the regex extractor.
+**Development:** `--init` / `--bootstrap` pot aplica schema locală, pentru compatibilitatea Docker Compose. **Production:** rulați separat `--migrate` într-un job one-shot, cu identitate PostgreSQL de migrare și backup înainte, apoi `--bootstrap` cu contul runtime numai după succes; startup-ul aplicației face doar verificarea read-only a release-ului 14. `--init` este refuzat în Production.
+
+Rehearsal-ul trebuie executat pe **copii restaurate ale tuturor versiunilor istorice efectiv folosite**, inclusiv baza release 13, cu dovezi de păstrare a rândurilor financiare, checks, FK, indecși și triggere. Scriptul de upgrade 013 este aditiv și nu reprezintă o permisiune pentru downgrade-uri distructive.
+
+Procedura completă, exemplele de `docker run --migrate`, rolurile DB și gate-ul auditabil: [P0 release runbook](P0_RELEASE_RUNBOOK.md).
 
 ## Actualizarea unei instalări existente / Existing installation upgrade
 
-Pentru instalările acestei aplicații anterioare fluxului de bonuri, realizează backup și oprește versiunea veche; construiește noua imagine, apoi rulează serviciul de inițializare înainte de pornirea aplicației:
+Pentru Development local se menține comanda `docker compose --profile setup run --rm init`; **NU** o utilizați pentru Production. În Production realizați întâi snapshot coordonat DB+S3+chei, izolați/descărcați workerii, testați migratorul pe copia restaurată, apoi aplicați aceeași imagine OCI prin digest și execuția explicită `--migrate`.
 
-```sh
-docker compose build
-docker compose --profile setup run --rm init
-docker compose up -d web
-```
-
-`--init` / `--bootstrap` creează repetabil tabelele de atașamente, preferințe, comentarii, alocări și versiuni de schemă, plus coloanele noi și triggerele append-only, dacă lipsesc. Nu rescrie deconturile, bonurile sau documentele existente. Câmpurile noi ale bonului sunt stocate în JSON; documentele vechi cu `InvoiceWithCui` păstrează interpretarea CUI/TVA și moneda contabilă RON până la editare. Acest upgrade aditiv este testat pe SQLite/PostgreSQL; nu înlocuiește un sistem complet de migrări și rollback pentru producție.
-
-**English:** Back up the application's existing database, stop the old application, build the new image, run the setup service, then start the application. The additive attachment-table upgrade is idempotent and preserves existing reports. Do not run it against an unrelated database.
+Nu ștergeți volume/tabele pentru a forța instalarea și nu rulați downgrade SQL distructiv. Pentru rollback, promovați digestul anterior al aplicației pe schema compatibilă sau urmați recuperarea coordonată aprobată din runbook.
 
 ## Configurație PROD / Production configuration
 
@@ -46,15 +42,15 @@ Use a managed HTTPS ingress terminating TLS, enforce HSTS and trusted forwarded 
 ## Release gates
 
 1. Restore/compile source and pass all .NET tests; remediate package/security issues using approved versions.
-2. Create and commit an initial EF migration and upgrade/rollback strategy. Current EnsureCreated bootstrap is not a production migration system.
+2. Run the reviewed numbered SQL migration through --migrate using a separate DDL identity; rehearse historical upgrades and application-image rollback on restored databases.
 3. Exercise login/password change/reset/disable/logout, CSRF and cross-user authorization through the browser and real HTTP endpoints.
 4. Test scanner unavailable/infected/clean flows, OCR and PDF generation with actual documents including diacritics, long content and multiple pages.
 5. Finance approves dated account, tax, FX and ERP settings; compare XLSX values against company-approved expected files. Audit all overrides.
 6. Test partial/multiple card allocations, settlement rounding, mismatch resolution and reapproval after a personal reimbursement increase.
 7. Verify server logs, job failures, metrics, traces and alerts. `/health/live` and `/health/ready` exist; readiness currently checks the database only, not scanner/storage/SMTP.
-8. Configure PostgreSQL backups with WAL archiving/PITR, object versioned backups and data-protection-key backups. Perform a timed isolated restore; the RPO/RTO targets are not verified by providing this source.
+8. Configure PostgreSQL WAL archiving/PITR, private versioned object backups and protected Data Protection key-ring backups. Run deploy/restore_drill.py --verify-existing on isolated recovered infrastructure with business-approved RPO/RTO and JSON evidence.
 9. Verify scoped reporting/audit exports, accessibility, browser/mobile compatibility, performance and recovery.
-10. UAT sign-off and a rollback rehearsal before a production deployment.
+10. Execute the P0 runbook on isolated HTTPS Production-mode UAT, including trusted-proxy spoof tests, common ingress rate limits, real scanner/OCR/SMTP, restarts, same-image-digest promotion and rollback; obtain separate Finance/Security/Operations sign-off.
 
 ## Retention and integrity
 

@@ -26,6 +26,7 @@ def plausible_configuration() -> dict[str, str]:
         "Storage__AccessKey": "unit-test-only-access-key",
         "Storage__SecretKey": "unit-test-only-secret-key",
         "Scanner__Host": "scanner.internal",
+        "Ocr__Enabled": "true",
         "Data__Directory": "/var/lib/expense/keys",
         "Smtp__Host": "smtp.example.invalid",
         "Smtp__From": "notify@example.invalid",
@@ -74,6 +75,18 @@ class ProductionPreflightTests(unittest.TestCase):
         env = plausible_configuration()
         env["Storage__Endpoint"] = "http://s3.internal"
         self.assertIn("STORAGE_TLS", blockers(env))
+
+    def test_required_production_services_fail_closed(self) -> None:
+        env = plausible_configuration()
+        env["ConnectionStrings__Database"] = env["ConnectionStrings__Database"].replace(
+            "SSL Mode=VerifyFull", "SSL Mode=Require")
+        self.assertIn("DATABASE_TLS_VERIFICATION", blockers(env))
+        env = plausible_configuration()
+        env["Ocr__Enabled"] = "false"
+        self.assertIn("OCR_REQUIRED", blockers(env))
+        env = plausible_configuration()
+        del env["Smtp__Host"]
+        self.assertIn("EMAIL_RECOVERY", blockers(env))
 
     def test_database_certificate_bypass_is_blocked(self) -> None:
         env = plausible_configuration()

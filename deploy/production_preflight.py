@@ -90,8 +90,8 @@ def check(config: Mapping[str, str]) -> list[Finding]:
     else:
         properties = _connection_parts(connection)
         mode = properties.get("sslmode", "").casefold().replace("-", "").replace(" ", "")
-        if mode not in ("verifyfull", "verifyca"):
-            warn("DATABASE_TLS_VERIFICATION", "Confirm verified TLS and server identity for PostgreSQL; prefer SSL Mode=VerifyFull.")
+        if mode != "verifyfull":
+            block("DATABASE_TLS_VERIFICATION", "Production PostgreSQL requires SSL Mode=VerifyFull (verified certificate and hostname).")
         if properties.get("trustservercertificate", "").casefold() in ("true", "yes", "1"):
             block("DATABASE_TLS_BYPASS", "Do not bypass PostgreSQL server certificate validation.")
         if _placeholder(connection):
@@ -119,9 +119,12 @@ def check(config: Mapping[str, str]) -> list[Finding]:
 
     if not _value(config, "Scanner__Host"):
         block("ANTIVIRUS_SCANNER", "Configure a reachable private antivirus scanning service.")
+    if _value(config, "Ocr__Enabled").casefold() != "true":
+        block("OCR_REQUIRED", "Production acceptance requires the OCR service enabled and exercised on real documents.")
 
-    if not _value(config, "Data__Directory"):
-        block("DATA_PROTECTION_KEYS", "Configure a persistent protected directory for Data Protection keys.")
+    keys_dir = _value(config, "Data__Directory")
+    if not keys_dir or not os.path.isabs(keys_dir):
+        block("DATA_PROTECTION_KEYS", "Configure an absolute persistent protected directory for Data Protection keys.")
     else:
         warn("KEY_DURABILITY", "Verify that Data Protection keys survive rolling deployments and are backed up, encrypted, and permission-restricted.")
 
@@ -134,7 +137,9 @@ def check(config: Mapping[str, str]) -> list[Finding]:
             block("SESSION_TIMEOUT", "Session__Minutes must be a positive integer when set.")
 
     if not _value(config, "Smtp__Host") or not _value(config, "Smtp__From"):
-        warn("EMAIL_RECOVERY", "Confirm SMTP TLS, password recovery and actual notification delivery.")
+        block("EMAIL_RECOVERY", "Production acceptance requires SMTP and a configured sender.")
+    else:
+        warn("SMTP_TEST", "Confirm SMTP STARTTLS, password recovery and actual notification delivery to an isolated test mailbox.")
 
     # Production refuses arbitrary forwarded headers: require explicit upstream IPs.
     import ipaddress
@@ -144,7 +149,7 @@ def check(config: Mapping[str, str]) -> list[Finding]:
     else:
         try:
             addresses = [ipaddress.ip_address(ip.strip()) for ip in proxies.split(",") if ip.strip()]
-            if not addresses:
+            if not addresses or any(ip.is_unspecified or ip.is_multicast for ip in addresses):
                 raise ValueError
         except ValueError:
             block("TRUSTED_PROXY", "ReverseProxy__KnownProxies must be a comma-separated list of literal IP addresses.")

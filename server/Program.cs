@@ -11,12 +11,13 @@ using Microsoft.AspNetCore.HttpOverrides;
 using System.Net;
 using Microsoft.EntityFrameworkCore;
 
+var isMigrationJob = args.Contains("--migrate");
 var builder = WebApplication.CreateBuilder(
-    args.Where(a => a is not ("--init" or "--bootstrap" or "--schema")).ToArray()
+    args.Where(a => a is not ("--init" or "--bootstrap" or "--schema" or "--migrate")).ToArray()
 );
 // Only a precisely enumerated ingress may set forwarded scheme/client IP.
 // Never trust client-supplied X-Forwarded-* headers from the public Internet.
-if (!builder.Environment.IsDevelopment())
+if (!builder.Environment.IsDevelopment() && !isMigrationJob)
 {
     var configured = builder.Configuration["ReverseProxy:KnownProxies"]?
         .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? [];
@@ -40,6 +41,38 @@ builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.W
 var postgres = builder.Configuration["Database:Provider"] == "Postgres";
 if (!postgres && !builder.Environment.IsDevelopment())
     throw new InvalidOperationException("Production requires PostgreSQL");
+if (!builder.Environment.IsDevelopment())
+{
+    // Security gates belong in the application too, not only an optional
+    // external deployment preflight. A DDL migrator must also verify server TLS.
+    var connection = builder.Configuration.GetConnectionString("Database");
+    if (string.IsNullOrWhiteSpace(connection))
+        throw new InvalidOperationException("Production requires a PostgreSQL TLS connection.");
+    var settings = new Npgsql.NpgsqlConnectionStringBuilder(connection);
+    if (settings.SslMode != Npgsql.SslMode.VerifyFull || settings.TrustServerCertificate)
+        throw new InvalidOperationException("Production PostgreSQL requires SSL Mode=VerifyFull without certificate bypass.");
+    if (!isMigrationJob)
+    {
+        var s3Endpoint = builder.Configuration["Storage:Endpoint"];
+        if (!Uri.TryCreate(s3Endpoint, UriKind.Absolute, out var endpoint)
+            || endpoint.Scheme != Uri.UriSchemeHttps || !string.IsNullOrEmpty(endpoint.UserInfo))
+            throw new InvalidOperationException("Production S3 endpoint requires verified HTTPS.");
+        var baseUrl = builder.Configuration["Application:BaseUrl"];
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var publicUrl)
+            || publicUrl.Scheme != Uri.UriSchemeHttps || !string.IsNullOrEmpty(publicUrl.UserInfo)
+            || publicUrl.AbsolutePath != "/" || !string.IsNullOrEmpty(publicUrl.Query)
+            || !string.IsNullOrEmpty(publicUrl.Fragment))
+            throw new InvalidOperationException("Production requires an HTTPS application origin.");
+        if (string.IsNullOrWhiteSpace(builder.Configuration["Scanner:Host"])
+            || builder.Configuration.GetValue<bool>("Ocr:Enabled") != true
+            || string.IsNullOrWhiteSpace(builder.Configuration["Smtp:Host"])
+            || string.IsNullOrWhiteSpace(builder.Configuration["Smtp:From"]))
+            throw new InvalidOperationException("Production requires configured scanner, OCR and SMTP.");
+        var keysRoot = builder.Configuration["Data:Directory"];
+        if (string.IsNullOrWhiteSpace(keysRoot) || !Path.IsPathFullyQualified(keysRoot))
+            throw new InvalidOperationException("Production requires a persistent absolute Data Protection directory.");
+    }
+}
 var dataRoot = builder.Configuration["Data:Directory"] ?? Path.Combine(builder.Environment.ContentRootPath, ".data");
 Directory.CreateDirectory(dataRoot);
 builder.Services.AddDbContext<Db>(o =>
@@ -116,7 +149,7 @@ if (builder.Configuration["Storage:Provider"] == "S3")
 }
 else
 {
-    if (!builder.Environment.IsDevelopment())
+    if (!builder.Environment.IsDevelopment() && !isMigrationJob)
         throw new InvalidOperationException("Production requires configured private S3 storage");
     builder.Services.AddScoped<IStore, LocalStore>();
 }
@@ -188,17 +221,28 @@ builder
     );
 var app = builder.Build();
 PasswordRecovery.Map(app);
-if (args.Contains("--init") || args.Contains("--bootstrap") || args.Contains("--schema"))
+if (args.Contains("--init") || args.Contains("--bootstrap") || args.Contains("--schema") || isMigrationJob)
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<Db>();
     if (args.Contains("--schema"))
     {
+        // Audit-only model DDL output. This is never applied to an existing DB.
         Console.Write(db.Database.GenerateCreateScript());
         return;
     }
-    await db.Database.EnsureCreatedAsync();
-    await SchemaUpgrades.Apply(db);
+    if (isMigrationJob)
+    {
+        await SchemaUpgrades.Apply(db);
+        Console.WriteLine("Reviewed schema migrations applied and verified.");
+        return;
+    }
+    if (!app.Environment.IsDevelopment() && args.Contains("--init"))
+        throw new InvalidOperationException("Production schema changes require an isolated --migrate job with a dedicated DDL role.");
+    if (app.Environment.IsDevelopment())
+        await SchemaUpgrades.Apply(db);
+    else
+        await SchemaUpgrades.VerifyRuntime(db);
     var roles = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
     foreach (var role in new[] { "Employee", "Manager", "Finance", "Admin", "Auditor", "FinanceReopen" })
         if (!await roles.RoleExistsAsync(role))
@@ -237,6 +281,13 @@ if (args.Contains("--init") || args.Contains("--bootstrap") || args.Contains("--
         await users.AddToRoleAsync(user, "Admin");
     }
     return;
+}
+// Production application identity must have SELECT/DML only. Startup validates
+// the pinned release and physical schema but never attempts DDL repairs.
+if (!app.Environment.IsDevelopment())
+{
+    using var scope = app.Services.CreateScope();
+    await SchemaUpgrades.VerifyRuntime(scope.ServiceProvider.GetRequiredService<Db>());
 }
 app.Use(
     async (c, next) =>
