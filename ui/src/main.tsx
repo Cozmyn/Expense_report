@@ -23,7 +23,7 @@ import CapturePanel from './CapturePanel';
 import ReceiptAuditReview from './ReceiptAuditReview';
 import ExpenseModal, { newReceipt } from './ReceiptModal';
 import { Field } from './Fields';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   LayoutDashboard,
@@ -129,6 +129,8 @@ function App() {
     [notices, Notices] = useState<Any[]>([]),
     [showNotices, SN] = useState(false),
     [sessionExpired, SessionExpired] = useState(false);
+  // In-memory only; never expose another user's report after reauthentication.
+  const resumeAfterLogin = useRef<{ userId: string; page: string; reportId?: string } | null>(null);
   useEffect(() => {
     const onExpired = () => SessionExpired(true);
     window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
@@ -220,7 +222,27 @@ function App() {
                 const u = await api('/me');
                 M(u);
                 SessionExpired(false);
-                if (!u.changePassword) await load();
+                if (!u.changePassword) {
+                  await load();
+                  const previous = resumeAfterLogin.current;
+                  resumeAfterLogin.current = null;
+                  if (previous?.userId === u.id) {
+                    if (previous.page === 'detail' && previous.reportId) {
+                      try {
+                        D(await api('/reports/' + previous.reportId));
+                        P('detail');
+                      } catch {
+                        D(null);
+                        P('reports');
+                        N(t('Sesiune refăcută. Redeschide decontul din listă.', 'Session restored. Open the report from the list.'));
+                      }
+                    } else {
+                      P(previous.page);
+                    }
+                  } else {
+                    P('dashboard');
+                  }
+                }
               });
             }}
           >
@@ -366,7 +388,7 @@ function App() {
           </button>
         </div>
         <span className="nav-caption">{t('SPAȚIU DE LUCRU', 'WORKSPACE')}</span>
-        <nav>
+        <nav id="primary-navigation" aria-label={t('Navigare principală', 'Main navigation')}>
           {nav.map(([id, Icon, text]: any) => (
             <button
               key={id}
@@ -402,6 +424,7 @@ function App() {
                 await api('/auth/logout', 'POST');
                 M(null);
                 D(null);
+                resumeAfterLogin.current = null;
                 Password('');
               })
             }
@@ -416,6 +439,8 @@ function App() {
             <button
               className="icon mobile-only"
               aria-label={t('Deschide meniul', 'Open menu')}
+              aria-expanded={mobile}
+              aria-controls="primary-navigation"
               onClick={() => Mobile(true)}
             >
               <Menu />
@@ -482,8 +507,8 @@ function App() {
                 <strong>{t('Sesiunea a expirat', 'Your session has expired')}</strong>
                 <p>
                   {t(
-                    'Nu mai poți salva până nu te autentifici din nou. Copiază orice informații încă nesalvate înainte să continui.',
-                    'You cannot save until you sign in again. Copy any unsaved details before continuing.',
+                    'Nu mai poți salva până nu te autentifici din nou. Ciornele salvate pot fi recuperate; verifică orice modificare nesincronizată.',
+                    'You cannot save until you sign in again. Saved drafts can be recovered; review any unsynced changes.',
                   )}
                 </p>
               </div>
@@ -495,6 +520,11 @@ function App() {
                     'Dacă ai modificări nesalvate, acestea se pot pierde. Te autentifici din nou?',
                     'Any unsaved changes may be lost. Sign in again?',
                   ))) return;
+                  resumeAfterLogin.current = {
+                    userId: me.id,
+                    page,
+                    reportId: page === 'detail' ? detail?.report.id : undefined,
+                  };
                   SessionExpired(false);
                   D(null);
                   M(null);
