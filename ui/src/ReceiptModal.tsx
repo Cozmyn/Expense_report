@@ -5,6 +5,9 @@ import { X, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { api } from './api';
 import { Field } from './Fields';
 import { ocrFieldLabel } from './OcrLabels';
+import { attentionFields, fieldProvenance } from './receiptProvenance.mjs';
+import { stageEncryptedDraft, recoverEncryptedDrafts, clearOwnEncryptedDraftIfMatch,
+  discardEncryptedDraft } from './encryptedDraft.mjs';
 type Any = Record<string, any>;
 export function newReceipt() {
   return {
@@ -39,6 +42,7 @@ export default function ReceiptModal({
   employeeCostCenter,
   finance,
   draftStorageKey,
+  localDraftScope,
   masters,
   label,
   t,
@@ -47,6 +51,7 @@ export default function ReceiptModal({
   save,
   saveDraft,
   onSourceSelected,
+  inline = false,
 }: Any) {
   const [d, D] = useState<Any>({
     ...expense.data,
@@ -138,23 +143,100 @@ export default function ReceiptModal({
     ),
   );
   const [states, States] = useState<Any>({ project: 'OPTIONAL', costCenter: 'REQUIRED' });
+  const [manualFields, ManualFields] = useState<string[]>([]);
+  const [encryptedBackups, EncryptedBackups] = useState<Any[]>([]);
+  const [localBackupError, LocalBackupError] = useState('');
+  const [ocrVerified, OcrVerified] = useState(false);
   const [draftReady, DR] = useState(false),
-    [draftStatus, DS] = useState('');
+    [draftStatus, DS] = useState(''),
+    [draftConflictServer, DraftConflictServer] = useState<Any | null>(null),
+    [draftSaveFailed, DraftSaveFailed] = useState(false);
   const lastSaved = useRef('');
   const draftRevision = useRef(0);
   const draftConflicted = useRef(false);
   const saving = useRef(false);
   const modified = useRef(false);
   const requestCloseRef = useRef<() => void>(() => {});
+  const saveNextRequested = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const draftQueue = useRef<Promise<any>>(Promise.resolve());
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestDraft = useRef<{ data: Any; taxes: Any; sourceVersion?: number }>({
+    data: d, taxes, sourceVersion: expense.ocrVersion,
+  });
+  latestDraft.current = { data: d, taxes, sourceVersion: expense.ocrVersion };
+  // Crash recovery is opt-in on restore. Never prefer local over server silently.
+  useEffect(() => {
+    if (!localDraftScope || expense.id) return;
+    let active = true;
+    recoverEncryptedDrafts(localDraftScope)
+      .then((records) => { if (active) EncryptedBackups(records); })
+      .catch(() => { if (active) LocalBackupError(t(
+        'Recuperarea criptată locală nu este disponibilă în acest browser.',
+        'Encrypted local recovery is unavailable in this browser.')); });
+    return () => { active = false; };
+  }, [localDraftScope, expense.id]);
+  useEffect(() => {
+    if (!draftReady || !modified.current || !localDraftScope || expense.id) return;
+    const timer = setTimeout(() => {
+      void stageEncryptedDraft(localDraftScope, latestDraft.current)
+        .catch(() => LocalBackupError(t(
+          'Copierea criptată locală a eșuat; păstrează fila deschisă până se salvează pe server.',
+          'Encrypted local backup failed; keep the tab open until server save succeeds.')));
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [d, taxes, draftReady, localDraftScope, expense.id]);
+  // A current snapshot is persisted on close, even if a debounce timer has
+  // not fired. The queue serializes optimistic revisions across rapid edits.
+  const persistDraft = () => {
+    if (!draftReady || !draftStorageKey || expense.id) return Promise.resolve();
+    if (draftConflicted.current)
+      return Promise.reject(new Error('Draft changed in another tab'));
+    const value = latestDraft.current;
+    const json = JSON.stringify(value);
+    if (lastSaved.current === json) return draftQueue.current;
+    const next = draftQueue.current.catch(() => {}).then(async () => {
+      if (draftConflicted.current) throw new Error('Draft changed in another tab');
+      // Stage before network send, retaining recoverable bytes after a crash.
+      if (localDraftScope) try { await stageEncryptedDraft(localDraftScope, value); }
+      catch { LocalBackupError(t('Copie criptată indisponibilă', 'Encrypted backup unavailable')); }
+      const saved = await api('/preferences/' + draftStorageKey, 'PUT',
+        { ...value, draftRevision: draftRevision.current });
+      draftRevision.current = Number(saved.draftRevision);
+      lastSaved.current = json;
+      if (localDraftScope) void clearOwnEncryptedDraftIfMatch(localDraftScope, value).catch(() => {});
+      DraftSaveFailed(false);
+      DS(t('Ciornă salvată automat', 'Draft autosaved'));
+    }).catch(async (error: Error) => {
+      DraftSaveFailed(true);
+      if (error.message.includes('altă filă') || error.message.includes('another tab')) {
+        draftConflicted.current = true;
+        DS(t('Conflict între file: modificările locale nu au fost suprascrise.',
+          'Conflict between tabs: local edits have not been overwritten.'));
+        try {
+          DraftConflictServer(await api('/preferences/' + draftStorageKey));
+        } catch { /* On session expiry, local copy remains visible. */ }
+      } else {
+        DS(t('Nu s-a putut salva. Verifică sesiunea/conexiunea și reîncearcă.',
+          'Save failed. Check connection/session and retry.'));
+      }
+      throw error;
+    });
+    draftQueue.current = next;
+    return next;
+  };
   useEffect(() => {
     const previouslyFocused = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
+    if (inline) {
+      // Inline review is not a modal, but keyboard users still need a
+      // predictable starting point after choosing a receipt.
+      titleRef.current?.focus();
+      return () => previouslyFocused?.focus();
+    }
     // Only the active dialog may be reached by sequential keyboard navigation.
     // Inert siblings prevent background controls from leaking into the focus order.
     const dialog = dialogRef.current;
@@ -169,7 +251,7 @@ export default function ReceiptModal({
       prior.forEach(({ element, inert }) => { element.inert = inert; });
       previouslyFocused?.focus();
     };
-  }, []);
+  }, [inline]);
   useEffect(() => {
     let active = true;
     if (!draftStorageKey || expense.id) {
@@ -180,6 +262,7 @@ export default function ReceiptModal({
       .then((saved) => {
         if (
           active &&
+          !modified.current &&
           saved.data &&
           (!expense.sourceGroupId || saved.sourceVersion === expense.ocrVersion) &&
           (!expense.ocrCandidate || expense.sourceGroupId) &&
@@ -217,35 +300,17 @@ export default function ReceiptModal({
   }, []);
   useEffect(() => {
     if (!draftReady || !draftStorageKey || expense.id || saving.current || draftConflicted.current) return;
-    const value = { data: d, taxes, sourceVersion: expense.ocrVersion };
-    const json = JSON.stringify(value);
+    const json = JSON.stringify(latestDraft.current);
     if (json === lastSaved.current) return;
     const timer = setTimeout(() => {
       if (saving.current) return;
       DS(t('Se salvează ciorna…', 'Saving draft…'));
-      draftQueue.current = draftQueue.current
-        .catch(() => {})
-        .then(() => api('/preferences/' + draftStorageKey, 'PUT',
-          { ...value, draftRevision: draftRevision.current }))
-        .then((saved: Any) => {
-          draftRevision.current = Number(saved.draftRevision);
-          lastSaved.current = json;
-          DS(t('Ciornă salvată automat', 'Draft autosaved'));
-        })
-        .catch((error: Error) => {
-          if (error.message.includes('altă filă') || error.message.includes('another tab')) {
-            draftConflicted.current = true; // Stop writes; leave the user's local edits visible.
-            DS(t('Conflict între file: modificările tale nu au fost suprascrise. Copiază-le înainte de reîncărcare.',
-              'Draft conflict: your edits remain on screen. Copy them before reloading.'));
-          } else {
-            DS(t('Ciorna nu a putut fi salvată. Reîncearcă după reconectare.',
-              'Draft could not be saved. Retry after reconnecting.'));
-          }
-        });
+      void persistDraft().catch(() => {}); // UI keeps error and local draft.
     }, 800);
     draftTimer.current = timer;
     return () => clearTimeout(timer);
   }, [d, taxes, draftReady]);
+
   useEffect(() => {
     let active = true;
     const timer = setTimeout(
@@ -281,22 +346,45 @@ export default function ReceiptModal({
         cardId: reportPayment === 'CompanyCard' ? reportCardId : null,
       }));
   }, [reportPayment, reportCardId, draftReady]);
-  const requestClose = () => {
+  const requestClose = async () => {
     if (saving.current || busy) return;
-    if (
-      modified.current &&
-      !window.confirm(t(
-        'Închizi fără să salvezi bonul? Modificările neconfirmate se pot pierde.',
-        'Close without saving the receipt? Unconfirmed changes may be lost.',
-      ))
-    ) return;
-    onClose();
+    if (!modified.current) { onClose(); return; }
+    if (expense.id || !draftStorageKey) {
+      if (window.confirm(t('Închizi fără salvarea modificărilor?', 'Discard unsaved changes?')))
+        onClose();
+      return;
+    }
+    // Never silently discard text after network loss, expired session,
+    // another tab's edit or an unflushed debounce.
+    if (draftConflicted.current) {
+      DraftError(t('Conflict: copiază ciorna locală și compar-o cu versiunea serverului.',
+        'Conflict: copy the local draft and compare it with the server version.'));
+      return;
+    }
+    if (!draftReady) {
+      DraftError(t('Ciorna încă se încarcă; nu închide până la finalizarea sincronizării.',
+        'Draft is loading; do not close before synchronization completes.'));
+      return;
+    }
+    saving.current = true;
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    try {
+      await draftQueue.current.catch(() => {});
+      await persistDraft();
+      onClose();
+    } catch {
+      DraftError(t('Ciorna nu a putut fi salvată. Formularul rămâne deschis; reîncearcă după autentificare/conectare.',
+        'Draft could not be saved. The form stays open; retry after signing in/reconnecting.'));
+    } finally {
+      saving.current = false;
+    }
   };
   requestCloseRef.current = requestClose;
   const set = (key: string, value: any) => D((old) => ({ ...old, [key]: value }));
   const domestic = d.country === 'RO',
     vat = domestic && d.hasCompanyCui === true;
   useEffect(() => {
+    if (inline) return; // Inline form must not intercept keyboard shortcuts globally.
     const listener = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -324,7 +412,7 @@ export default function ReceiptModal({
     };
     window.addEventListener('keydown', listener);
     return () => window.removeEventListener('keydown', listener);
-  }, []);
+  }, [inline]);
   useEffect(() => {
     let active = true;
     if (!expense.id && expense.reportId && d.date)
@@ -365,8 +453,16 @@ export default function ReceiptModal({
         .then((result) => {
           if (!active) return;
           Lookup(result);
-          if (result.found)
-            D((old) => ({ ...old, supplier: result.name, supplierConfirmed: false }));
+          // UX-05: official supplier names never overwrite the printed
+          // merchant/trading name that OCR or the employee already entered.
+          // The displayed identity and fiscal CUI remain separate.
+          if (result.found && result.name)
+            D((old) => {
+              const requested = String(old.cui || '').replace(/^RO\s*/i, '').replace(/\D/g, '');
+              const returned = String(result.cui || '').replace(/^RO\s*/i, '').replace(/\D/g, '');
+              return !String(old.supplier || '').trim() && requested && requested === returned
+                ? { ...old, supplier: result.name, supplierConfirmed: false } : old;
+            });
         })
         .catch((e) => {
           if (active) LE((e as Error).message);
@@ -524,6 +620,35 @@ export default function ReceiptModal({
         {t('Selectează pe bon', 'Select on receipt')}
       </button>
     ) : null;
+  const trackedFields = vat
+    ? ['date', 'invoice', 'supplier', 'cui', 'description', 'currency', 'amount']
+    : ['date', 'description', 'currency', 'amount'];
+  const needsAttention = expense.ocrCandidate
+    ? attentionFields(d, expense.ocrCandidate.fields || {}, manualFields, ocrVerified, trackedFields)
+    : [];
+  const statusAction = (key: string) => {
+    const state = fieldProvenance({
+      value: d[key], source: expense.ocrCandidate?.fields?.[key] || null,
+      changed: manualFields.includes(key), verified: ocrVerified,
+      calculated: key === 'costCenter' || key === 'project',
+    });
+    const names: Record<string, [string, string]> = {
+      unread: ['Necitit · verifică', 'Unread · check source'],
+      ocr: ['Propus OCR', 'OCR proposal'],
+      calculated: ['Calculat', 'Calculated'],
+      manual: ['Modificat manual', 'Entered / changed manually'],
+      verified: ['Verificat de utilizator', 'Human verified'],
+    };
+    return (
+      <>
+        <span className={'small receipt-provenance status-' + state}
+          aria-label={t('Starea câmpului', 'Field status') + ': ' + t(...names[state])}>
+          {t(...names[state])}
+        </span>
+        {scanAction(key)}
+      </>
+    );
+  };
   const applyScan = async (reread = false) => {
     if (!scanField || !scanRegion || !expense.sourceGroupId || !expense.sourceAttachmentId) return;
     ScanBusy(true);
@@ -579,12 +704,12 @@ export default function ReceiptModal({
     </section>
   );
   return (
-    <div className="modal-overlay">
+    <div className={inline ? 'receipt-workbench-content' : 'modal-overlay'}>
       <section
-        className="modal receipt-modal"
+        className={inline ? 'receipt-modal receipt-modal-inline' : 'modal receipt-modal'}
         ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
+        role={inline ? 'region' : 'dialog'}
+        aria-modal={inline ? undefined : true}
         aria-labelledby="expense-title"
       >
         <div className="section-heading">
@@ -658,7 +783,12 @@ export default function ReceiptModal({
           )}
           <form
             ref={formRef}
-            onChangeCapture={() => { modified.current = true; }}
+            onChangeCapture={(event) => {
+              modified.current = true;
+              OcrVerified(false);
+              const key = (event.target as HTMLElement).dataset.ocrField;
+              if (key) ManualFields(old => old.includes(key) ? old : [...old, key]);
+            }}
             onFocusCapture={(e) => {
               const key = (e.target as HTMLElement).dataset.ocrField;
               if (!key || !expense.ocrCandidate) return;
@@ -680,6 +810,9 @@ export default function ReceiptModal({
               if (draftTimer.current) clearTimeout(draftTimer.current);
               await draftQueue.current.catch(() => {});
               try {
+                const openNext = saveNextRequested.current;
+                saveNextRequested.current = false;
+                const savedSnapshot = latestDraft.current;
                 await save(
                   {
                     ...d,
@@ -713,12 +846,52 @@ export default function ReceiptModal({
                     cardId: d.payment === 'CompanyCard' ? d.cardId : null,
                   },
                   [],
+                  openNext,
                 );
+                if (!expense.id && localDraftScope) {
+                  void clearOwnEncryptedDraftIfMatch(localDraftScope, savedSnapshot).catch(() => {});
+                }
+                if (!expense.id && draftStorageKey && !draftConflicted.current) {
+                  try {
+                    const cleared = await api('/preferences/' + draftStorageKey, 'PUT',
+                      { draftRevision: draftRevision.current });
+                    draftRevision.current = Number(cleared.draftRevision || 0);
+                  } catch {
+                    // Saving the receipt succeeded. Preserve a possibly newer
+                    // concurrent draft instead of deleting someone else's work.
+                  }
+                }
+              } catch (error) {
+                DraftError((error as Error)?.message || t(
+                  'Bonul nu a fost salvat. Datele rămân în formular; reîncearcă.',
+                  'Receipt could not be saved. Your values remain on screen; retry.'
+                ));
+                DraftSaveFailed(true);
               } finally {
                 saving.current = false;
               }
             }}
           >
+            {expense.ocrCandidate && (
+              <div className={'issue ' + (needsAttention.length ? 'warning' : 'success')}
+                role="status" aria-live="polite">
+                <strong>{needsAttention.length
+                  ? t(needsAttention.length + ' câmpuri necesită atenție înainte de confirmare',
+                      needsAttention.length + ' fields need review before confirmation')
+                  : t('Câmpurile completate au fost confirmate', 'Completed fields have been confirmed')
+                }</strong>
+                {needsAttention.length > 0 && (
+                  <div className="actions">
+                    {needsAttention.map(key => (
+                      <button type="button" key={key} className="text-button"
+                        onClick={() => focusOcrField(key)}>
+                        {ocrFieldLabel(key, t)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {expense.ocrCandidate && (
               <section className="receipt-ocr-review" aria-label={t('Propuneri OCR', 'OCR suggestions')}>
                 <h3>{t('Verifică datele propuse de OCR', 'Review the OCR suggestions')}</h3>
@@ -772,6 +945,80 @@ export default function ReceiptModal({
                 {draftStatus}
               </p>
             )}
+            {localBackupError && (
+              <p className="issue warning" role="alert">{localBackupError}</p>
+            )}
+            {encryptedBackups.length > 0 && (
+              <section className="issue warning receipt-encrypted-recovery"
+                aria-label={t('Recuperare criptată locală', 'Encrypted local recovery')}>
+                <h4>{t('Ciorne locale recuperabile', 'Recoverable local drafts')}</h4>
+                <p>{t(
+                  'După o închidere neașteptată poți restaura copia locală criptată. Nu înlocuim automat ciorna de pe server; copiile nu se sincronizează între dispozitive.',
+                  'After an unexpected close, recover a local encrypted draft. The server draft is never replaced automatically; copies do not synchronize across devices.'
+                )}</p>
+                {encryptedBackups.slice(0, 8).map((backup: Any) => (
+                  <div className="simple-row" key={backup.id}>
+                    <span>{new Date(backup.updatedAt).toLocaleString()}
+                      {' · '}{backup.ownTab ? t('Fila curentă', 'Current tab')
+                        : t('Altă filă sau sesiune', 'Another tab/session')}</span>
+                    <button type="button" className="secondary"
+                      onClick={() => {
+                        if (expense.sourceGroupId
+                          && backup.snapshot.sourceVersion !== expense.ocrVersion) {
+                          DraftError(t('Copia locală aparține altei versiuni OCR; compară manual.',
+                            'Backup belongs to a different OCR revision; compare manually.'));
+                          return;
+                        }
+                        if (modified.current && !window.confirm(t(
+                          'Înlocuiești valorile din formularul curent cu această copie?',
+                          'Replace current form values with this local backup?'
+                        ))) return;
+                        D((old: Any) => ({ ...old, ...backup.snapshot.data }));
+                        Taxes(backup.snapshot.taxes || taxes);
+                        modified.current = true;
+                        DS(t('Copia locală a fost încărcată pentru revizuire; verifică înainte de salvare.',
+                          'Local backup loaded for review; verify before saving.'));
+                      }}>
+                      {t('Revizuiește copia', 'Review local backup')}
+                    </button>
+                    <button type="button" className="text-button"
+                      onClick={() => void discardEncryptedDraft(backup.id).then(() =>
+                        EncryptedBackups((current: Any[]) => current.filter(b => b.id !== backup.id)))
+                        .catch(() => LocalBackupError(t(
+                          'Nu s-a putut șterge copia locală.', 'Could not discard encrypted backup.')))}>
+                      {t('Șterge copia', 'Discard backup')}
+                    </button>
+                    <details>
+                      <summary>{t('Compară valorile locale', 'Inspect local values')}</summary>
+                      <textarea readOnly rows={5}
+                        value={JSON.stringify(backup.snapshot, null, 2)}/>
+                    </details>
+                  </div>
+                ))}
+              </section>
+            )}
+            {draftSaveFailed && !draftConflicted.current && (
+              <button type="button" className="secondary" onClick={() =>
+                void persistDraft().catch(() => {})}>
+                {t('Reîncearcă salvarea ciornei', 'Retry saving draft')}
+              </button>
+            )}
+            {draftConflicted.current && (
+              <section className="issue blocking" role="alert">
+                <h4>{t('Conflict între două file', 'Conflict between tabs')}</h4>
+                <p>{t('Nu suprascriem ciorna de pe server. Datele tale locale rămân în formular; compară și copiază înainte de reîncărcare.',
+                  'We will not overwrite the server draft. Your local edits remain in the form; compare and copy before reloading.')}</p>
+                <details>
+                  <summary>{t('Compară versiunile ciornei', 'Compare draft versions')}</summary>
+                  <label>{t('Modificările din această filă', 'Local changes')}
+                    <textarea readOnly rows={6} value={JSON.stringify(latestDraft.current, null, 2)}/>
+                  </label>
+                  {draftConflictServer && <label>{t('Ciorna de pe server', 'Server draft')}
+                    <textarea readOnly rows={6} value={JSON.stringify(draftConflictServer, null, 2)}/>
+                  </label>}
+                </details>
+              </section>
+            )}
             {compare(d.amount || '0', '0') < 0 && (
               <p className="issue warning">
                 {t(
@@ -822,7 +1069,7 @@ export default function ReceiptModal({
                     ))}
                   </select>
                 </Field>
-                <Field name={t('Data bonului / documentului', 'Receipt / document date')} action={scanAction('date')}>
+                <Field name={t('Data bonului / documentului', 'Receipt / document date')} action={statusAction('date')}>
                   <input
                     data-ocr-field="date"
                     required
@@ -971,7 +1218,7 @@ export default function ReceiptModal({
                   )}
                 </h3>
                 <div className="form-grid">
-                  <Field name={t('CUI furnizor', 'Supplier VAT ID')} action={scanAction('cui')}>
+                  <Field name={t('CUI furnizor', 'Supplier VAT ID')} action={statusAction('cui')}>
                     <input
                       data-ocr-field="cui"
                       required
@@ -986,7 +1233,7 @@ export default function ReceiptModal({
                       }
                     />
                   </Field>
-                  <Field name={t('Număr bon / document', 'Receipt / document number')} action={scanAction('invoice')}>
+                  <Field name={t('Număr bon / document', 'Receipt / document number')} action={statusAction('invoice')}>
                     <input
                       data-ocr-field="invoice"
                       required
@@ -1102,15 +1349,25 @@ export default function ReceiptModal({
                     {lookupError}
                   </p>
                 )}
-                <Field name={t('Denumire furnizor', 'Supplier name')} action={scanAction('supplier')}>
+                <Field name={t('Denumire furnizor', 'Supplier name')} action={statusAction('supplier')}>
                   <input
                     data-ocr-field="supplier"
                     required
-                    readOnly={!!lookup?.found}
                     value={d.supplier || ''}
                     onChange={(e) => set('supplier', e.target.value)}
                   />
                 </Field>
+                {lookup?.found && lookup.name &&
+                  String(d.supplier || '').trim().toLocaleLowerCase() !== lookup.name.trim().toLocaleLowerCase() && (
+                  <div className="issue warning" role="status">
+                    {t('Numele comercial extras diferă de denumirea fiscală. Numele tipărit rămâne păstrat.',
+                      'The printed trading name differs from the fiscal name. The printed name is preserved.')}
+                    <button className="text-button" type="button" onClick={() =>
+                      D((old) => ({ ...old, supplier: lookup.name, supplierConfirmed: false }))}>
+                      {t('Folosește explicit denumirea fiscală', 'Explicitly use fiscal business name')}
+                    </button>
+                  </div>
+                )}
                 {lookup?.valid && !lookup.found && (
                   <label className="confirmation">
                     <input
@@ -1129,7 +1386,7 @@ export default function ReceiptModal({
             )}
             <section className="receipt-section">
               <h3>{t('Descriere și sumă', 'Description and amount')}</h3>
-              <Field name={t('Descriere / justificare', 'Description / business justification')} action={scanAction('description')}>
+              <Field name={t('Descriere / justificare', 'Description / business justification')} action={statusAction('description')}>
                 <textarea
                   data-ocr-field="description"
                   required
@@ -1138,7 +1395,7 @@ export default function ReceiptModal({
                 />
               </Field>
               <div className="form-grid">
-                <Field name={t('Moneda bonului', 'Receipt currency')} action={scanAction('currency')}>
+                <Field name={t('Moneda bonului', 'Receipt currency')} action={statusAction('currency')}>
                   <input
                     data-ocr-field="currency"
                     required
@@ -1155,7 +1412,7 @@ export default function ReceiptModal({
                   />
                 </Field>
                 <Field
-                  name={t('Total bon în moneda documentului', 'Receipt total in document currency')} action={scanAction('amount')}
+                  name={t('Total bon în moneda documentului', 'Receipt total in document currency')} action={statusAction('amount')}
                 >
                   <input
                     data-ocr-field="amount"
@@ -1324,6 +1581,7 @@ export default function ReceiptModal({
                   >
                     <span>
                       {t('Total recompus', 'Reconstructed total')}:{' '}
+                      <small className="receipt-provenance status-calculated">{t('Calculat', 'Calculated')}</small>{' '}
                       <strong>
                         {formatMoney(
                           reconstructed,
@@ -1449,6 +1707,7 @@ export default function ReceiptModal({
                   </>
                 )}
                 <Field name={t('Centru de cost al bonului', 'Receipt cost centre')}
+                  action={statusAction('costCenter')}
                   note={t('Propus din alocarea angajatului. Poți modifica doar acest bon; antetul și celelalte cheltuieli nu se schimbă.',
                           'Prefilled from the employee allocation. Changing it affects only this receipt, not the header or other expenses.')}>
                     <select
@@ -1466,6 +1725,7 @@ export default function ReceiptModal({
                   </Field>
                 {states.project !== 'NOT_APPLICABLE' && (
                   <Field
+                    action={statusAction('project')}
                     name={
                       states.project === 'REQUIRED'
                         ? t('Proiect (obligatoriu)', 'Project (required)')
@@ -1545,7 +1805,8 @@ export default function ReceiptModal({
             )}
             {expense.ocrCandidate && (
               <label className="confirmation">
-                <input type="checkbox" required />
+                <input type="checkbox" required checked={ocrVerified}
+                  onChange={(event) => OcrVerified(event.target.checked)} />
                 {t(
                   'Am verificat gruparea paginilor, valorile și TVA-ul pe documentul original.',
                   'I verified the page grouping, values and VAT against the original document.',
@@ -1588,6 +1849,8 @@ export default function ReceiptModal({
               </button>
               <button
                 className="primary"
+                type="submit"
+                onClick={() => { saveNextRequested.current = false; }}
                 disabled={
                   busy ||
                   !d.country ||
@@ -1597,6 +1860,14 @@ export default function ReceiptModal({
                 }
               >
                 {busy ? t('Se salvează…', 'Saving…') : t('Salvează bonul', 'Save receipt')}
+              </button>
+              <button
+                type="submit" className="secondary"
+                onClick={() => { saveNextRequested.current = true; }}
+                disabled={busy || !d.country || (taxError && !finance) || supplierError
+                  || (domestic && d.hasCompanyCui === null)}
+              >
+                {t('Salvează și următorul', 'Save and next')}
               </button>
             </div>
           </form>

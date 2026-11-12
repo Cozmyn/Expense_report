@@ -3,6 +3,12 @@ on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
 jobs:
+  audit-pilot-metrics-offline:
+    name: Audit OCR pilot metrics (offline calculation, no real documents)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s deploy -p 'test_ocr_pilot_metrics.py' -v
   build-and-test:
     name: Backend and frontend (${{ matrix.database }})
     runs-on: ubuntu-latest

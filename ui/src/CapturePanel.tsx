@@ -1,30 +1,13 @@
 import { add } from './decimal.mjs';
 import OcrGroupBoard from './OcrGroupBoard';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { api, upload as transfer } from './api';
 import { newReceipt } from './ReceiptModal';
 type Any = Record<string, any>;
 export default function CapturePanel({ report, t, run, refresh, reason, edit, editing, masters }: Any) {
   const [working, W] = useState(false),
     [progress, Progress] = useState(0),
-    [receiptMode, ReceiptMode] = useState<'Single' | 'Multiple'>('Single'),
-    [autoFiles, AutoFiles] = useState<string[]>([]);
-  const openedGroups = useRef(new Set<string>());
-  const autoOpening = useRef(false);
-  const entryVersion = useRef<number | null>(null);
-  const stopAutomaticReview = useRef(false);
-  useEffect(() => {
-    if (editing && entryVersion.current == null) entryVersion.current = report.version;
-    if (!editing && entryVersion.current != null) {
-      // Closing an unmodified review is an explicit cancellation; do not
-      // keep opening more dialogs when the employee needs to regroup pages.
-      if (entryVersion.current === report.version) {
-        stopAutomaticReview.current = true;
-        AutoFiles([]);
-      }
-      entryVersion.current = null;
-    }
-  }, [editing, report.version]);
+    [receiptMode, ReceiptMode] = useState<'Single' | 'Multiple'>('Single');
   const files = (report.attachments || []).filter((f: Any) => !f.archived);
   useEffect(() => {
     if (
@@ -85,9 +68,7 @@ export default function CapturePanel({ report, t, run, refresh, reason, edit, ed
             reason,
             receiptMode,
           });
-          stopAutomaticReview.current = false;
-          AutoFiles((old) => [...old, grant.documentId]);
-          const form = new FormData();
+           const form = new FormData();
           form.append('version', String(version));
           form.append('reason', reason);
           form.append('file', file);
@@ -200,48 +181,8 @@ export default function CapturePanel({ report, t, run, refresh, reason, edit, ed
       });
     });
 
-  // Open each OCR draft in sequence; unverified numbers are not saved to accounting.
-  useEffect(() => {
-    if (!autoFiles.length || editing || autoOpening.current || stopAutomaticReview.current) return;
-    const id = autoFiles[0];
-    const file = files.find((f: Any) => f.id === id);
-    if (!file) return;
-    const ocr = file.ocr ? JSON.parse(file.ocr) : null;
-    if (file.scan === 'Rejected' || ocr?.state === 'Failed') {
-      AutoFiles((old) => old.slice(1));
-      return;
-    }
-    if (file.scan !== 'Clean' || !ocr ||
-        !['ReviewRequired', 'PartiallyProcessed', 'ManualEntryRequired'].includes(ocr.state)) return;
-    let active = true;
-    autoOpening.current = true;
-    api('/reports/' + report.id + '/documents/' + id + '/review')
-      .then((result: Any) => {
-        if (!active) return;
-        const group = result.review?.candidates?.find(
-          (candidate: Any) =>
-            candidate.state !== 'Verified' && !openedGroups.current.has(candidate.id),
-        );
-        const mixedSingle = file.receiptMode === 'Single'
-          && result.review?.candidates?.some((candidate: Any) =>
-            candidate.warnings?.some((w: string) =>
-              w.startsWith('MULTIPLE_SECTIONS_SINGLE:')));
-        if (mixedSingle) {
-          // Do not open a combined draft: let the user split it without re-upload.
-          AutoFiles((old) => old[0] === id ? old.slice(1) : old);
-        } else if (group) {
-          openedGroups.current.add(group.id);
-          propose(file, { ...group, sourceGroupId: group.id });
-        } else {
-          AutoFiles((old) => old[0] === id ? old.slice(1) : old);
-        }
-      })
-      .catch(() => {
-        if (active) AutoFiles((old) => old[0] === id ? old.slice(1) : old);
-      })
-      .finally(() => { autoOpening.current = false; });
-    return () => { active = false; };
-  }, [autoFiles.join(','), editing, report.version, JSON.stringify(files)]);
+  // UX-02: do not interrupt the user with automatically opened receipt
+  // dialogs. The stable page/group workspace remains available after OCR.
   return (
     <section className="panel capture-panel">
       <h2>{t('Încarcă documentele și extrage datele', 'Upload documents and extract details')}</h2>
@@ -252,8 +193,8 @@ export default function CapturePanel({ report, t, run, refresh, reason, edit, ed
         )}
       </p>
       <p className="small muted">
-        {t('Alege câte bonuri conține fișierul. După citire se deschide automat primul bon, cu documentul alături.',
-           'Choose how many receipts the file contains. After reading, the first receipt opens automatically beside its source.')}
+        {t('Alege câte bonuri conține fișierul. După citire, selectezi tu bonul din lista stabilă, cu originalul și formularul alături.',
+           'Choose how many receipts the file contains. After reading, choose the receipt from the stable list, with source and form side by side.')}
       </p>
       <fieldset className="receipt-mode-picker">
         <legend>{t('Ce conține documentul?', 'What does the document contain?')}</legend>

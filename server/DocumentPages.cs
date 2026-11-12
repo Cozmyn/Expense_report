@@ -5,6 +5,8 @@ namespace Decont;
 
 public static class DocumentPages
 {
+    private static readonly SemaphoreSlim RenderSlots = new(2, 2);
+    private const int MaximumPreviewBytes = 16 * 1024 * 1024;
     static async Task<(IOriginalDocument File, byte[] Bytes)> Source(
         Guid id,
         Guid document,
@@ -121,8 +123,16 @@ public static class DocumentPages
                             ? (review?.PageCount ?? await PdfPages(source.Bytes, config, c.RequestAborted))
                             : 1;
                     Guard.Require(page >= 1 && page <= pages, "page", "Pagină invalidă.", "Invalid page.", 404);
+                    Guard.Require(source.Bytes.Length <= 40 * 1024 * 1024,
+                        "preview_limit", "Originalul depășește limita de previzualizare.",
+                        "Original exceeds preview processing limits.", 413);
                     if (file.Mime is "image/png" or "image/jpeg")
                         return Results.File(source.Bytes, file.Mime);
+                    Guard.Require(await RenderSlots.WaitAsync(TimeSpan.FromSeconds(15), c.RequestAborted),
+                        "preview_busy", "Sunt prea multe previzualizări simultane. Reîncearcă.",
+                        "Too many concurrent previews. Retry.", 429);
+                    try
+                    {
                     var directory = Path.Combine(Path.GetTempPath(), "decont-render-" + Guid.NewGuid());
                     Directory.CreateDirectory(directory);
                     try
@@ -156,15 +166,17 @@ public static class DocumentPages
                                 [input, output + ".png"],
                                 c.RequestAborted
                             );
-                        return Results.File(
-                            await File.ReadAllBytesAsync(output + ".png", c.RequestAborted),
-                            "image/png"
-                        );
+                        var rendered = await File.ReadAllBytesAsync(output + ".png", c.RequestAborted);
+                        Guard.Require(rendered.Length <= MaximumPreviewBytes,
+                            "preview_limit", "Previzualizarea este prea mare.", "Preview is too large.", 413);
+                        return Results.File(rendered, "image/png");
                     }
                     finally
                     {
                         Directory.Delete(directory, true);
                     }
+                    }
+                    finally { RenderSlots.Release(); }
                 }
             )
             .RequireRateLimiting("document-preview");

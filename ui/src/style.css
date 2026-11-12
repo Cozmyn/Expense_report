@@ -2713,3 +2713,116 @@ textarea:focus-visible,
     min-height: 48px;
   }
 }
+
+/* P2 UX-02: persistent, accessible receipt-workbench; not an interrupting modal.
+   Source, form and receipt index remain simultaneously visible on wide screens. */
+.receipt-workbench-shell {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  margin: 22px 0;
+}
+.receipt-workbench-index {
+  position: sticky;
+  top: 12px;
+  max-height: 78vh;
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #dce4dc);
+  border-radius: 12px;
+}
+.receipt-workbench-index ol {
+  margin: 12px 0 0;
+  padding: 0 0 0 22px;
+}
+.receipt-workbench-index li {
+  padding: 10px 4px;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--border, #dce4dc);
+}
+.receipt-workbench-index [aria-current="step"] {
+  font-weight: 700;
+  border-inline-start: 3px solid #326b55;
+  padding-inline-start: 9px;
+}
+.receipt-workbench-editor,
+.receipt-workbench-content {
+  min-width: 0;
+}
+.receipt-workbench-content > .receipt-modal-inline,
+.receipt-workbench-content > .receipt-modal-inline:has(.with-original) {
+  width: 100%;
+  max-width: 100%;
+  max-height: none;
+  height: auto;
+  overflow: visible;
+  padding: 16px;
+  background: var(--surface, #fff);
+  box-shadow: none;
+  border: 1px solid var(--border, #dce4dc);
+  border-radius: 12px;
+}
+.receipt-modal-inline .receipt-editor-layout.with-original {
+  grid-template-columns: minmax(220px, 1fr) minmax(280px, 1.25fr);
+  gap: 16px;
+}
+.receipt-provenance {
+  display: inline-block;
+  margin-inline: 6px;
+  padding: 4px 7px;
+  border: 1px solid #9aada4;
+  background: #f3f7f4;
+  color: #234a3c;
+  border-radius: 5px;
+  line-height: 1.35;
+}
+.receipt-provenance.status-unread {
+  background: #fff4df;
+  color: #76511e;
+  border-color: #bd8a39;
+}
+.receipt-provenance.status-ocr {
+  background: #eef5ff;
+  color: #164679;
+  border-color: #6b98c5;
+}
+.receipt-provenance.status-calculated {
+  background: #f2f0ff;
+  color: #493b7e;
+  border-color: #a49bd2;
+}
+.receipt-provenance.status-verified {
+  color: #22583e;
+  border-color: #67a080;
+}
+.receipt-modal-inline .modal-footer {
+  position: sticky;
+  bottom: 0;
+  background: white;
+  z-index: 5;
+  border-top: 1px solid var(--border, #dce4dc);
+  padding: 12px 0;
+}
+@media (max-width: 1150px) {
+  .receipt-workbench-shell { grid-template-columns: minmax(0, 1fr); }
+  .receipt-workbench-index { position: static; max-height: none; }
+  .receipt-workbench-index ol { display: flex; gap: 10px; flex-wrap: wrap; list-style: none; padding: 0; }
+  .receipt-workbench-index li { border: 1px solid var(--border, #dce4dc); border-radius: 6px; padding: 8px; }
+}
+@media (max-width: 760px) {
+  .receipt-workbench-content > .receipt-modal-inline,
+  .receipt-workbench-content > .receipt-modal-inline:has(.with-original) {
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
+    padding: 12px;
+  }
+  .receipt-modal-inline .receipt-editor-layout.with-original {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .receipt-modal-inline .modal-footer { position: static; }
+}

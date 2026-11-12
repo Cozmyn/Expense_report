@@ -59,6 +59,7 @@ import { JobsPage, ReportJobs } from './BackgroundJobs';
 import { FinanceQueue, BatchPanel } from './FinanceQueues';
 import { ManagerNextActions } from './ManagerFinanceActions';
 import { MasterPage, UsersPage, CardsPage, DelegationPage, DataPage } from './AdminPages';
+import SupplierTemplates from './SupplierTemplates';
 type Any = Record<string, any>;
 type Master = Any;
 const today = () => new Date().toISOString().slice(0, 10);
@@ -762,7 +763,10 @@ function App() {
           {page === 'profile' && <ProfilePage me={me as any} lang={lang} setLanguage={L} />}{' '}
           {page === 'reporting' && <Reporting t={t} run={run} open={open} />}{' '}
           {page === 'assignments' && <Assignments t={t} run={run} />}{' '}
-          {page === 'settings' && <MasterPage t={t} run={run} refresh={load} />}
+          {page === 'settings' && (<> 
+            <MasterPage t={t} run={run} refresh={load} />
+            <SupplierTemplates t={t} run={run} />
+          </>)}
           {page === 'users' && <UsersPage t={t} run={run} />}
           {page === 'cards' && (
             <Reconciliation t={t} masters={masters} label={label} run={run} open={open} />
@@ -1171,7 +1175,11 @@ function ReportDetail({
           ['history', t('Istoric și aprobări', 'History & approvals')],
           ...(finance || me.roles.includes('Auditor') ? [['erp', 'ERP']] : []),
         ].map(([id, name]) => (
-          <button key={id} className={tab === id ? 'active' : ''} onClick={() => T(id)}>
+          <button key={id} className={tab === id ? 'active' : ''}
+            disabled={!!editing && id !== 'expenses'}
+            title={editing && id !== 'expenses' ? t('Salvează sau închide bonul înainte de schimbarea filei',
+              'Save or close the receipt before switching tabs') : undefined}
+            onClick={() => T(id)}>
             {name}
           </button>
         ))}
@@ -1187,6 +1195,122 @@ function ReportDetail({
           editing={editing}
           masters={masters}
         />
+      )}
+      {tab === 'expenses' && editing && (
+        <section className="receipt-workbench-shell" id="receipt-workbench"
+          aria-label={t('Spațiu de lucru pentru bonuri', 'Receipt review workspace')}>
+          <aside className="receipt-workbench-index">
+            <h3>{t('Bonuri în decont', 'Receipts in report')}</h3>
+            <p className="small muted">{t(
+              'Închide sau salvează formularul înainte de a alege alt bon, pentru a nu pierde modificări.',
+              'Close or save the form before choosing another receipt to avoid losing edits.'
+            )}</p>
+            <ol>
+              {r.lines.map((line: Any) => (
+                <li key={line.id} aria-current={editing.id === line.id ? 'step' : undefined}>
+                  {line.position}. {line.data.description || t('Bon', 'Receipt')} · {line.data.amount} {line.data.currency}
+                  {editing.id === line.id && <strong> · {t('Deschis', 'Open')}</strong>}
+                </li>
+              ))}
+              {!editing.id && <li aria-current="step">{t('Bon nou în lucru', 'New receipt in progress')}</li>}
+            </ol>
+          </aside>
+          <div className="receipt-workbench-editor">
+          {tab === 'expenses' && editing && (
+            <ExpenseModal
+              inline
+              key={editing.id || editing.draftKey}
+              expense={receiptWithSource(editing, r, detail)}
+              reportPayment={r.payment || r.lines.find((l: Any) => l.id !== editing.id)?.data.payment}
+              reportCardId={
+                r.cardId || r.lines.find((l: Any) => l.id !== editing.id)?.data.cardId || null
+              }
+              reportCostCenter={r.costCenter || ''}
+              employeeCostCenter={detail.employeeCostCenter || ''}
+              finance={finance}
+              draftStorageKey={
+                editing.sourceGroupId ? 'ocr-draft:' + editing.sourceGroupId : 'receipt-draft:' + r.id
+              }
+              // Local recovery is scoped to the authenticated actor, not only
+              // the document: another user sharing a device sees no backup.
+              localDraftScope={me.id + ':' + (editing.sourceGroupId
+                ? 'ocr-draft:' + editing.sourceGroupId : 'receipt-draft:' + r.id)}
+              masters={masters}
+              label={label}
+              t={t}
+              busy={busy}
+              onClose={() => Editing(null)}
+              onSourceSelected={refresh}
+              saveDraft={
+                editing.sourceGroupId && !editing.id
+                  ? async (data: Any) => {
+                      await api(
+                        `/reports/${r.id}/documents/${editing.sourceAttachmentId}/groups/${editing.sourceGroupId}/fields`,
+                        'PATCH',
+                        { ...version, data },
+                      );
+                      // Preserve server draft revision until ReceiptModal can
+                      // explicitly clear its own version. Blind PUT {} here
+                      // would overwrite edits from a second browser tab.
+                      await refresh();
+                      Editing(null);
+                    }
+                  : undefined
+              }
+              save={async (data: Any, files: File[], openNext = false) => {
+                const currentIndex = r.lines.findIndex((l: Any) => l.id === editing.id);
+                const nextReceipt = currentIndex >= 0 ? r.lines[currentIndex + 1] : null;
+                const existingIds = new Set(r.lines.map((l: Any) => l.id));
+                const result = await change(
+                  '/reports/' + r.id + '/lines' + (editing.id ? '/' + editing.id : ''),
+                  {
+                    ...version,
+                    data,
+                    sourceAttachmentId: editing.sourceAttachmentId || null,
+                    sourceGroupId: editing.sourceGroupId || null,
+                  },
+                  editing.id ? 'PATCH' : 'POST',
+                );
+                if (!result) throw new Error(t(
+                  'Bonul nu a fost salvat. Păstrează formularul și reîncearcă.',
+                  'Receipt was not saved. Keep the form open and retry.'
+                ));
+                // ReceiptModal owns the current private draft revision and
+                // will clear only that version after a successful commit.
+                // Blind PUT {} here could overwrite another tab's newer draft.
+                const savedLine = editing.id
+                  ? result.lines.find((l: Any) => l.id === editing.id)
+                  : result.lines.find((l: Any) => !existingIds.has(l.id));
+                if (!files.length) {
+                  Editing(openNext ? (nextReceipt || newReceipt()) : null);
+                  return;
+                }
+                Editing(savedLine);
+                await run(async () => {
+                  let currentVersion = result.version;
+                  try {
+                    for (const file of files) {
+                      const form = new FormData();
+                      form.append('file', file);
+                      form.append('version', String(currentVersion));
+                      form.append('reason', reason);
+                      const uploaded = await api(
+                        `/reports/${r.id}/lines/${savedLine.id}/evidence`,
+                        'POST',
+                        form,
+                      );
+                      currentVersion = uploaded.version;
+                    }
+                    Editing(openNext ? (nextReceipt || newReceipt()) : null);
+                  } finally {
+                    await refresh();
+                  }
+                });
+              }}
+            />
+          )}
+          </div>
+        </section>
       )}
       {tab === 'expenses' && (
         <ReceiptAuditReview report={r} detail={detail} masters={masters} t={t}
@@ -1591,95 +1715,7 @@ function ReportDetail({
           </div>
         </section>
       )}
-      {editing && (
-        <ExpenseModal
-          key={editing.id || editing.draftKey}
-          expense={receiptWithSource(editing, r, detail)}
-          reportPayment={r.payment || r.lines.find((l: Any) => l.id !== editing.id)?.data.payment}
-          reportCardId={
-            r.cardId || r.lines.find((l: Any) => l.id !== editing.id)?.data.cardId || null
-          }
-          reportCostCenter={r.costCenter || ''}
-          employeeCostCenter={detail.employeeCostCenter || ''}
-          finance={finance}
-          draftStorageKey={
-            editing.sourceGroupId ? 'ocr-draft:' + editing.sourceGroupId : 'receipt-draft:' + r.id
-          }
-          masters={masters}
-          label={label}
-          t={t}
-          busy={busy}
-          onClose={() => Editing(null)}
-          onSourceSelected={refresh}
-          saveDraft={
-            editing.sourceGroupId && !editing.id
-              ? async (data: Any) => {
-                  await api(
-                    `/reports/${r.id}/documents/${editing.sourceAttachmentId}/groups/${editing.sourceGroupId}/fields`,
-                    'PATCH',
-                    { ...version, data },
-                  );
-                  await api('/preferences/ocr-draft:' + editing.sourceGroupId, 'PUT', {}).catch(
-                    () => {},
-                  );
-                  await refresh();
-                  Editing(null);
-                }
-              : undefined
-          }
-          save={async (data: Any, files: File[]) => {
-            const existingIds = new Set(r.lines.map((l: Any) => l.id));
-            const result = await change(
-              '/reports/' + r.id + '/lines' + (editing.id ? '/' + editing.id : ''),
-              {
-                ...version,
-                data,
-                sourceAttachmentId: editing.sourceAttachmentId || null,
-                sourceGroupId: editing.sourceGroupId || null,
-              },
-              editing.id ? 'PATCH' : 'POST',
-            );
-            if (!result) return;
-            if (!editing.id)
-              await api(
-                '/preferences/' +
-                  (editing.sourceGroupId
-                    ? 'ocr-draft:' + editing.sourceGroupId
-                    : 'receipt-draft:' + r.id),
-                'PUT',
-                {},
-              ).catch(() => {});
-            const savedLine = editing.id
-              ? result.lines.find((l: Any) => l.id === editing.id)
-              : result.lines.find((l: Any) => !existingIds.has(l.id));
-            if (!files.length) {
-              Editing(null);
-              return;
-            }
-            Editing(savedLine);
-            await run(async () => {
-              let currentVersion = result.version;
-              try {
-                for (const file of files) {
-                  const form = new FormData();
-                  form.append('file', file);
-                  form.append('version', String(currentVersion));
-                  form.append('reason', reason);
-                  const uploaded = await api(
-                    `/reports/${r.id}/lines/${savedLine.id}/evidence`,
-                    'POST',
-                    form,
-                  );
-                  currentVersion = uploaded.version;
-                }
-                Editing(null);
-              } finally {
-                await refresh();
-              }
-            });
-          }}
-        />
-      )}
+
     </>
   );
 }

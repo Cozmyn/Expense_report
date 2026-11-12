@@ -9,6 +9,28 @@ public static class Documents
 {
     private const long MaximumPackBytes = 128L * 1024 * 1024;
     private static readonly SemaphoreSlim PackSlots = new(2, 2);
+    private static readonly SemaphoreSlim PdfSlots = new(2, 2);
+    public const int MaximumPdfBytes = 16 * 1024 * 1024;
+
+    // PDFsharp serializes a complete PDF to bytes. Until the renderer supports
+    // streaming, bound concurrent generators and reject excessive results
+    // instead of allowing unbounded PDF/ZIP request amplification.
+    public static async Task<byte[]> LimitedPdf(Func<Task<byte[]>> generate, CancellationToken ct)
+    {
+        Guard.Require(await PdfSlots.WaitAsync(TimeSpan.FromSeconds(15), ct),
+            "pdf_busy", "Sunt prea multe PDF-uri simultane. Reîncearcă.",
+            "Too many PDF exports running concurrently. Retry.", 429);
+        try
+        {
+            var data = await generate();
+            Guard.Require(data.Length <= MaximumPdfBytes,
+                "pdf_limit", "PDF-ul depășește limita permisă.",
+                "PDF exceeds supported size.", 413);
+            return data;
+        }
+        finally { PdfSlots.Release(); }
+    }
+
 
     public static void CheckExcelAmount(decimal amount) =>
         Guard.Require(
@@ -81,7 +103,7 @@ public static class Documents
             {
                 var r = await svc.Get(id, c.User);
                 var employee = await db.Users.SingleAsync(u => u.Id == r.EmployeeId);
-                var bytes = ReportPdf.Generate(
+                var bytes = await LimitedPdf(async () => ReportPdf.Generate(
                     r,
                     employee,
                     await db.Decisions.Where(d => d.ReportId == id).ToListAsync(),
@@ -89,7 +111,7 @@ public static class Documents
                     await db.Reviews.Where(review => review.ReportId == id).ToListAsync(),
                     await db.Batches.Where(batch => batch.ReportId == id).ToListAsync(),
                     await svc.Names()
-                );
+                ), c.RequestAborted);
                 svc.Log(c.User, id, "Report", "PDFDownloaded");
                 await db.SaveChangesAsync();
                 return Results.File(bytes, "application/pdf", r.Number + ".pdf");
@@ -100,6 +122,12 @@ public static class Documents
             async (Guid id, Db db, Reports svc, IStore store, HttpContext c) =>
             {
                 var r = await svc.Get(id, c.User);
+                var docs = r.Lines.SelectMany(l => l.Evidence).Cast<IOriginalDocument>()
+                    .Concat(r.Attachments).Where(e => e.Scan == "Clean").ToList();
+                Guard.Require(docs.Count <= 200
+                    && docs.Sum(e => (long)e.Size) <= MaximumPackBytes,
+                    "pack_limit", "Arhiva depășește limita permisă.",
+                    "Archive exceeds the supported size limit.", 413);
                 Guard.Require(await PackSlots.WaitAsync(TimeSpan.FromSeconds(15), c.RequestAborted),
                     "pack_busy", "Prea multe arhive simultane. Reîncearcă.", "Too many concurrent archives. Retry.", 429);
                 FileStream? output = null;
@@ -125,7 +153,7 @@ public static class Documents
                     await Write("report.html", Encoding.UTF8.GetBytes(Html(r, await db.Masters.ToListAsync())));
                     await Write(
                         "report.pdf",
-                        ReportPdf.Generate(
+                        await LimitedPdf(async () => ReportPdf.Generate(
                             r,
                             await db.Users.SingleAsync(u => u.Id == r.EmployeeId),
                             await db.Decisions.Where(d => d.ReportId == id).ToListAsync(),
@@ -133,7 +161,7 @@ public static class Documents
                             await db.Reviews.Where(review => review.ReportId == id).ToListAsync(),
                             await db.Batches.Where(batch => batch.ReportId == id).ToListAsync(),
                             await svc.Names()
-                        )
+                        ), c.RequestAborted)
                     );
                     await Write(
                         "snapshots.json",
@@ -147,14 +175,6 @@ public static class Documents
                             Serialization.Write(await db.Audits.Where(a => a.ReportId == id).ToListAsync())
                         )
                     );
-                    var docs = r
-                        .Lines.SelectMany(l => l.Evidence)
-                        .Cast<IOriginalDocument>()
-                        .Concat(r.Attachments)
-                        .Where(e => e.Scan == "Clean")
-                        .ToList();
-                    Guard.Require(docs.Count <= 200 && docs.Sum(e => (long)e.Size) <= MaximumPackBytes,
-                        "pack_limit", "Arhiva depășește limita permisă.", "Archive exceeds the supported size limit.", 413);
                     await Write(
                         "manifest.json",
                         Encoding.UTF8.GetBytes(

@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Decont;
 
@@ -52,6 +54,55 @@ public static class Api
                 }),
         };
 
+    private static DomainException ConcurrentWrite() => new(
+        "concurrent_write",
+        "Datele au fost modificate simultan. Reîncarcă și reîncearcă operațiunea.",
+        "Concurrent update. Refresh and retry the operation.", 409);
+
+    private static bool RetryablePg(PostgresException ex) =>
+        ex.SqlState is "40001" or "40P01" or "23P01" or "23505";
+
+    // Npgsql's EF execution strategy can wrap serialization failures inside
+    // an InvalidOperationException/DbUpdateException. Inspect the root cause,
+    // not only the outer provider exception.
+    private static bool DatabaseWriteRace(Exception ex)
+    {
+        var root = ex.GetBaseException();
+        return root is PostgresException pg && RetryablePg(pg)
+            || root is SqliteException sqlite && sqlite.SqliteErrorCode is 5 or 6 or 19;
+    }
+
+    private static async Task<IResult> ReplayCommittedOperation(
+        Db db, HttpContext c, object request, int successStatus)
+    {
+        // A concurrent identical operation can lose the unique-key insert race
+        // after the first worker commits. Re-read its committed response instead
+        // of reporting a conflict and inviting the client to create a new key.
+        // After PostgreSQL transaction failure the original transaction is
+        // disposed before this method runs.
+        db.ChangeTracker.Clear();
+        var key = c.Request.Headers["Idempotency-Key"].ToString();
+        if (key.Length is >= 16 and <= 100)
+        {
+            var id = Serialization.Hash(Reports.Actor(c.User) + c.Request.Path + key);
+            var hash = Serialization.Hash(Serialization.Write(request));
+            var prior = await db.Idempotencies.AsNoTracking().SingleOrDefaultAsync(i => i.Id == id);
+            if (prior != null)
+            {
+                Guard.Require(prior.RequestHash == hash, "idempotency_conflict",
+                    "Identificatorul a fost reutilizat cu alte date.",
+                    "Idempotency key reused with different data.", 409);
+                return Results.Text(prior.Response, "application/json", statusCode: successStatus);
+            }
+        }
+        throw ConcurrentWrite(); // Retry exact request + same key after a race.
+    }
+
+    /// <summary>
+    /// All mutations use serializable isolation. A competing interval insert
+    /// must never be silently accepted; map database serialization, exclusion
+    /// and unique constraint conflicts to an explicit 409.
+    /// </summary>
     public static async Task<IResult> Atomic(
         Db db,
         HttpContext c,
@@ -60,43 +111,50 @@ public static class Api
         int successStatus = 200
     )
     {
-        await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
-        var key = c.Request.Headers["Idempotency-Key"].ToString();
-        Guard.Require(
-            key.Length is >= 16 and <= 100,
-            "idempotency",
-            "Identificatorul operațiunii lipsește.",
-            "Operation identifier is missing.",
-            400
-        );
-        var id = Serialization.Hash(Reports.Actor(c.User) + c.Request.Path + key);
-        var hash = Serialization.Hash(Serialization.Write(request));
-        var previous = await db.Idempotencies.FindAsync(id);
-        if (previous != null)
+        try
         {
+            await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+            var key = c.Request.Headers["Idempotency-Key"].ToString();
             Guard.Require(
-                previous.RequestHash == hash,
-                "idempotency_conflict",
-                "Identificatorul a fost reutilizat.",
-                "Operation identifier reused with different data.",
-                409
+                key.Length is >= 16 and <= 100,
+                "idempotency",
+                "Identificatorul operațiunii lipsește.",
+                "Operation identifier is missing.",
+                400
             );
-            return Results.Text(previous.Response, "application/json", statusCode: successStatus);
-        }
-        var result = await work();
-        var response = Serialization.Write(result);
-        db.Idempotencies.Add(
-            new()
+            var id = Serialization.Hash(Reports.Actor(c.User) + c.Request.Path + key);
+            var hash = Serialization.Hash(Serialization.Write(request));
+            var previous = await db.Idempotencies.FindAsync(id);
+            if (previous != null)
             {
-                Id = id,
-                Actor = Reports.Actor(c.User),
-                RequestHash = hash,
-                Response = response,
+                Guard.Require(
+                    previous.RequestHash == hash,
+                    "idempotency_conflict",
+                    "Identificatorul a fost reutilizat.",
+                    "Operation identifier reused with different data.",
+                    409
+                );
+                return Results.Text(previous.Response, "application/json", statusCode: successStatus);
             }
-        );
-        await db.SaveChangesAsync();
-        await tx.CommitAsync();
-        return Results.Text(response, "application/json", statusCode: successStatus);
+            var result = await work();
+            var response = Serialization.Write(result);
+            db.Idempotencies.Add(
+                new()
+                {
+                    Id = id,
+                    Actor = Reports.Actor(c.User),
+                    RequestHash = hash,
+                    Response = response,
+                }
+            );
+            await db.SaveChangesAsync();
+            await tx.CommitAsync();
+            return Results.Text(response, "application/json", statusCode: successStatus);
+        }
+        catch (Exception ex) when (DatabaseWriteRace(ex))
+        {
+            return await ReplayCommittedOperation(db, c, request, successStatus);
+        }
     }
 
     public static void Map(RouteGroupBuilder api)

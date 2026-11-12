@@ -106,9 +106,12 @@ test('Reversible reset, statement charges and independent Finance policy approva
     issuer: 'Synthetic bank',
     currency: 'EUR',
   });
+  // DB-03 forbids competing policies at identical effective dates.
+  // Use distinct, applicable dates for both Playwright projects rather than
+  // overwriting the EUR policy created by the earlier Finance scenario.
   await mutate(finance, '/finance/currency-policies', {
     currency: 'EUR',
-    from: '2020-01-01',
+    from: info.project.name === 'mobile' ? '2025-12-02' : '2025-12-01',
     policy: {
       exponent: 2,
       rateDecimals: 6,

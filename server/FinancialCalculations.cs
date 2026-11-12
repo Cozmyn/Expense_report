@@ -741,6 +741,17 @@ public static class FinancialCalculations
                                 "Curs estimativ invalid.",
                                 "Invalid estimated rate."
                             );
+                            // A policy's effective end is derived from the next
+                            // From-date. Equal From-dates have no deterministic
+                            // winner; serializable Atomic plus this predicate
+                            // prevents concurrent overlapping versions.
+                            Guard.Require(
+                                !await db.FinancePolicies.AnyAsync(p =>
+                                    p.Currency == i.Currency && p.From == i.From),
+                                "policy_overlap",
+                                "Există deja o politică pentru această monedă și dată. Închide sau revizuiește versiunea existentă.",
+                                "A policy for this currency/effective date already exists.", 409
+                            );
                             var version =
                                 (
                                     await db

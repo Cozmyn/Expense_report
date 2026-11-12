@@ -202,12 +202,11 @@ test('PDF02 recorded source-to-expense walkthrough', async ({ browser }, info) =
       buffer: pdf(batch),
     });
   const board = page.getByRole('region', { name: 'Verificarea documentelor', exact: true });
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toBeVisible({ timeout: 180000 });
-  await dialog.getByRole('button', { name: 'Anulează', exact: true }).click();
-  await expect(dialog).not.toBeVisible();
+  const dialog = page.locator('.receipt-modal-inline');
   const picker = board.getByRole('group', { name: 'Selectează bonul pentru verificare' });
   await expect(picker.getByRole('button')).toHaveCount(9, { timeout: 180000 });
+  // OCR must not open an editor automatically over an unreviewed PDF.
+  await expect(dialog).not.toBeVisible();
   const detail = async () =>
     (await (await employee.get('/api/reports/' + report.id)).json()).report;
   const source = (await detail()).attachments[0];
@@ -267,18 +266,12 @@ test('PDF02 recorded source-to-expense walkthrough', async ({ browser }, info) =
     .selectOption('yes');
   await dialog.getByLabel('CUI furnizor', { exact: true }).fill('18546294');
   const confirmation = dialog.getByRole('checkbox', { name: /Am verificat CUI-ul/ });
-  await expect
-    .poll(
-      async () =>
-        (await confirmation.isVisible()) ||
-        (await dialog.getByLabel('Denumire furnizor', { exact: true }).getAttribute('readonly')) !==
-          null,
-    )
-    .toBeTruthy();
-  if (await confirmation.isVisible()) {
-    await dialog.getByLabel('Denumire furnizor', { exact: true }).fill('Synthetic vendor');
-    await confirmation.check();
-  }
+  const merchant = dialog.getByLabel('Denumire furnizor', { exact: true });
+  await expect(merchant).toBeVisible();
+  await expect(merchant).not.toHaveAttribute('readonly', '');
+  await merchant.fill('Synthetic vendor');
+  await expect.poll(async () => (await confirmation.isVisible()) || (await dialog.locator('.supplier-result').count()) > 0).toBeTruthy();
+  if (await confirmation.isVisible()) await confirmation.check();
   await dialog.getByLabel('Tip cheltuială', { exact: true }).selectOption(category);
   await dialog
     .getByLabel('Descriere / justificare', { exact: true })
@@ -314,6 +307,17 @@ test('PDF02 recorded source-to-expense walkthrough', async ({ browser }, info) =
   }
   const verified = await detail();
   expect(verified.lines).toHaveLength(9);
+  let pageCoverage = await review();
+  expect(pageCoverage.coverageRequired).toBe(true);
+  expect(pageCoverage.missingCoveragePages).toHaveLength(11);
+  for (let left = 11; left > 0; left--) {
+    await board.getByRole('button',
+      { name: 'Confirm că toate bonurile sunt acoperite', exact: true }).first().click();
+    await expect.poll(async () => (await review()).missingCoveragePages.length).toBe(left - 1);
+  }
+  pageCoverage = await review();
+  expect(pageCoverage.missingCoveragePages).toEqual([]);
+
   const ids = verified.lines.map((l: any) => l.id).sort();
   await board.getByRole('button', { name: 'Istoric valori corectate', exact: true }).click();
   const corrections = await (
