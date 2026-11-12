@@ -11,12 +11,13 @@ using Microsoft.AspNetCore.HttpOverrides;
 using System.Net;
 using Microsoft.EntityFrameworkCore;
 
+var isMigrationJob = args.Contains("--migrate");
 var builder = WebApplication.CreateBuilder(
-    args.Where(a => a is not ("--init" or "--bootstrap" or "--schema")).ToArray()
+    args.Where(a => a is not ("--init" or "--bootstrap" or "--schema" or "--migrate")).ToArray()
 );
 // Only a precisely enumerated ingress may set forwarded scheme/client IP.
 // Never trust client-supplied X-Forwarded-* headers from the public Internet.
-if (!builder.Environment.IsDevelopment())
+if (!builder.Environment.IsDevelopment() && !isMigrationJob)
 {
     var configured = builder.Configuration["ReverseProxy:KnownProxies"]?
         .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? [];
@@ -116,7 +117,7 @@ if (builder.Configuration["Storage:Provider"] == "S3")
 }
 else
 {
-    if (!builder.Environment.IsDevelopment())
+    if (!builder.Environment.IsDevelopment() && !isMigrationJob)
         throw new InvalidOperationException("Production requires configured private S3 storage");
     builder.Services.AddScoped<IStore, LocalStore>();
 }
@@ -188,17 +189,28 @@ builder
     );
 var app = builder.Build();
 PasswordRecovery.Map(app);
-if (args.Contains("--init") || args.Contains("--bootstrap") || args.Contains("--schema"))
+if (args.Contains("--init") || args.Contains("--bootstrap") || args.Contains("--schema") || isMigrationJob)
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<Db>();
     if (args.Contains("--schema"))
     {
+        // Audit-only model DDL output. This is never applied to an existing DB.
         Console.Write(db.Database.GenerateCreateScript());
         return;
     }
-    await db.Database.EnsureCreatedAsync();
-    await SchemaUpgrades.Apply(db);
+    if (isMigrationJob)
+    {
+        await SchemaUpgrades.Apply(db);
+        Console.WriteLine("Reviewed schema migrations applied and verified.");
+        return;
+    }
+    if (!app.Environment.IsDevelopment() && args.Contains("--init"))
+        throw new InvalidOperationException("Production schema changes require an isolated --migrate job with a dedicated DDL role.");
+    if (app.Environment.IsDevelopment())
+        await SchemaUpgrades.Apply(db);
+    else
+        await SchemaUpgrades.VerifyRuntime(db);
     var roles = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
     foreach (var role in new[] { "Employee", "Manager", "Finance", "Admin", "Auditor", "FinanceReopen" })
         if (!await roles.RoleExistsAsync(role))
@@ -237,6 +249,13 @@ if (args.Contains("--init") || args.Contains("--bootstrap") || args.Contains("--
         await users.AddToRoleAsync(user, "Admin");
     }
     return;
+}
+// Production application identity must have SELECT/DML only. Startup validates
+// the pinned release and physical schema but never attempts DDL repairs.
+if (!app.Environment.IsDevelopment())
+{
+    using var scope = app.Services.CreateScope();
+    await SchemaUpgrades.VerifyRuntime(scope.ServiceProvider.GetRequiredService<Db>());
 }
 app.Use(
     async (c, next) =>
