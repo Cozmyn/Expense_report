@@ -45,6 +45,9 @@ jobs:
           mkdir -p tests/TestResults
           dotnet run --no-restore --project server/Decont.Api.csproj -c Release -- --schema > tests/TestResults/model-schema-${{ matrix.database }}.sql
           test -s tests/TestResults/model-schema-${{ matrix.database }}.sql
+          echo "EXPLICIT_MODEL_SQL_BEGIN_${{ matrix.database }}"
+          cat tests/TestResults/model-schema-${{ matrix.database }}.sql
+          echo "EXPLICIT_MODEL_SQL_END_${{ matrix.database }}"
       - run: dotnet publish server/Decont.Api.csproj --configuration Release --output release
       - uses: actions/upload-artifact@v4
         if: always()
