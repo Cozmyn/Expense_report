@@ -351,7 +351,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     const mp = await ctx.newPage();
     await mp.goto('/');
     await mp.getByRole('button', { name: 'Aprobări', exact: true }).click();
-    await mp.getByRole('button', { name: report.purpose }).click();
+    await mp.locator('.report-link:visible').filter({ hasText: report.purpose }).first().click();
     const managerEvidence = mp.getByRole('region', { name: 'Verificare bonuri și OCR' });
     await expect(managerEvidence).toBeVisible();
     await expect(managerEvidence.getByText('câmpuri OCR identice cu cele salvate')).toBeVisible();
@@ -394,7 +394,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   const financeMenu = financePage.getByRole('button', { name: 'Deschide meniul', exact: true });
   if (await financeMenu.isVisible()) await financeMenu.click();
   await financePage.getByRole('button', { name: 'Finance', exact: true }).click();
-  await financePage.getByRole('button', { name: report.purpose }).click();
+  await financePage.locator('.report-link:visible').filter({ hasText: report.purpose }).first().click();
   const financeEvidence = financePage.getByRole('region', { name: 'Verificare bonuri și OCR' });
   await expect(financeEvidence).toBeVisible();
   await expect(financeEvidence.getByRole('button', { name: 'Corectează bonul și câmpurile OCR' })).toBeVisible();
@@ -455,7 +455,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
     await fp.getByRole('button', { name: 'Finance', exact: true }).click();
     await expect(fp.getByRole('heading', { name: 'Verificare financiară' })).toBeVisible();
     await shot(fp, '06-finance-queue');
-    await fp.getByRole('button', { name: report.purpose }).click();
+    await fp.locator('.report-link:visible').filter({ hasText: report.purpose }).first().click();
     await expect(fp.getByRole('heading', { name: report.purpose, exact: true })).toBeVisible();
     await shot(fp, '07-finance-report');
     await fp.getByRole('button', { name: 'ERP', exact: true }).click();
