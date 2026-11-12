@@ -208,6 +208,8 @@ def run(args: argparse.Namespace) -> dict:
     keys = Path(args.backup_keys)
     objects = Path(args.backup_objects)
     manifest = read_manifest(Path(args.manifest), dump, keys, args.verify_existing)
+    if args.verify_existing and not args.execute:
+        raise RecoveryError("PITR verification requires --execute and isolated-target confirmation")
     if not args.execute:
         return {"status": "backup_integrity_only", "dump_sha256": sha256(dump),
                 "data_protection_keys": len(manifest["keys"]), "release_approved": False}
@@ -222,6 +224,8 @@ def run(args: argparse.Namespace) -> dict:
     if not 0 <= rpo <= args.max_rpo_minutes:
         raise RecoveryError("Restore point exceeds business-approved RPO")
     target_keys = Path(args.target_keys)
+    if not args.target_keys or not target_keys.is_absolute():
+        raise RecoveryError("Restored key-ring target must be an absolute path")
     verify_private_bucket(args.s3_endpoint, args.bucket)
     if args.verify_existing:
         # After an operator-run WAL/PITR restore, verify in place without
@@ -229,6 +233,8 @@ def run(args: argparse.Namespace) -> dict:
         if not args.restore_start_utc:
             raise RecoveryError("PITR verification requires the external restore start time")
         since = datetime.fromisoformat(args.restore_start_utc.replace("Z", "+00:00"))
+        if since.tzinfo is None:
+            raise RecoveryError("External PITR restore start must have a timezone")
         elapsed = (datetime.now(timezone.utc) - since).total_seconds()
         if elapsed < 0:
             raise RecoveryError("Restore start cannot be in the future")
