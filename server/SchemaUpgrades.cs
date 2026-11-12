@@ -106,7 +106,7 @@ public static class SchemaUpgrades
     {
         await using var tx = await db.Database.BeginTransactionAsync();
         if (db.Database.IsNpgsql())
-            await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(2026111214)");
+            await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(hashtext(current_database()), 20261112)");
         var hasReleases = await TableExists(db, "SchemaReleases");
         if (hasReleases)
         {
