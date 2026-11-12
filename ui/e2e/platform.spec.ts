@@ -650,6 +650,7 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   expect(JSON.parse(captured.attachments[0].coveredLines)).toHaveLength(2);
   expect(captured.total).toBe(30);
   for (let originalPage = 1; originalPage <= 2; originalPage++) {
+    await page.getByLabel('Alege pagina pentru verificare').selectOption(String(originalPage));
     await page.getByRole('button', {
       name: 'Confirmă toate bonurile din pagina ' + originalPage, exact: true,
     }).click();
