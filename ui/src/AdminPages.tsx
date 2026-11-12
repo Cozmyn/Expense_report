@@ -175,13 +175,6 @@ export function MasterPage({ t, run, refresh }: Any) {
     });
   }, []);
   const set = (k: string, v: any) => F({ ...form, [k]: v });
-  const visibleUsers = users.filter((user) => {
-    const text = [user.userName, user.name, user.email, user.worker, user.costCenter]
-      .filter(Boolean).join(' ').toLocaleLowerCase();
-    return (!userSearch.trim() || text.includes(userSearch.trim().toLocaleLowerCase())) &&
-      (!userRole || user.roles?.includes(userRole)) &&
-      (userActivity === 'all' || (userActivity === 'active' ? user.active : !user.active));
-  });
   return (
     <>
       <div className="page-heading">
@@ -449,6 +442,13 @@ export function UsersPage({ t, run }: Any) {
     run(load);
   }, []);
   const set = (k: string, v: any) => F({ ...form, [k]: v });
+  const visibleUsers = users.filter((user) => {
+    const text = [user.userName, user.name, user.email, user.worker, user.costCenter]
+      .filter(Boolean).join(' ').toLocaleLowerCase();
+    return (!userSearch.trim() || text.includes(userSearch.trim().toLocaleLowerCase())) &&
+      (!userRole || user.roles?.includes(userRole)) &&
+      (userActivity === 'all' || (userActivity === 'active' ? user.active : !user.active));
+  });
   return (
     <>
       <div className="page-heading">
