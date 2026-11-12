@@ -2976,3 +2976,32 @@ nav button { font-size: 14px; }
   .manager-show-more { width: 100%; }
   .finance-queue-money { font-size: 13px; }
 }
+
+/* Wave 3: preserve every role-specific destination with clearer groups. */
+.sidebar nav { overflow-y: auto; min-height: 0; padding-bottom: 10px; }
+.nav-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.nav-group .nav-caption { display: block; padding-bottom: 5px; color: #4c6555; }
+.nav-group button { width: 100%; }
+.notifications { max-height: min(72dvh, 680px); overflow-y: auto; }
+.notifications .section-heading { margin-bottom: 8px; }
+.notifications .section-heading .icon {
+  width: auto; min-width: 44px; min-height: 44px; padding: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #264938; border: 0; border-radius: 8px;
+}
+.notifications .notification-item {
+  display: flex; align-items: center; flex-direction: row;
+  justify-content: space-between; gap: 12px;
+  color: #234034; padding: 13px 6px; min-height: 52px;
+}
+.notifications .notification-item span { min-width: 0; }
+.notifications .notification-item strong { display: block; font-weight: 600; }
+.notifications .notification-item small { display: block; color: #556a5a; margin-top: 4px; }
+.notifications .notification-item.unread { background: #eef7f1; }
+.notifications .notification-item:hover { background: #f1f7f2; }
+.report-list-result { margin: 0 0 12px; }
+@media (max-width: 760px) {
+  .sidebar nav { flex: 1 1 auto; }
+  .notifications { left: 10px; right: 10px; width: auto; max-height: 74dvh; }
+  .list-toolbar > .secondary { width: 100%; }
+}
