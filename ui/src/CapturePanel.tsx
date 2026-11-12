@@ -7,7 +7,10 @@ type Any = Record<string, any>;
 export default function CapturePanel({ report, t, run, refresh, reason, edit, editing, masters }: Any) {
   const [working, W] = useState(false),
     [progress, Progress] = useState(0),
-    [receiptMode, ReceiptMode] = useState<'Single' | 'Multiple'>('Single');
+    [receiptMode, ReceiptMode] = useState<'Single' | 'Multiple'>('Single'),
+    [queued, Queued] = useState<Array<{ file: File; mode: 'Single' | 'Multiple' }>>([]),
+    [activeFile, ActiveFile] = useState(''),
+    [completedFiles, CompletedFiles] = useState(0);
   const files = (report.attachments || []).filter((f: Any) => !f.archived);
   useEffect(() => {
     if (
@@ -35,12 +38,16 @@ export default function CapturePanel({ report, t, run, refresh, reason, edit, ed
       });
       await refresh();
     });
-  const upload = (selected: File[]) =>
+  const upload = (selected: Array<{ file: File; mode: 'Single' | 'Multiple' }>) =>
     run(async () => {
       W(true);
       let version = report.version;
+      CompletedFiles(0);
       try {
-        for (const file of selected) {
+        for (const [index, item] of selected.entries()) {
+          const { file, mode } = item;
+          ActiveFile(file.name);
+          CompletedFiles(index);
           Progress(0);
           const hash = Array.from(
             new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer())),
@@ -66,7 +73,7 @@ export default function CapturePanel({ report, t, run, refresh, reason, edit, ed
             mime,
             hash,
             reason,
-            receiptMode,
+            receiptMode: mode,
           });
            const form = new FormData();
           form.append('version', String(version));
@@ -82,9 +89,12 @@ export default function CapturePanel({ report, t, run, refresh, reason, edit, ed
             { version, token: grant.token, reason },
           );
           version = done.version;
+          CompletedFiles(index + 1);
         }
+        Queued([]);
       } finally {
         W(false);
+        ActiveFile('');
         await refresh();
       }
     });
@@ -215,21 +225,64 @@ export default function CapturePanel({ report, t, run, refresh, reason, edit, ed
       </fieldset>
       <label className="field receipt-upload">
         <span>{t('Adaugă PDF sau fotografie', 'Add a PDF or photo')}</span>
-        <input type="file" multiple={receiptMode === 'Multiple'}
+        <input type="file" multiple
           disabled={working} accept=".pdf,.jpg,.jpeg,.png,.heic,.heif"
           onChange={(e) => {
-            upload(Array.from(e.target.files || []));
+            const selected = Array.from(e.target.files || []);
+            if (selected.length === 1) {
+              Queued([]);
+              void upload([{ file: selected[0], mode: receiptMode }]);
+            } else if (selected.length > 1) {
+              Queued(selected.map((file) => ({ file, mode: receiptMode })));
+            }
             e.target.value = '';
           }} />
       </label>
       <p className="small muted">
-        {t('Acesta este singurul loc unde încarci documentele. Poți fotografia bonul direct din selectorul telefonului.',
-           'This is the only upload location. You can take a photo from the phone file picker.')}
+        {t('Poți încărca mai multe fișiere, chiar dacă fiecare conține câte un singur bon. Pentru selecții multiple verifici tipul fiecărui fișier înainte de trimitere. Pe telefon poți fotografia bonul din selector.',
+           'You can upload multiple files even when each contains one receipt. For multi-file selections, review each file type before uploading. On mobile you can take a photo from the file picker.')}
       </p>
+      {queued.length > 0 && !working && (
+        <section className="capture-file-queue" aria-label={t('Fișiere pregătite pentru încărcare', 'Files ready to upload')}>
+          <h3>{t('Verifică fișierele selectate', 'Review selected files')} ({queued.length})</h3>
+          <p className="small muted">
+            {t('Alege ce conține fiecare fișier, nu câte fișiere încarci.', 'Choose what each file contains, independently of the file count.')}
+          </p>
+          {queued.map((item, index) => (
+            <div className="capture-queued-file" key={index}>
+              <span className="capture-file-name">{item.file.name}</span>
+              <label>
+                <span className="small">{t('Conținut fișier', 'File content')}</span>
+                <select value={item.mode} onChange={(event) =>
+                  Queued((old) => old.map((entry, i) => i === index
+                    ? { ...entry, mode: event.target.value as 'Single' | 'Multiple' } : entry))}>
+                  <option value="Single">{t('Un bon sau o factură', 'One receipt or invoice')}</option>
+                  <option value="Multiple">{t('Mai multe bonuri', 'Multiple receipts')}</option>
+                </select>
+              </label>
+              <button className="text-button" type="button" onClick={() =>
+                Queued((old) => old.filter((_, i) => i !== index))}>
+                {t('Elimină din selecție', 'Remove from selection')}
+              </button>
+            </div>
+          ))}
+          <div className="actions">
+            <button type="button" className="primary" onClick={() => void upload(queued)}>
+              {t('Încarcă fișierele selectate', 'Upload selected files')} ({queued.length})
+            </button>
+            <button type="button" className="secondary" onClick={() => Queued([])}>
+              {t('Anulează selecția', 'Cancel selection')}
+            </button>
+          </div>
+        </section>
+      )}
       {working && (
-        <p role="status">
-          {t('Se încarcă', 'Uploading')} {progress}% <progress max={100} value={progress} />
-        </p>
+        <div role="status" className="capture-upload-status">
+          <p>{t('Fișierul', 'File')} {completedFiles + 1}: <strong>{activeFile}</strong></p>
+          <label>{t('Progres fișier curent', 'Current file progress')} {progress}%
+            <progress max={100} value={progress} />
+          </label>
+        </div>
       )}
       {files.map((file: Any) => {
         const ocr = file.ocr ? JSON.parse(file.ocr) : null;
