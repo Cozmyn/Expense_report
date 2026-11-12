@@ -2826,3 +2826,97 @@ textarea:focus-visible,
   }
   .receipt-modal-inline .modal-footer { position: static; }
 }
+
+
+/* Wave 1: readable controls, focus visibility and mobile safety.
+   Keep all existing fields, actions and accounting details accessible. */
+:root {
+  --muted: #52665b;
+}
+.page-heading p,
+.eyebrow,
+.nav-caption,
+.sidebar-note,
+.report-link small {
+  color: #52665b;
+}
+th {
+  color: #3f5849;
+  font-size: 12px;
+}
+.badge {
+  font-size: 12px;
+  color: #3f5849;
+}
+.badge.manager_review,
+.badge.reapproval_required { color: #755010; }
+.badge.finance_review,
+.badge.erp_exported { color: #334f86; }
+.badge.posted,
+.badge.closed,
+.badge.ready_for_erp { color: #286043; }
+.primary,
+.secondary,
+nav button { font-size: 14px; }
+.primary,
+.secondary { min-height: 44px; }
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid #175d95;
+  outline-offset: 3px;
+}
+.finance-action-row {
+  border-bottom: 1px solid var(--border);
+  padding: 12px 0;
+}
+.finance-action-row .simple-row { justify-content: space-between; }
+.finance-inline-editor {
+  padding: 14px;
+  margin: 12px 0;
+  border: 1px solid #a7bcb0;
+  border-radius: 10px;
+  background: #f8faf8;
+}
+.finance-inline-editor .actions { flex-wrap: wrap; }
+.finance-settings-notice,
+.capture-file-queue,
+.capture-upload-status {
+  padding: 16px;
+  border: 1px solid #b5c8b9;
+  background: #f7faf8;
+  border-radius: 10px;
+  margin: 18px 0;
+}
+.capture-queued-file {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(175px, 210px) auto;
+  align-items: end;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding: 12px 0;
+}
+.capture-queued-file label { display: grid; gap: 5px; }
+.capture-queued-file select { min-width: 0; width: 100%; min-height: 44px; }
+.capture-file-name { overflow-wrap: anywhere; font-weight: 600; }
+.capture-upload-status progress { display: block; width: 100%; margin-top: 6px; }
+@media (max-width: 760px) {
+  .sidebar {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+  }
+  .sidebar-note { margin-top: 20px; }
+  .sidebar .user { flex-shrink: 0; }
+  .capture-queued-file { grid-template-columns: minmax(0, 1fr); }
+  .capture-queued-file .text-button { justify-self: start; min-height: 44px; }
+  .finance-inline-editor { padding: 12px; }
+  .finance-inline-editor .actions > button { width: 100%; white-space: normal; }
+  .tax-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tax-row .field > label { font-size: 12px; }
+  .tax-row :where(input, select) { min-width: 0; width: 100%; min-height: 44px; }
+  .report-summary small { font-size: 12px; }
+  .tabs button { font-size: 13px; min-height: 44px; }
+  .primary, .secondary { white-space: normal; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar { transition: none; }
+}
