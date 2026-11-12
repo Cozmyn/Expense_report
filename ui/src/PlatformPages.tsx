@@ -630,7 +630,7 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
               {' · '}{x.ageDays} {t(x.ageDays === 1 ? 'zi' : 'zile', x.ageDays === 1 ? 'day' : 'days')}
             </small>
             <small className="finance-queue-money">
-              {t('Total decont', 'Report total')}: {formatMoney(x.report.total ?? 0, 'ro-RO')} RON
+              {t('Total decont', 'Report total')}: {formatMoney(x.report.total ?? 0, t('ro-RO', 'en-GB'))} RON
               {' · '}{x.report.lines?.length || 0} {t('bonuri', 'receipts')}
             </small>
           </span>
