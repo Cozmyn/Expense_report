@@ -199,7 +199,11 @@ export default function ReceiptModal({
           DS(t('Ciornă restaurată', 'Draft restored'));
         }
         if (active) {
-          lastSaved.current = JSON.stringify(saved);
+          // The server-side revision is metadata, not part of the editable draft.
+          // Compare only user-visible fields to avoid a spurious autosave on load.
+          lastSaved.current = saved.data
+            ? JSON.stringify({ data: saved.data, taxes: saved.taxes, sourceVersion: saved.sourceVersion })
+            : '';
           draftRevision.current = Number(saved.draftRevision || 0);
           DR(true);
         }
