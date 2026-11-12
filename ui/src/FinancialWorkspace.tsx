@@ -1,4 +1,4 @@
-import { TaxPolicyPanel, CalculationVersions, FinanceAcceptancePanel } from './FinanceControls';
+import { CalculationVersions } from './FinanceControls';
 import { formatMoney } from './decimal.mjs';
 import React, { useEffect, useState } from 'react';
 import { api } from './api';
@@ -45,20 +45,16 @@ export default function FinancialWorkspace({
         </p>
       )}
       {finance && (
-        <>
-          <TaxPolicyPanel t={t} run={run} me={me} masters={masters} />
-          <FinanceAcceptancePanel t={t} run={run} masters={masters} />
-        </>
-      )}
-      {finance && (
-        <CurrencySettings
-          t={t}
-          run={run}
-          refresh={async () => {
-            await load();
-            await refresh();
-          }}
-        />
+        <aside className="finance-settings-notice" aria-label={t('Configurare financiară', 'Finance configuration')}>
+          <strong>{t('Reguli aplicate, nu configurare globală', 'Applied rules, not global configuration')}</strong>
+          <p className="small muted">
+            {t(
+              'Aici verifici numai calculele acestui decont. Politicile TVA, acceptanța Finance și regulile valutare se modifică doar în Configurare Finance.',
+              'Review calculations for this report here. VAT policies, Finance acceptance and currency rules can only be edited under Finance settings.',
+            )}
+          </p>
+          <span className="small">{t('Mergi la meniul Configurare Finance pentru modificări globale.', 'Use the Finance settings menu for global changes.')}</span>
+        </aside>
       )}
     </section>
   );
