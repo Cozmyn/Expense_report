@@ -1,4 +1,14 @@
 import { defineConfig } from '@playwright/test';
+// Real external journeys are destructive; never point this suite at Production.
+const externalOrigin = process.env.DECONT_E2E_BASE_URL;
+if (externalOrigin) {
+  const address = new URL(externalOrigin);
+  if (address.protocol !== 'https:' ||
+      !/(?:^|[.-])(uat|staging|test)(?:[.-]|$)/i.test(address.hostname) ||
+      address.pathname !== '/' || address.search || address.hash) {
+    throw new Error('External browser workflows require an isolated HTTPS UAT hostname');
+  }
+}
 export default defineConfig({
   testDir: './e2e',
   workers: 1,
@@ -8,7 +18,7 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     actionTimeout: 15000,
-    baseURL: 'http://127.0.0.1:5080',
+    baseURL: externalOrigin || 'http://127.0.0.1:5080',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
