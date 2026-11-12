@@ -177,6 +177,15 @@ public class OcrReviewTests
         using (var scope = f.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<Db>();
+            var storage = await db.DocumentReviews.SingleAsync(x => x.Id == document);
+            var storedCoverage = Assert.Single(
+                Serialization.Read<List<PageDisposition>>(storage.Dispositions));
+            Assert.Equal(0, storedCoverage.Page); // Older versions cannot misread as a supporting page.
+            Assert.Equal(1, storedCoverage.CoveragePage);
+        }
+        using (var scope = f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<Db>();
             var stored = await db.Reports.Include(r => r.Attachments).Include(r => r.Lines)
                 .SingleAsync(r => r.Id == report);
             var problems = await OcrReviews.Problems(db, stored);

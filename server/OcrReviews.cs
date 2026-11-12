@@ -42,7 +42,11 @@ public record SourceRegion(int Page, decimal X = 0, decimal Y = 0, decimal Width
 
 // Keep completeness acknowledgements separate from supporting-page disposition.
 // The optional Kind preserves compatibility with existing serialized review JSON.
-public record PageDisposition(int Page, string Reason, string Kind = "Supporting");
+// Coverage entries use Page=0 and CoveragePage=the physical page.
+// This fails safely if an older version is restored: it cannot accidentally
+// treat an acknowledgement as a supporting disposition for a real page.
+public record PageDisposition(
+    int Page, string Reason, string Kind = "Supporting", int? CoveragePage = null);
 
 public record GroupCommand(
     long Version,
@@ -278,7 +282,7 @@ public static class OcrReviews
     public static int[] ConfirmedPages(DocumentReview review) =>
         Serialization.Read<List<PageDisposition>>(review.Dispositions)
             .Where(d => d.Kind == "CoverageConfirmed")
-            .Select(d => d.Page).Distinct().Order().ToArray();
+            .Select(d => d.CoveragePage ?? d.Page).Distinct().Order().ToArray();
 
     public static async Task<object> View(Db db, DocumentReview review)
     {
@@ -1232,7 +1236,9 @@ public static class OcrReviews
                         );
                         var before = review.Dispositions;
                         var pages = Serialization.Read<List<PageDisposition>>(before);
-                        pages.RemoveAll(p => p.Page == i.Page);
+                        pages.RemoveAll(p => p.Page == i.Page
+                            || (p.Kind == "CoverageConfirmed"
+                                && (p.CoveragePage ?? p.Page) == i.Page));
                         if (i.Supporting)
                             pages.Add(new(i.Page, i.Reason));
                         review.Dispositions = Serialization.Write(pages);
@@ -1284,9 +1290,10 @@ public static class OcrReviews
                         );
                         var before = review.Dispositions;
                         var dispositions = Serialization.Read<List<PageDisposition>>(before);
-                        dispositions.RemoveAll(x => x.Page == i.Page && x.Kind == "CoverageConfirmed");
+                        dispositions.RemoveAll(x => x.Kind == "CoverageConfirmed"
+                            && (x.CoveragePage ?? x.Page) == i.Page);
                         if (i.Complete)
-                            dispositions.Add(new(i.Page, i.Reason, "CoverageConfirmed"));
+                            dispositions.Add(new(0, i.Reason, "CoverageConfirmed", i.Page));
                         review.Dispositions = Serialization.Write(dispositions);
                         Reports.Touch(report);
                         svc.Log(c.User, id, document.ToString(),
