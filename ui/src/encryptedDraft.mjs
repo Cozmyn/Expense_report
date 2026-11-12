@@ -84,7 +84,15 @@ export async function decryptDraftSnapshot(record, key) {
     new Uint8Array(record.cipher));
   return JSON.parse(new TextDecoder().decode(plain));
 }
-export async function stageEncryptedDraft(scope, snapshot) {
+// Preserve write order when AES-GCM runs at different speeds. Without a
+// queue an older encryption request could overwrite a newer typed value.
+let pendingStage = Promise.resolve();
+export function stageEncryptedDraft(scope, snapshot) {
+  const queued = pendingStage.catch(() => {}).then(() => writeEncryptedDraft(scope, snapshot));
+  pendingStage = queued;
+  return queued;
+}
+async function writeEncryptedDraft(scope, snapshot) {
   if (!scope || typeof scope !== 'string') throw new Error('Private draft scope is required');
   const db = await openStore();
   try {
