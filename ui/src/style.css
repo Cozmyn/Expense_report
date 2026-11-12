@@ -2926,3 +2926,53 @@ nav button { font-size: 14px; }
   .sidebar { visibility: hidden; }
   .sidebar.open { visibility: visible; }
 }
+
+
+/* Wave 2: keep Finance and OCR information scannable without hiding capabilities. */
+.finance-queue-money {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+  color: #344d40;
+  font-weight: 650;
+}
+.finance-queue-summary strong { font-variant-numeric: tabular-nums; }
+.finance-filters { margin-block: 16px 22px; }
+.manager-show-more {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+}
+.reconciliation-review {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid #a4bbae;
+  border-radius: 10px;
+  background: #f5faf7;
+}
+.reconciliation-review p { margin: 0 0 8px; overflow-wrap: anywhere; }
+.reconciliation-undo {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: min(100%, 235px);
+}
+.reconciliation-undo .field { min-width: 0; }
+.ocr-advanced-toggle {
+  font-weight: 650;
+  color: #174f3b;
+  padding: 12px;
+  cursor: pointer;
+  border: 1px solid #a8c0b0;
+  border-radius: 8px;
+  background: #f4f8f5;
+}
+.ocr-advanced-toggle:focus-visible { outline: 3px solid #175d95; }
+.ocr-group-tools[open] > .ocr-advanced-toggle { margin-bottom: 15px; }
+@media (max-width: 760px) {
+  .reconciliation-review { padding: 12px; }
+  .reconciliation-undo,
+  .reconciliation-undo button,
+  .manager-show-more { width: 100%; }
+  .finance-queue-money { font-size: 13px; }
+}
