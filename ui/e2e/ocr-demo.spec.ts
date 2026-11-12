@@ -269,10 +269,9 @@ test('PDF02 recorded source-to-expense walkthrough', async ({ browser }, info) =
   const merchant = dialog.getByLabel('Denumire furnizor', { exact: true });
   await expect(merchant).toBeVisible();
   await expect(merchant).not.toHaveAttribute('readonly', '');
-  if (await confirmation.isVisible()) {
-    await merchant.fill('Synthetic vendor');
-    await confirmation.check();
-  }
+  await merchant.fill('Synthetic vendor');
+  await expect.poll(async () => (await confirmation.isVisible()) || (await dialog.locator('.supplier-result').count()) > 0).toBeTruthy();
+  if (await confirmation.isVisible()) await confirmation.check();
   await dialog.getByLabel('Tip cheltuială', { exact: true }).selectOption(category);
   await dialog
     .getByLabel('Descriere / justificare', { exact: true })
