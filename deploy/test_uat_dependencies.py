@@ -38,7 +38,7 @@ class DependencyProbesTests(unittest.TestCase):
             "get-bucket-encryption": {"ServerSideEncryptionConfiguration": {"Rules": [{}]}},
         }
         def fake_aws(command, env=None):
-            return json.dumps(payloads[command[3]])
+            return json.dumps(payloads[command[4]])
         with patch.dict(os.environ, {"UAT_S3_ENDPOINT": "https://s3.uat.example.invalid",
                                      "UAT_S3_BUCKET": "decont-uat-e2etest"}), patch(
                                          "uat_dependencies.subprocess_text", side_effect=fake_aws):
