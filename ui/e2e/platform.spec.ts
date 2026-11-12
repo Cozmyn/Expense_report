@@ -709,7 +709,12 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
       mimeType: 'image/png',
       buffer: Buffer.from(scanData, 'base64'),
     });
-  await expect(dialog).toBeVisible({ timeout: 90000 });
+  // UX-02: OCR never opens the receipt editor automatically.
+  // Wait for the detected document in the stable review board instead.
+  const scanBoard = page.getByRole('region', { name: 'Verificarea documentelor', exact: true });
+  await expect(scanBoard.getByRole('button', { name: 'Revizuiește și creează bonul' }))
+    .toBeVisible({ timeout: 90000 });
+  await expect(dialog).not.toBeVisible();
   const scanSaved = (await (await employee.get('/api/reports/' + scannedReport.id)).json()).report;
   const scanResult = JSON.parse(scanSaved.attachments[0].ocr);
   const scannedTotal = scanResult.candidates[0].fields.amount;
@@ -769,7 +774,10 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
         mimeType: 'image/png',
         buffer: Buffer.from(data, 'base64'),
       });
-    await expect(dialog).toBeVisible({ timeout: 90000 });
+    const extraBoard = page.getByRole('region', { name: 'Verificarea documentelor', exact: true });
+    await expect(extraBoard.getByRole('button', { name: 'Revizuiește și creează bonul' }))
+      .toBeVisible({ timeout: 90000 });
+    await expect(dialog).not.toBeVisible();
     const result = (await (await employee.get('/api/reports/' + extraReport.id)).json()).report;
     const extracted = JSON.parse(result.attachments[0].ocr);
     expect(extracted.candidates[0].fields.amount.value).toBe('123.45');
@@ -779,9 +787,8 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
       fullPage: true,
     });
   }
-  // OCR screenshots inspect the suggestions without committing an expense.
-  // Close that genuine review dialog through its Cancel action before visiting the profile.
-  await dialog.getByRole('button', { name: 'Anulează', exact: true }).click();
+  // OCR screenshots inspect source groups without opening or committing
+  // a receipt. The stable board remains available when visiting the profile.
   await expect(dialog).not.toBeVisible();
   // Self-service profile and password change must work on desktop and mobile.
   await page.getByRole('button', { name: 'Profilul meu', exact: true }).last().click();
