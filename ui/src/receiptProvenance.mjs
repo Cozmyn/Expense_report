@@ -3,11 +3,12 @@
  * remain the authority. Never call an OCR proposal "verified".
  */
 export function fieldProvenance({ value, source = null, changed = false, verified = false, calculated = false }) {
-  if (verified && !changed) return 'verified';
+  const present = value !== null && value !== undefined && String(value).trim() !== '';
   if (changed) return 'manual';
+  if (!present) return 'unread';
+  if (verified) return 'verified';
   if (source?.state === 'Ambiguous' || source?.state === 'Missing') return 'unread';
   if (calculated) return 'calculated';
-  const present = value !== null && value !== undefined && String(value).trim() !== '';
   if (source && source.value !== null && source.value !== undefined
       && String(source.value).trim() !== '') {
     if (!present || String(value).trim() !== String(source.value).trim()) return 'manual';
