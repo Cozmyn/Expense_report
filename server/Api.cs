@@ -62,6 +62,16 @@ public static class Api
     private static bool RetryablePg(PostgresException ex) =>
         ex.SqlState is "40001" or "40P01" or "23P01" or "23505";
 
+    // Npgsql's EF execution strategy can wrap serialization failures inside
+    // an InvalidOperationException/DbUpdateException. Inspect the root cause,
+    // not only the outer provider exception.
+    private static bool DatabaseWriteRace(Exception ex)
+    {
+        var root = ex.GetBaseException();
+        return root is PostgresException pg && RetryablePg(pg)
+            || root is SqliteException sqlite && sqlite.SqliteErrorCode is 5 or 6 or 19;
+    }
+
     private static async Task<IResult> ReplayCommittedOperation(
         Db db, HttpContext c, object request, int successStatus)
     {
@@ -141,20 +151,7 @@ public static class Api
             await tx.CommitAsync();
             return Results.Text(response, "application/json", statusCode: successStatus);
         }
-        catch (PostgresException ex) when (RetryablePg(ex))
-        {
-            return await ReplayCommittedOperation(db, c, request, successStatus);
-        }
-        catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg && RetryablePg(pg))
-        {
-            return await ReplayCommittedOperation(db, c, request, successStatus);
-        }
-        catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6 or 19)
-        {
-            return await ReplayCommittedOperation(db, c, request, successStatus);
-        }
-        catch (DbUpdateException ex) when (ex.InnerException is SqliteException sqlite
-            && sqlite.SqliteErrorCode is 5 or 6 or 19)
+        catch (Exception ex) when (DatabaseWriteRace(ex))
         {
             return await ReplayCommittedOperation(db, c, request, successStatus);
         }
