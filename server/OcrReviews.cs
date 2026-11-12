@@ -55,6 +55,8 @@ public record OcrDraftCommand(long Version, ExpenseData Data, string? Reason = n
 
 public record PageCommand(long Version, int Page, bool Supporting, string Reason);
 
+public record PageCoverageCommand(long Version, int Page, int VisibleReceipts);
+
 public static class OcrReviews
 {
     public static bool Active(DocumentGroup g) => g.State is "ReviewRequired" or "Verified";
@@ -249,6 +251,46 @@ public static class OcrReviews
         }
     }
 
+    // OCR cannot prove that every physically visible receipt was detected.
+    // The employee's per-page count is an explicit attestation tied to the
+    // current group geometry/state. Regrouping automatically invalidates it.
+    public static bool RequiresReceiptCoverage(ReportAttachment attachment, IEnumerable<DocumentGroup> groups) =>
+        attachment.Capture &&
+        (attachment.ReceiptMode != "Single" || groups.Any(g => g.State == "Split"));
+
+    public static int VisibleGroupsOnPage(IEnumerable<DocumentGroup> groups, int page) =>
+        groups.Count(g => Active(g) && Regions(g).Any(r => r.Page == page));
+
+    public static string CoverageSignature(DocumentReview review, IEnumerable<DocumentGroup> groups, int page)
+    {
+        var active = groups.Where(g => Active(g) && Regions(g).Any(r => r.Page == page))
+            .OrderBy(g => g.Id).Select(g => new { g.Id, g.State, g.Regions, g.ExpenseId });
+        var supporting = Serialization.Read<List<PageDisposition>>(review.Dispositions)
+            .Where(p => p.Page == page).OrderBy(p => p.Reason).ToArray();
+        return Serialization.Hash(Serialization.Write(new { page, active, supporting }));
+    }
+
+    public static int[] MissingReceiptCoverage(
+        DocumentReview review, IEnumerable<DocumentGroup> groups, IEnumerable<DocumentEvent> confirmations)
+    {
+        var all = groups.ToList();
+        var valid = confirmations.Where(e => e.Type == "ReceiptCoverageConfirmed")
+            .Select(e =>
+            {
+                try { return Serialization.Read<PageCoverageEvidence>(e.Payload); }
+                catch (Exception) { return null; }
+            })
+            .Where(e => e != null)
+            .Select(e => e!)
+            .Where(e => e.Page >= 1 && e.Page <= review.PageCount)
+            .Where(e => e.VisibleReceipts == VisibleGroupsOnPage(all, e.Page))
+            .Where(e => e.Signature == CoverageSignature(review, all, e.Page))
+            .Select(e => e.Page).ToHashSet();
+        return Enumerable.Range(1, review.PageCount).Where(page => !valid.Contains(page)).ToArray();
+    }
+
+    public record PageCoverageEvidence(int Page, int VisibleReceipts, string Signature);
+
     public static int[] Unassigned(DocumentReview review, IEnumerable<DocumentGroup> groups)
     {
         var assigned = groups
@@ -271,7 +313,12 @@ public static class OcrReviews
         var original = Serialization.Read<OcrResult>(review.OriginalExtraction);
         var report = await db.Reports.SingleAsync(r => r.Id == review.ReportId);
         var masters = await db.Masters.ToListAsync();
-        var hash = await db.ReportAttachments.Where(a => a.Id == review.Id).Select(a => a.Hash).SingleAsync();
+        var attachment = await db.ReportAttachments.SingleAsync(a => a.Id == review.Id);
+        var confirmations = await db.DocumentEvents.AsNoTracking()
+            .Where(e => e.DocumentId == review.Id && e.Type == "ReceiptCoverageConfirmed").ToListAsync();
+        var coverageRequired = RequiresReceiptCoverage(attachment, groups);
+        var missingCoverage = coverageRequired ? MissingReceiptCoverage(review, groups, confirmations) : [];
+        var hash = attachment.Hash;
         var duplicate = await db.ReportAttachments.AnyAsync(a => a.Id != review.Id && a.Hash == hash && !a.Archived);
         return new
         {
@@ -279,6 +326,10 @@ public static class OcrReviews
             review.PageCount,
             version = report.Version,
             duplicateUpload = duplicate,
+            coverageRequired,
+            missingCoveragePages = missingCoverage,
+            pageVisibleGroupCounts = Enumerable.Range(1, review.PageCount)
+                .ToDictionary(p => p, p => VisibleGroupsOnPage(groups, p)),
             pageStates = source.Pages.Select(p => new { p.Number, p.Error }),
             tombstones = groups.Where(g => !Active(g)).Select(g => new { g.Id, g.State }),
             unassignedPages = Unassigned(review, groups),
@@ -370,6 +421,17 @@ public static class OcrReviews
         foreach (var review in reviews)
         {
             var groups = await db.DocumentGroups.Where(g => g.BundleId == review.Id).ToListAsync();
+            var attachment = report.Attachments.Single(a => a.Id == review.Id);
+            if (RequiresReceiptCoverage(attachment, groups))
+            {
+                var events = await db.DocumentEvents.AsNoTracking()
+                    .Where(e => e.DocumentId == review.Id && e.Type == "ReceiptCoverageConfirmed").ToListAsync();
+                if (MissingReceiptCoverage(review, groups, events).Length > 0)
+                    issues.Add(new(
+                        "ocr_receipt_coverage",
+                        "Confirmă explicit câte bonuri sunt vizibile pe fiecare pagină, după verificarea delimitării.",
+                        "Confirm the number of visible receipts on every page after checking boundaries."));
+            }
             if (Unassigned(review, groups).Length > 0)
                 issues.Add(
                     new(
@@ -1164,6 +1226,47 @@ public static class OcrReviews
                         return Api.View(report);
                     }
                 )
+        );
+        api.MapPost(
+            "/reports/{id:guid}/documents/{document:guid}/pages/{page:int}/coverage",
+            async (Guid id, Guid document, int page, PageCoverageCommand input, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(db, c, input, async () =>
+                {
+                    var report = await svc.Version(id, input.Version, c.User);
+                    svc.Edit(report, c.User, "Receipt coverage attestation");
+                    var source = report.Attachments.SingleOrDefault(a => a.Id == document && !a.Archived);
+                    Guard.Require(source != null && source.Scan == "Clean", "source",
+                        "Document sursă indisponibil.", "Source is unavailable.", 404);
+                    var review = await db.DocumentReviews.SingleAsync(r => r.Id == document && r.ReportId == id);
+                    var groups = await db.DocumentGroups.Where(g => g.BundleId == document).ToListAsync();
+                    Guard.Require(RequiresReceiptCoverage(source!, groups), "coverage",
+                        "Confirmarea numărului de bonuri nu este necesară pentru acest document.",
+                        "Coverage attestation is not required for this document.", 409);
+                    Guard.Require(page >= 1 && page <= review.PageCount && page == input.Page, "page",
+                        "Pagină invalidă.", "Invalid page.");
+                    var expected = VisibleGroupsOnPage(groups, page);
+                    var supporting = Serialization.Read<List<PageDisposition>>(review.Dispositions)
+                        .Any(d => d.Page == page);
+                    Guard.Require(expected > 0 || supporting, "coverage_unassigned",
+                        "Atribuie pagina sau marcheaz-o justificativă înainte de confirmare.",
+                        "Assign or mark the page as supporting before confirmation.", 409);
+                    Guard.Require(groups.Where(g => Active(g) && Regions(g).Any(r => r.Page == page))
+                        .All(g => g.State == "Verified"), "coverage_unverified",
+                        "Verifică întâi toate bonurile identificate pe pagină.",
+                        "Verify the identified receipts on the page first.", 409);
+                    Guard.Require(input.VisibleReceipts == expected, "coverage_count",
+                        "Numărul bonurilor vizibile diferă de grupurile verificate. Delimitează bonurile lipsă.",
+                        "The visible receipt count differs from verified groups; add the missing receipt regions.", 409);
+                    var signature = CoverageSignature(review, groups, page);
+                    DocumentEvents.Emit(db, id, document, "ReceiptCoverageConfirmed",
+                        Reports.Actor(c.User), page + "|" + signature,
+                        new PageCoverageEvidence(page, input.VisibleReceipts, signature));
+                    Reports.Touch(report);
+                    svc.Log(c.User, id, document.ToString(), "ReceiptCoverageConfirmed",
+                        after: new { page, input.VisibleReceipts, signature },
+                        reason: "Manual visual inspection of every receipt on the page");
+                    return Api.View(report);
+                })
         );
         api.MapPost(
             "/reports/{id:guid}/documents/{document:guid}/pages",
