@@ -3005,3 +3005,42 @@ nav button { font-size: 14px; }
   .notifications { left: 10px; right: 10px; width: auto; max-height: 74dvh; }
   .list-toolbar > .secondary { width: 100%; }
 }
+
+
+/* Good-to-have UX: readable high-volume Admin, Finance and audit screens. */
+.admin-user-search, .admin-password-reset {
+  margin-top: 20px; padding: 18px;
+  border-radius: 10px; border: 1px solid var(--border, #dce4dc);
+  background: var(--surface, #fff);
+}
+.admin-user-search .actions { align-items: center; justify-content: space-between; }
+.admin-user-search .actions p { margin: 0; }
+.admin-password-reset { background: #f5f8f6; }
+.admin-password-reset h3 { margin-top: 0; }
+.audit-raw-code { display: block; margin-top: 5px; color: #52665b; font-size: 11px; }
+.audit-change-details summary, .posting-technical-details summary {
+  padding: 10px 12px; cursor: pointer;
+  color: #204e3b; font-weight: 650;
+  background: #f4f8f5; border: 1px solid #a7b9ae; border-radius: 7px;
+}
+.audit-change-details[open] summary, .posting-technical-details[open] summary { margin-bottom: 12px; }
+.audit-change-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.audit-change-grid > div { min-width: 0; }
+.audit-change-grid pre { max-width: 100%; overflow-x: auto; }
+.posting-preview-summary { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin: 16px 0; }
+.posting-preview-summary > div { padding: 14px; border-radius: 10px; border: 1px solid #bccdc0; background: #f6faf7; }
+.posting-preview-summary strong { display: block; font-size: 23px; font-variant-numeric: tabular-nums; }
+.posting-preview-summary span { display: block; font-size: 13px; color: #40594b; }
+.posting-technical-details { margin: 18px 0; }
+.bank-import-steps { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); list-style:none; margin: 16px 0; padding: 0; gap: 10px; }
+.bank-import-steps li { padding: 12px; background: #f8faf8; border: 1px solid #bdcec2; border-radius: 8px; font-size: 13px; }
+.bank-import-steps li.active { border-color:#366e57; background:#edf7f0; }
+.bank-import-steps li.complete { border-color:#82ac91; }
+.finance-queue-compact > .row-button { padding: 8px 0; gap: 12px; font-size: 13px; }
+.finance-queue-compact .row-button small { margin-top: 2px; }
+@media (max-width: 760px) {
+  .admin-user-search, .admin-password-reset { padding: 12px; }
+  .audit-change-grid, .posting-preview-summary, .bank-import-steps { grid-template-columns: minmax(0,1fr); }
+  .finance-queue-compact > .row-button { padding: 12px 0; }
+  .finance-queue-compact .section-heading { align-items:flex-start; flex-wrap:wrap; }
+}
