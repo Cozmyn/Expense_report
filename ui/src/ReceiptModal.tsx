@@ -141,6 +141,8 @@ export default function ReceiptModal({
   const [draftReady, DR] = useState(false),
     [draftStatus, DS] = useState('');
   const lastSaved = useRef('');
+  const draftRevision = useRef(0);
+  const draftConflicted = useRef(false);
   const saving = useRef(false);
   const modified = useRef(false);
   const requestCloseRef = useRef<() => void>(() => {});
@@ -198,6 +200,7 @@ export default function ReceiptModal({
         }
         if (active) {
           lastSaved.current = JSON.stringify(saved);
+          draftRevision.current = Number(saved.draftRevision || 0);
           DR(true);
         }
       })
@@ -209,7 +212,7 @@ export default function ReceiptModal({
     };
   }, []);
   useEffect(() => {
-    if (!draftReady || !draftStorageKey || expense.id || saving.current) return;
+    if (!draftReady || !draftStorageKey || expense.id || saving.current || draftConflicted.current) return;
     const value = { data: d, taxes, sourceVersion: expense.ocrVersion };
     const json = JSON.stringify(value);
     if (json === lastSaved.current) return;
@@ -218,12 +221,23 @@ export default function ReceiptModal({
       DS(t('Se salvează ciorna…', 'Saving draft…'));
       draftQueue.current = draftQueue.current
         .catch(() => {})
-        .then(() => api('/preferences/' + draftStorageKey, 'PUT', value))
-        .then(() => {
+        .then(() => api('/preferences/' + draftStorageKey, 'PUT',
+          { ...value, draftRevision: draftRevision.current }))
+        .then((saved: Any) => {
+          draftRevision.current = Number(saved.draftRevision);
           lastSaved.current = json;
           DS(t('Ciornă salvată automat', 'Draft autosaved'));
         })
-        .catch(() => DS(t('Ciorna nu a putut fi salvată', 'Draft could not be saved')));
+        .catch((error: Error) => {
+          if (error.message.includes('altă filă') || error.message.includes('another tab')) {
+            draftConflicted.current = true; // Stop writes; leave the user's local edits visible.
+            DS(t('Conflict între file: modificările tale nu au fost suprascrise. Copiază-le înainte de reîncărcare.',
+              'Draft conflict: your edits remain on screen. Copy them before reloading.'));
+          } else {
+            DS(t('Ciorna nu a putut fi salvată. Reîncearcă după reconectare.',
+              'Draft could not be saved. Retry after reconnecting.'));
+          }
+        });
     }, 800);
     draftTimer.current = timer;
     return () => clearTimeout(timer);
