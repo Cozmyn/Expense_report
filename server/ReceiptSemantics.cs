@@ -50,7 +50,7 @@ public static class ReceiptSemantics
         {
             if (DueLabel.IsMatch(line))
                 continue;
-            foreach (Match match in DatePattern.Matches(line))
+            foreach (System.Text.RegularExpressions.Match match in DatePattern.Matches(line))
             {
                 if (!DateOnly.TryParseExact(match.Value, DateFormats, CultureInfo.InvariantCulture,
                         DateTimeStyles.None, out var date))
