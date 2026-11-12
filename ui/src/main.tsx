@@ -396,6 +396,13 @@ function App() {
       ids: ['profile'],
     },
   ];
+  const noticeDestination = () => {
+    // A job link must never strand Finance / Employee users in an Admin-only page.
+    if (role('Admin')) return 'jobs';
+    if (role('Finance')) return 'finance';
+    if (role('Manager')) return 'approvals';
+    return 'dashboard';
+  };
   const state = (s: string) => stateText[s]?.[lang === 'ro' ? 0 : 1] || s;
   const list = (rows: Any[]) => (
     <ReportList rows={rows} t={t} state={state} open={open} lang={lang} />
@@ -504,7 +511,9 @@ function App() {
             <button
               className="icon bell"
               aria-label={t('Notificări', 'Notifications')}
-              onClick={() => SN(!showNotices)}
+              aria-expanded={showNotices}
+              aria-controls="notification-list"
+              onClick={() => SN((current) => !current)}
             >
               <Bell size={20} />
               {notices.some((n) => !n.read) && <i />}
@@ -519,28 +528,45 @@ function App() {
           </div>
         </header>
         {showNotices && (
-          <div className="notifications panel">
-            <h3>{t('Notificări', 'Notifications')}</h3>
+          <section className="notifications panel" id="notification-list" aria-label={t('Notificări', 'Notifications')}>
+            <div className="section-heading">
+              <h3>{t('Notificări', 'Notifications')}</h3>
+              <button type="button" className="icon"
+                aria-label={t('Închide notificările', 'Close notifications')} onClick={() => SN(false)}>
+                <X size={16} aria-hidden="true" />
+              </button>
+            </div>
             {!notices.length && <p>{t('Nu ai notificări noi.', 'No notifications yet.')}</p>}
             {notices.map((n) => (
               <button
                 key={n.id}
-                onClick={() =>
-                  run(async () => {
+                type="button"
+                className={n.read ? 'notification-item' : 'notification-item unread'}
+                onClick={() => {
+                  void run(async () => {
+                    const hasReport = !!n.reportId &&
+                      n.reportId !== '00000000-0000-0000-0000-000000000000';
+                    if (hasReport) {
+                      // Fetch the accessible report first; do not expose stale data.
+                      D(await api('/reports/' + n.reportId));
+                      P('detail');
+                    } else {
+                      P(noticeDestination());
+                    }
                     await api('/notices/' + n.id + '/read', 'POST');
-                    if (n.reportId !== '00000000-0000-0000-0000-000000000000')
-                      await open(n.reportId);
-                    else P('jobs');
                     SN(false);
                     await load();
-                  })
-                }
+                  });
+                }}
               >
-                <span className={n.read ? '' : 'unread'}>{eventTitle(n.event, t)}</span>
-                <small>{new Date(n.at).toLocaleString(lang)}</small>
+                <span>
+                  <strong>{eventTitle(n.event, t)}</strong>
+                  <small>{new Date(n.at).toLocaleString(lang === 'ro' ? 'ro-RO' : 'en-GB')}</small>
+                </span>
+                <ArrowUpRight size={16} aria-hidden="true" />
               </button>
             ))}
-          </div>
+          </section>
         )}
         <main>
           {sessionExpired && (
