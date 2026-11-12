@@ -137,6 +137,26 @@ DECONT_E2E_BASE_URL=https://uat.expense.example.invalid \
 
 Testele HTTPS verifică certificat și hostname, CSRF, `Secure/HttpOnly/SameSite=Strict`, login, sesiunea după restart, încercarea de spoofing și răspunsul **429** la trafic de login împărțit/falsificat. Nu dezactivați verificarea TLS, nu folosiți `curl -k`.
 
+**Probe de dependențe reale (obligatorii pentru P0):** configurați separat un runner cu acces doar la mediul UAT. Scriptul `deploy/uat_dependencies.py` rulează interogare PostgreSQL prin `PGSSLMODE=verify-full` și CA explicit, inspectează politicile de acces public / criptarea / versionarea unui bucket `decont-uat-...`, trimite payloaduri clean și EICAR (semnătura benignă de test antivirus) prin ClamAV INSTREAM, interoghează `/health` al serviciului OCR și verifică SMTP STARTTLS. Numai cu `--confirm-email` trimite un mesaj de test către inboxul explicit `UAT_SMTP_RECIPIENT`. Confirmați recepția în acel inbox printr-un artefact separat.
+
+```bash
+export PGHOST=pg.uat.internal PGSSLMODE=verify-full
+export PGSSLROOTCERT=/secure/ca/pg-root.pem
+# Restul PGUSER/PGPASSWORD/PGDATABASE din secret manager
+export UAT_S3_ENDPOINT=https://s3.uat.example.invalid
+export UAT_S3_BUCKET=decont-uat-testsnapshot
+# AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY doar din secret manager
+export UAT_SCANNER_HOST=clamav.uat.internal UAT_SCANNER_PORT=3310
+export UAT_OCR_URL=http://ocr.uat.internal:8750
+export UAT_SMTP_HOST=smtp.uat.internal UAT_SMTP_PORT=587
+export UAT_SMTP_FROM=decont-uat@example.invalid
+export UAT_SMTP_RECIPIENT=approved-test-inbox@example.invalid
+python3 deploy/uat_dependencies.py --uat-origin https://uat.expense.example.invalid \
+  --confirm-email --report /secure/evidence/uat-dependencies.json
+```
+
+Dacă S3-ul compatibil nu implementează API-urile AWS necesare pentru verificarea politicii private, testul **refuză aprobarea**; trebuie implementat/verificat explicit adaptorul furnizorului, nu dezactivată verificarea. La fel, dacă modelul OCR nu este încărcat, scannerul nu detectează EICAR sau TLS-ul serverului PostgreSQL nu este verificat, release-ul rămâne blocat.
+
 **Matrice de acceptanță cu dovezi atașate** (rezultatul nu poate fi `passed` fără capturi/loguri/trace și responsabil):
 
 - Login/logout, password reset prin **SMTP real**, expirarea sesiunii; browser desktop/mobil prin HTTPS.
@@ -154,4 +174,4 @@ python3 deploy/release_gate.py --evidence-dir /secure/evidence \
   --report /secure/evidence/p0-release-candidate.json
 ```
 
-Inputurile gate-ului: `restore.json` din PITR, `uat-initial.json`, `uat-resume.json`, `uat-ingress.json` și `workflows.json` cu toate scenariile. Outputul rămâne **`release_approved: false`**: analiza și aprobările separate Finance / Operations / Security sunt obligatorii. Rulați `python3 -m unittest discover -s deploy -p 'test_*.py' -v` pentru testele offline. **CI verde nu înseamnă că probele UAT din acest document au fost executate.**
+Inputurile gate-ului: `restore.json` din PITR, `uat-initial.json`, `uat-resume.json`, `uat-ingress.json`, `uat-dependencies.json` (probe reale) și `workflows.json` cu toate scenariile. Outputul rămâne **`release_approved: false`**: analiza și aprobările separate Finance / Operations / Security sunt obligatorii. Rulați `python3 -m unittest discover -s deploy -p 'test_*.py' -v` pentru testele offline. **CI verde nu înseamnă că probele UAT din acest document au fost executate.**
