@@ -617,7 +617,6 @@ export function FinanceWorklist({ t, run, open, masters = [], label = (m: Any) =
         <button
           key={x.report.id}
           className="simple-row row-button"
-          aria-label={t('Deschide ', 'Open ') + x.report.number + ' · ' + readableState(x.report.state)}
           onClick={() => open(x.report.id)}
         >
           <span>
