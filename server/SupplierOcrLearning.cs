@@ -132,21 +132,23 @@ public static class SupplierOcrLearning
             .ToHashSet(StringComparer.Ordinal);
         if (detected.Count == 0)
             return result;
-        var verified = await db.DocumentGroups
+        var verified = db.DocumentGroups
             .AsNoTracking()
             .Where(g => g.State == "Verified" && g.CorrectedExpense != null)
             .OrderByDescending(g => g.VerifiedAt)
             .Select(g => new { g.BundleId, g.Fields, g.CorrectedExpense })
-            .ToListAsync();
+            .AsAsyncEnumerable();
         List<Example> examples = [];
-        foreach (var item in verified)
+        var perVendorCounts = detected.ToDictionary(c => c, _ => 0, StringComparer.Ordinal);
+        await foreach (var item in verified)
         {
             try
             {
                 var expense = Serialization.Read<ExpenseData>(item.CorrectedExpense!);
                 var cui = Cui(expense.Cui);
-                if (!detected.Contains(cui))
+                if (!detected.Contains(cui) || perVendorCounts[cui] >= 300)
                     continue;
+                perVendorCounts[cui]++;
                 var fields = Serialization.Read<Dictionary<string, OcrField>>(item.Fields);
                 foreach (var (key, field) in fields)
                     if (field.Source == "HumanSelected" && field.Box != null
@@ -157,6 +159,8 @@ public static class SupplierOcrLearning
             {
                 // Invalid legacy rows are ignored, never used to train.
             }
+            if (perVendorCounts.Values.All(n => n >= 300))
+                break;
         }
         return Suggest(result, examples);
     }
