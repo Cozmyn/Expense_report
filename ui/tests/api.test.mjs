@@ -185,3 +185,20 @@ test('Unknown-commit mutation key survives reload without storing any financial 
   assert.equal(storage.size, 0);
   delete globalThis.sessionStorage;
 });
+
+test('A 409 serializable commit race preserves the exact idempotency key for replay', async () => {
+  const keys = [];
+  let tries = 0;
+  globalThis.fetch = async (url, options) => {
+    if (url.endsWith('/csrf')) return Response.json({ token: 'csrf' });
+    keys.push(options.headers['Idempotency-Key']);
+    return ++tries === 1
+      ? Response.json({ code: 'concurrent_write', en: 'Concurrent update' }, { status: 409 })
+      : Response.json({ id: 'original-financial-row' });
+  };
+  const { api } = await fresh();
+  await assert.rejects(() => api('/reports/42/lines', 'POST', { amount: '12.34' }), /Concurrent update/);
+  assert.deepEqual(await api('/reports/42/lines', 'POST', { amount: '12.34' }),
+    { id: 'original-financial-row' });
+  assert.equal(keys[0], keys[1]);
+});
