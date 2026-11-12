@@ -659,6 +659,22 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   expect(extraction.candidates).toHaveLength(2);
   expect(JSON.parse(captured.attachments[0].coveredLines)).toHaveLength(2);
   expect(captured.total).toBe(30);
+  // OCR-07: a multipage source remains blocked until a person explicitly
+  // confirms the visible receipt count on EVERY page of the original.
+  const coverageUrl = '/api/reports/' + ocrReport.id + '/documents/'
+    + captured.attachments[0].id + '/review';
+  const pendingCoverage = async () => {
+    const response = await employee.get(coverageUrl);
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return (await response.json()).review.missingCoveragePages.length as number;
+  };
+  await expect.poll(pendingCoverage).toBe(2);
+  for (let remaining = 2; remaining > 0; remaining--) {
+    await board.getByRole('button', {
+      name: 'Confirm că toate bonurile sunt acoperite', exact: true,
+    }).first().click();
+    await expect.poll(pendingCoverage).toBe(remaining - 1);
+  }
   await expect(page.getByRole('button', { name: 'Trimite la aprobare' })).toBeEnabled();
   await page.getByRole('button', { name: 'Trimite la aprobare' }).click();
   await expect(page.getByText('La manager', { exact: true }).first()).toBeVisible();
