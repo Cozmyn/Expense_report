@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Download } from 'lucide-react';
 import { api } from './api';
 import { Field } from './Fields';
@@ -12,7 +12,7 @@ function VendorResolutionRow({ vendor, t, run, load }: Any) {
   const [reason, Reason] = useState('');
   const [saving, Saving] = useState(false);
 
-  const resolve = async (event: React.FormEvent<HTMLFormElement>) => {
+  const resolve = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const cleanAccount = account.trim();
     const cleanReason = reason.trim();
