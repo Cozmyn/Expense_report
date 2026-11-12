@@ -44,7 +44,7 @@ class DependencyProbesTests(unittest.TestCase):
                                          "uat_dependencies.subprocess_text", side_effect=fake_aws):
             self.assertTrue(s3_private_versioned()["private"])
             payloads["get-bucket-policy-status"]["PolicyStatus"]["IsPublic"] = True
-            with self.assertRaisesRegex(DependencyError, "private"):
+            with self.assertRaisesRegex(DependencyError, "Private"):
                 s3_private_versioned()
             payloads["get-bucket-policy-status"]["PolicyStatus"]["IsPublic"] = False
             payloads["get-bucket-versioning"]["Status"] = "Suspended"
