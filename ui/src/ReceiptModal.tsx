@@ -1482,6 +1482,7 @@ export default function ReceiptModal({
                   >
                     <span>
                       {t('Total recompus', 'Reconstructed total')}:{' '}
+                      <small className="receipt-provenance status-calculated">{t('Calculat', 'Calculated')}</small>{' '}
                       <strong>
                         {formatMoney(
                           reconstructed,
@@ -1607,6 +1608,7 @@ export default function ReceiptModal({
                   </>
                 )}
                 <Field name={t('Centru de cost al bonului', 'Receipt cost centre')}
+                  action={statusAction('costCenter')}
                   note={t('Propus din alocarea angajatului. Poți modifica doar acest bon; antetul și celelalte cheltuieli nu se schimbă.',
                           'Prefilled from the employee allocation. Changing it affects only this receipt, not the header or other expenses.')}>
                     <select
@@ -1624,6 +1626,7 @@ export default function ReceiptModal({
                   </Field>
                 {states.project !== 'NOT_APPLICABLE' && (
                   <Field
+                    action={statusAction('project')}
                     name={
                       states.project === 'REQUIRED'
                         ? t('Proiect (obligatoriu)', 'Project (required)')
