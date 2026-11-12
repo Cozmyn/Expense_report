@@ -5,6 +5,10 @@ on:
     paths:
       - deploy/production_preflight.py
       - deploy/test_production_preflight.py
+      - deploy/production_uat.py
+      - deploy/test_production_uat.py
+      - deploy/restore_drill.py
+      - deploy/test_restore_drill.py
       - .github/workflows/production-preflight.yml
   pull_request:
     paths:
@@ -27,7 +31,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Test configuration checks without network or secrets
-        run: python3 -m unittest discover -s deploy -p 'test_production_preflight.py' -v
+        run: python3 -m unittest discover -s deploy -p 'test_*.py' -v
       - name: Ensure empty production configuration is rejected
         run: |
           if env -i PATH="$PATH" python3 deploy/production_preflight.py --json > /dev/null; then
