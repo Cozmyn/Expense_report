@@ -36,6 +36,15 @@ jobs:
           ERP_REFERENCE_OUTPUT: tests/TestResults/erp-reference
           TEST_POSTGRES: ${{ matrix.database == 'postgres' && 'Host=localhost;Database=postgres;Username=postgres;Password=ci-test-only' || '' }}
         run: dotnet test tests/Decont.Tests.csproj --configuration Release --logger "trx;LogFileName=backend.trx"
+      - name: Export EF schema DDL for reviewed baseline and drift checks
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          Database__Provider: ${{ matrix.database == 'postgres' && 'Postgres' || 'Sqlite' }}
+          ConnectionStrings__Database: 'Host=localhost;Database=postgres;Username=postgres;Password=ci-test-only'
+        run: |
+          mkdir -p tests/TestResults
+          dotnet run --no-restore --project server/Decont.Api.csproj -c Release -- --schema > tests/TestResults/model-schema-${{ matrix.database }}.sql
+          test -s tests/TestResults/model-schema-${{ matrix.database }}.sql
       - run: dotnet publish server/Decont.Api.csproj --configuration Release --output release
       - uses: actions/upload-artifact@v4
         if: always()
