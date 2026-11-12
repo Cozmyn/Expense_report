@@ -51,9 +51,17 @@ jobs:
           mkdir -p tests/TestResults
           dotnet run --no-restore --project server/Decont.Api.csproj -c Release -- --schema > tests/TestResults/model-schema-${{ matrix.database }}.sql
           test -s tests/TestResults/model-schema-${{ matrix.database }}.sql
-          echo "EXPLICIT_MODEL_SQL_BEGIN_${{ matrix.database }}"
-          cat tests/TestResults/model-schema-${{ matrix.database }}.sql
-          echo "EXPLICIT_MODEL_SQL_END_${{ matrix.database }}"
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          # Release 14 schema is immutable: any future EF change must be paired
+          # with a separately reviewed, numbered migration script.
+          database = "${{ matrix.database }}"
+          actual = Path(f"tests/TestResults/model-schema-{database}.sql").read_text().replace("\\r\\n", "\\n").strip()
+          pinned = Path(f"server/Migrations/001-baseline.{database}.sql").read_text().replace("\\r\\n", "\\n").strip()
+          if actual != pinned:
+              raise SystemExit("EF model differs from pinned release-14 baseline; add reviewed migration")
+          PY
       - run: dotnet publish server/Decont.Api.csproj --configuration Release --output release
       - uses: actions/upload-artifact@v4
         if: always()
