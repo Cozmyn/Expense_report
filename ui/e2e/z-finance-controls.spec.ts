@@ -30,7 +30,7 @@ async function login(c: APIRequestContext, name: string, password: string) {
 async function openReport(p: any, purpose: string) {
   await p.goto('/');
   await expect(p.getByRole('heading', { name: 'Privire de ansamblu', exact: true })).toBeVisible();
-  await p.getByRole('button', { name: purpose }).click();
+  await p.locator('.report-link:visible').filter({ hasText: purpose }).first().click();
   await expect(p.getByRole('heading', { name: purpose, exact: true })).toBeVisible();
 }
 async function navigate(p: any, label: string) {
