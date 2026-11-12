@@ -226,7 +226,7 @@ function App() {
                   await load();
                   const previous = resumeAfterLogin.current;
                   resumeAfterLogin.current = null;
-                  if (previous?.userId === u.id) {
+                  if (previous && previous.userId === u.id) {
                     if (previous.page === 'detail' && previous.reportId) {
                       try {
                         D(await api('/reports/' + previous.reportId));
