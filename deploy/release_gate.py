@@ -42,6 +42,7 @@ def evaluate(folder: Path) -> dict:
     initial = read(folder, "uat-initial.json")
     resumed = read(folder, "uat-resume.json")
     ingress = read(folder, "uat-ingress.json")
+    dependencies = read(folder, "uat-dependencies.json")
     workflows = read(folder, "workflows.json")
     if restoration.get("status") != "integrity_verified_requires_application_uat":
         raise GateError("Restored PostgreSQL, objects and keys have not passed the coordinated drill")
@@ -55,6 +56,20 @@ def evaluate(folder: Path) -> dict:
             "resume" if name == "resume" else "ingress" if name == "ingress" else "initial"
         ):
             raise GateError("Missing actual Production-mode HTTPS evidence for " + name)
+    if dependencies.get("status") != "real_dependencies_checked_requires_business_workflows":
+        raise GateError("Real PostgreSQL TLS, S3, scanner, OCR and SMTP UAT checks are missing")
+    probes = dependencies.get("checks", {})
+    required_probes = {
+        "postgres": ("tls",),
+        "s3": ("tls", "private", "versioned", "encrypted"),
+        "scanner": ("clean_allowed", "eicar_blocked"),
+        "ocr": ("ready",),
+        "smtp": ("starttls", "test_email_accepted"),
+    }
+    if any(not isinstance(probes.get(service), dict) or
+           any(probes[service].get(key) is not True for key in checks)
+           for service, checks in required_probes.items()):
+        raise GateError("A real Production-mode dependency check failed; inspect dependency evidence")
     expected = workflows.get("built_image_digest")
     deployed = workflows.get("tested_image_digest")
     promotion = workflows.get("promoted_image_digest")
