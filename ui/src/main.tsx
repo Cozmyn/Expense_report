@@ -131,6 +131,20 @@ function App() {
     [sessionExpired, SessionExpired] = useState(false);
   // In-memory only; never expose another user's report after reauthentication.
   const resumeAfterLogin = useRef<{ userId: string; page: string; reportId?: string } | null>(null);
+  const mobileMenuClose = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!mobile) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    mobileMenuClose.current?.focus();
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') Mobile(false);
+    };
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('keydown', escape);
+      previousFocus?.focus();
+    };
+  }, [mobile]);
   useEffect(() => {
     const onExpired = () => SessionExpired(true);
     window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
@@ -381,6 +395,7 @@ function App() {
           <span className="brand-symbol">d.</span> decont
           <button
             className="mobile-only icon"
+            ref={mobileMenuClose}
             aria-label={t('Închide meniul', 'Close menu')}
             onClick={() => Mobile(false)}
           >
