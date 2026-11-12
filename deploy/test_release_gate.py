@@ -23,6 +23,16 @@ class ReleaseGateTests(unittest.TestCase):
             self.write(filename, {
                 "status": "checks_passed_requires_full_workflow_uat", "mode": mode,
             })
+        self.write("uat-dependencies.json", {
+            "status": "real_dependencies_checked_requires_business_workflows",
+            "checks": {
+                "postgres": {"tls": True},
+                "s3": {"tls": True, "private": True, "versioned": True, "encrypted": True},
+                "scanner": {"clean_allowed": True, "eicar_blocked": True},
+                "ocr": {"ready": True},
+                "smtp": {"starttls": True, "test_email_accepted": True},
+            },
+        })
         self.flows = {
             "built_image_digest": self.digest,
             "tested_image_digest": self.digest,
@@ -58,6 +68,11 @@ class ReleaseGateTests(unittest.TestCase):
         del self.flows["scenarios"]["rollback_old_image"]
         self.write("workflows.json", self.flows)
         with self.assertRaisesRegex(GateError, "rollback_old_image"):
+            evaluate(self.path)
+
+    def test_missing_real_service_probe_blocks(self):
+        (self.path / "uat-dependencies.json").unlink()
+        with self.assertRaisesRegex(GateError, "uat-dependencies"):
             evaluate(self.path)
 
     def test_image_rebuild_or_different_promotion_digest_blocks(self):
