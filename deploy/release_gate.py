@@ -45,6 +45,8 @@ def evaluate(folder: Path) -> dict:
     workflows = read(folder, "workflows.json")
     if restoration.get("status") != "integrity_verified_requires_application_uat":
         raise GateError("Restored PostgreSQL, objects and keys have not passed the coordinated drill")
+    if restoration.get("pitr_verified") is not True:
+        raise GateError("A timed PostgreSQL PITR/WAL recovery must be independently verified")
     if not all(int(restoration.get(key, 0)) >= 1 for key in
                ("objects_verified", "exports_verified", "data_protection_keys_verified")):
         raise GateError("Restore has not verified all evidence types")
