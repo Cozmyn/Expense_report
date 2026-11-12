@@ -4,7 +4,7 @@ let token = '';
 // same command in this tab must recover the server's committed response instead of
 // creating a second receipt, export or notification. Never persist payloads locally.
 const unresolvedMutations = new Map<string, { key: string; until: number }>();
-const mutationLifetimeMs = 30 * 60 * 1000;
+const mutationLifetimeMs = 24 * 60 * 60 * 1000;
 const operationPrefix = 'decont.operation.';
 export type ApiOptions = { operationId?: string; signal?: AbortSignal };
 export function newOperationId(): string { return crypto.randomUUID(); }
