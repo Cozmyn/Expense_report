@@ -121,9 +121,21 @@ export async function recoverEncryptedDrafts(scope) {
   const db = await openStore();
   try {
     const key = await masterKey(db);
-    const tx = db.transaction('drafts', 'readonly');
-    const records = await reqValue(tx.objectStore('drafts').index('scope').getAll(scope));
-    await txDone(tx);
+    const tx = db.transaction('drafts', 'readwrite');
+    const completed = txDone(tx);
+    const store = tx.objectStore('drafts');
+    const records = await new Promise((resolve, reject) => {
+      const request = store.index('scope').getAll(scope);
+      request.onsuccess = () => {
+        const rows = request.result;
+        const now = Date.now();
+        for (const row of rows)
+          if (row.expiresAt <= now) store.delete(row.id);
+        resolve(rows);
+      };
+      request.onerror = () => reject(request.error || new Error('Cannot read encrypted drafts'));
+    });
+    await completed;
     const now = Date.now();
     const valid = records.filter(x => x.expiresAt > now);
     const result = [];
