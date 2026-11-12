@@ -120,11 +120,22 @@ public static class SupplierOcrLearning
     {
         if (!result.Candidates.Any(c => !string.IsNullOrWhiteSpace(c.Fields.GetValueOrDefault("cui")?.Value)))
             return result;
+        // Select verified history by vendor before bounding any result set.
+        // A global Take(300) silently forgets rare suppliers. The persisted
+        // corrected expense is JSON, so on legacy schemas the fiscal identifier
+        // cannot be indexed here: query vendor-specific batches in bounded pages
+        // instead of imposing a global 300-row cutoff. A normalized indexed
+        // supplier identity is still recommended for high-volume installations.
+        var detected = result.Candidates
+            .Select(c => Cui(c.Fields.GetValueOrDefault("cui")?.Value))
+            .Where(c => c.Length > 0 && Rules.ValidCui(c))
+            .ToHashSet(StringComparer.Ordinal);
+        if (detected.Count == 0)
+            return result;
         var verified = await db.DocumentGroups
             .AsNoTracking()
             .Where(g => g.State == "Verified" && g.CorrectedExpense != null)
             .OrderByDescending(g => g.VerifiedAt)
-            .Take(300)
             .Select(g => new { g.BundleId, g.Fields, g.CorrectedExpense })
             .ToListAsync();
         List<Example> examples = [];
@@ -134,7 +145,7 @@ public static class SupplierOcrLearning
             {
                 var expense = Serialization.Read<ExpenseData>(item.CorrectedExpense!);
                 var cui = Cui(expense.Cui);
-                if (cui.Length == 0 || !Rules.ValidCui(cui))
+                if (!detected.Contains(cui))
                     continue;
                 var fields = Serialization.Read<Dictionary<string, OcrField>>(item.Fields);
                 foreach (var (key, field) in fields)
