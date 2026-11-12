@@ -227,10 +227,15 @@ export default function ReceiptModal({
     return next;
   };
   useEffect(() => {
-    if (inline) return; // Embedded review is a normal region, never a modal trap.
     const previouslyFocused = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
+    if (inline) {
+      // Inline review is not a modal, but keyboard users still need a
+      // predictable starting point after choosing a receipt.
+      titleRef.current?.focus();
+      return () => previouslyFocused?.focus();
+    }
     // Only the active dialog may be reached by sequential keyboard navigation.
     // Inert siblings prevent background controls from leaking into the focus order.
     const dialog = dialogRef.current;
@@ -855,6 +860,12 @@ export default function ReceiptModal({
                     // concurrent draft instead of deleting someone else's work.
                   }
                 }
+              } catch (error) {
+                DraftError((error as Error)?.message || t(
+                  'Bonul nu a fost salvat. Datele rămân în formular; reîncearcă.',
+                  'Receipt could not be saved. Your values remain on screen; retry.'
+                ));
+                DraftSaveFailed(true);
               } finally {
                 saving.current = false;
               }
