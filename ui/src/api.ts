@@ -100,13 +100,17 @@ export async function api<T = any>(path: string, method = 'GET', body?: unknown,
     body: body instanceof FormData ? body : payload,
   });
   if (!response.ok) {
-    // A 5xx/timeout may occur after commit, so keep the key for a safe retry.
-    if (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429
-        && operation?.signature) releaseOperation(operation.signature);
+    // A timeout, server error, or serializable/unique-key race may occur
+    // after another worker committed this same mutation. Keep the operation
+    // key until the exact committed result can be replayed.
     if (handleExpiredSession(path, response.status)) throw new Error(expiredSessionMessage());
     const p = await response
       .json()
       .catch(() => ({ ro: 'Server indisponibil.', en: 'Server unavailable.' }));
+    const uncertain = response.status >= 500 || response.status === 408
+      || response.status === 429
+      || (response.status === 409 && p.code === 'concurrent_write');
+    if (operation?.signature && !uncertain) releaseOperation(operation.signature);
     const lang = localStorage.getItem('decont.language') || 'ro';
     let message = p[lang] || p.code || response.statusText;
     try {
