@@ -347,6 +347,7 @@ test('PDF02 recorded source-to-expense walkthrough', async ({ browser }, info) =
     });
   }
   await page.reload();
+  await page.getByRole('button', { name: report.purpose, exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Trimite la aprobare', exact: true }),
   ).toBeEnabled();
