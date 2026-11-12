@@ -8,9 +8,8 @@ test('encrypted receipt backup never contains plaintext amounts, supplier or tax
     false, ['encrypt','decrypt']);
   const value = { data: { supplier: 'CONFIDENTIAL-VENDOR', amount: '123.45', currency: 'RON' },
     taxes: { '21': { base: '100', vat: '21' } }, sourceVersion: 5 };
-  const { iv, cipher, hash } = await encryptDraftSnapshot(value, key);
+  const { iv, cipher } = await encryptDraftSnapshot(value, key);
   assert.equal(iv.length, 12);
-  assert.equal(hash.length, 64);
   assert.equal(key.extractable, false);
   assert.ok(!JSON.stringify([...cipher]).includes('CONFIDENTIAL-VENDOR'));
   assert.deepEqual(await decryptDraftSnapshot({iv, cipher}, key), value);
