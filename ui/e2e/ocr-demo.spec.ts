@@ -202,12 +202,11 @@ test('PDF02 recorded source-to-expense walkthrough', async ({ browser }, info) =
       buffer: pdf(batch),
     });
   const board = page.getByRole('region', { name: 'Verificarea documentelor', exact: true });
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toBeVisible({ timeout: 180000 });
-  await dialog.getByRole('button', { name: 'Anulează', exact: true }).click();
-  await expect(dialog).not.toBeVisible();
+  const dialog = page.locator('.receipt-modal-inline');
   const picker = board.getByRole('group', { name: 'Selectează bonul pentru verificare' });
   await expect(picker.getByRole('button')).toHaveCount(9, { timeout: 180000 });
+  // OCR must not open an editor automatically over an unreviewed PDF.
+  await expect(dialog).not.toBeVisible();
   const detail = async () =>
     (await (await employee.get('/api/reports/' + report.id)).json()).report;
   const source = (await detail()).attachments[0];
