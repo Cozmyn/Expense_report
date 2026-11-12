@@ -6,7 +6,7 @@ export function adoptSupplierLookup<T extends { cui?: string | null; supplier?: 
 ): T;
 export function offersRegistryName(
   current: { cui?: string | null; supplier?: string | null },
-  lookup: { found?: boolean; valid?: boolean; name?: string | null; cui?: string | null }
+  lookup: { found?: boolean; valid?: boolean; name?: string | null; cui?: string | null } | null
 ): boolean;
 export function draftSnapshot<T>(
   data: T,

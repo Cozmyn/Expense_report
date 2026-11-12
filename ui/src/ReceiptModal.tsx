@@ -1070,7 +1070,7 @@ export default function ReceiptModal({
                       'The printed or entered name differs from the internal registry. It was not overwritten.'
                     )}</p>
                     <button type="button" className="secondary"
-                      onClick={() => set('supplier', lookup.name)}>
+                      onClick={() => { if (lookup?.name) set('supplier', lookup.name); }}>
                       {t('Folosește numele din registrul intern',
                         'Use supplier name from the internal registry')}
                     </button>
