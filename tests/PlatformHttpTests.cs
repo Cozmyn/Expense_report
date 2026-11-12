@@ -34,6 +34,30 @@ public class PlatformHttpTests
         c.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
     }
 
+
+    [Fact]
+    public async Task RetryingSameCommandAfterLostResponseReturnsCommittedResultWithoutDuplicate()
+    {
+        await using var f = new Factory();
+        await f.Seed();
+        var alice = await Login(f, "alice");
+        Key(alice);
+        var first = await alice.PostAsJsonAsync("/api/reports", new { purpose = "Durable operation retry" });
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        var firstResult = await first.Content.ReadAsStringAsync();
+        // Simulate losing the first HTTP reply: repeat the same command and key.
+        var retried = await alice.PostAsJsonAsync("/api/reports", new { purpose = "Durable operation retry" });
+        Assert.Equal(HttpStatusCode.OK, retried.StatusCode);
+        Assert.Equal(firstResult, await retried.Content.ReadAsStringAsync());
+        // A different command cannot reuse the key after a successful commit.
+        var conflicting = await alice.PostAsJsonAsync("/api/reports", new { purpose = "Different request" });
+        Assert.Equal(HttpStatusCode.Conflict, conflicting.StatusCode);
+        using var scope = f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        Assert.Single(await db.Reports.Where(r => r.Purpose.StartsWith("Durable operation")).ToListAsync());
+        Assert.False(await db.Reports.AnyAsync(r => r.Purpose == "Different request"));
+    }
+
     [Fact]
     public async Task PasswordRecoveryTokenIsSingleUseAndRevokesActiveSessions()
     {

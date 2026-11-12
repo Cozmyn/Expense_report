@@ -335,6 +335,19 @@ test('PDF02 recorded source-to-expense walkthrough', async ({ browser }, info) =
   expect((await review()).candidates).toHaveLength(9);
   await screenshot('06-retry-stable-expense-ids');
   expect((await review()).unassignedPages).toEqual([]);
+  // Explicitly acknowledge all original pages. Page attribution alone cannot
+  // prove that all receipts on a shared page were detected.
+  for (let originalPage = 1; originalPage <= 11; originalPage++) {
+    const latest = await detail();
+    await mutation(employee, `/reports/${report.id}/documents/${source.id}/page-coverage`, {
+      version: latest.version,
+      page: originalPage,
+      complete: true,
+      reason: 'Synthetic regression: visual completeness reviewed for every page',
+    });
+  }
+  await page.reload();
+  await page.getByRole('button', { name: report.purpose, exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Trimite la aprobare', exact: true }),
   ).toBeEnabled();

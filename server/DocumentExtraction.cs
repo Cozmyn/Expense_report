@@ -159,6 +159,7 @@ public static class ReceiptParser
                 if (segments.Count > 1 && !Regex.IsMatch(text, @"(?i)TOTAL|FACTUR|INVOICE|BON\s+FISCAL"))
                     continue;
                 Dictionary<string, OcrField> fields = [];
+                Dictionary<string, List<OcrField>> alternatives = [];
                 List<OcrTax> taxes = [];
                 List<string> warnings = [];
                 if (page.RecognitionRotation != 0)
@@ -180,6 +181,15 @@ public static class ReceiptParser
                             Source: page.Method
                         );
                     }
+                }
+                void KeepAlternatives(string key, ReceiptSemantics.Choice choice)
+                {
+                    if (choice.Alternatives is not { Count: > 0 })
+                        return;
+                    alternatives[key] = choice.Alternatives
+                        .Select(a => new OcrField(a.Value, page.Number, a.Evidence,
+                            "Ambiguous", RawValue: a.Evidence, Source: page.Method))
+                        .ToList();
                 }
                 var detectedType = Regex.Match(text, @"(?i)FACTUR[ĂA]|INVOICE|BON\s+FISCAL");
                 if (detectedType.Success)
@@ -213,46 +223,17 @@ public static class ReceiptParser
                         ],
                         description
                     );
-                var date = Regex.Match(text, @"\b(\d{2}[./-]\d{2}[./-]\d{4}|\d{4}-\d{2}-\d{2})\b");
-                if (
-                    date.Success
-                    && DateOnly.TryParseExact(
-                        date.Value,
-                        new[] { "dd.MM.yyyy", "dd/MM/yyyy", "dd-MM-yyyy", "yyyy-MM-dd" },
-                        CultureInfo.InvariantCulture,
-                        DateTimeStyles.None,
-                        out var day
-                    )
-                )
+                var issueDate = ReceiptSemantics.IssueDate(lines);
+                if (issueDate.Ambiguous)
                 {
-                    var parts = date.Value.Split('/');
-                    if (
-                        parts.Length == 3
-                        && int.TryParse(parts[0], out var first)
-                        && int.TryParse(parts[1], out var second)
-                        && first <= 12
-                        && second <= 12
-                        && first != second
-                    )
-                    {
-                        var geometry = DocumentGeometry.Find(page, date.Value, currentOffset, wordCount);
-                        fields["date"] = new(
-                            null,
-                            page.Number,
-                            date.Value,
-                            "Ambiguous",
-                            geometry.Confidence,
-                            geometry.Box,
-                            date.Value,
-                            page.Method
-                        );
-                        warnings.Add(
-                            "DATE_AMBIGUOUS: Confirmă manual ziua și luna de pe original. / Confirm the printed day and month manually."
-                        );
-                    }
-                    else
-                        Put("date", day.ToString("yyyy-MM-dd"), date.Value);
+                    var geometry = DocumentGeometry.Find(page, issueDate.Evidence, currentOffset, wordCount);
+                    fields["date"] = new(null, page.Number, issueDate.Evidence,
+                        "Ambiguous", geometry.Confidence, geometry.Box, issueDate.Evidence, page.Method);
+                    warnings.Add("DATE_AMBIGUOUS: Au fost găsite mai multe date ori ordinea zi/lună este neclară. Selectează data emiterii. / Multiple dates or unclear day/month order; select the issue date.");
+                    KeepAlternatives("date", issueDate);
                 }
+                else
+                    Put("date", issueDate.Value, issueDate.Evidence);
                 var cuiMatches = Regex
                     .Matches(text, @"(?i)\b(?:CUI|CIF|COD\s+FISCAL|VAT\s*(?:ID|NO))\s*[:#-]?\s*(RO\s*)?(\d{2,10})\b")
                     .Select(m => m)
@@ -332,52 +313,28 @@ public static class ReceiptParser
                 );
                 if (invoice.Success)
                     Put("invoice", invoice.Groups[1].Value, invoice.Value);
-                var currency = Regex.Match(
-                    text,
-                    @"\b(RON|LEI|EUR|USD|GBP|CHF|HUF|PLN|CZK|BGN|DKK|NOK|SEK)\b",
-                    RegexOptions.IgnoreCase
-                );
-                if (currency.Success)
-                    Put(
-                        "currency",
-                        currency.Value.ToUpperInvariant() == "LEI" ? "RON" : currency.Value.ToUpperInvariant(),
-                        currency.Value
-                    );
-                else if (text.Contains('€'))
-                    Put("currency", "EUR", "€");
+                var grossTotal = ReceiptSemantics.GrossTotal(lines);
+                var currency = ReceiptSemantics.Currency(lines, grossTotal);
+                if (currency.Ambiguous)
+                {
+                    var geometry = DocumentGeometry.Find(page, currency.Evidence, currentOffset, wordCount);
+                    fields["currency"] = new(null, page.Number, currency.Evidence,
+                        "Ambiguous", geometry.Confidence, geometry.Box, currency.Evidence, page.Method);
+                    warnings.Add("CURRENCY_AMBIGUOUS: Documentul conține monede diferite sau un simbol neclar. Selectează moneda sumei brute. / Different currencies or unclear symbol; select the gross amount currency.");
+                    KeepAlternatives("currency", currency);
+                }
                 else
+                    Put("currency", currency.Value, currency.Evidence);
+                if (grossTotal.Ambiguous)
                 {
-                    var symbol = Regex.Match(text, @"[$£]");
-                    if (symbol.Success)
-                    {
-                        var geometry = DocumentGeometry.Find(page, symbol.Value, currentOffset, wordCount);
-                        fields["currency"] = new(
-                            null,
-                            page.Number,
-                            symbol.Value,
-                            "Ambiguous",
-                            geometry.Confidence,
-                            geometry.Box,
-                            symbol.Value,
-                            page.Method
-                        );
-                        warnings.Add(
-                            "CURRENCY_AMBIGUOUS: Simbolul nu identifică sigur moneda. Selectează moneda de pe document. / Currency symbol is ambiguous. Select the document currency."
-                        );
-                    }
+                    var geometry = DocumentGeometry.Find(page, grossTotal.Evidence, currentOffset, wordCount);
+                    fields["amount"] = new(null, page.Number, grossTotal.Evidence,
+                        "Ambiguous", geometry.Confidence, geometry.Box, grossTotal.Evidence, page.Method);
+                    warnings.Add("AMOUNT_AMBIGUOUS: Mai multe totaluri sau valori pe aceeași linie. Alege suma brută efectivă de pe original. / Multiple totals or amounts; choose the actual gross amount on the original.");
+                    KeepAlternatives("amount", grossTotal);
                 }
-                var totalLine = lines.LastOrDefault(l =>
-                    Regex.IsMatch(
-                        l,
-                        @"(?i)\b(?:TOTAL\s*(?:DE\s*PLAT[ĂA]|GENERAL|AMOUNT|DUE|DE\s*ACHITAT|ACHITAT)?|SUMA(?:\s+TOTAL[ĂA])?\s+(?:DE\s+)?(?:PLAT[ĂA]|ACHITAT[ĂA])|VALOARE(?:A)?\s+TOTAL[ĂA]|AMOUNT\s+DUE|GRAND\s+TOTAL)\b"
-                    ) && !Regex.IsMatch(l, @"(?i)SUBTOTAL|SUB-TOTAL|TOTAL\s*(?:TVA|TAX|VAT|BAZ[ĂA])")
-                );
-                if (totalLine != null)
-                {
-                    var amounts = Amounts.Matches(totalLine);
-                    if (amounts.Count > 0 && Number(amounts[^1].Value) is decimal total)
-                        Put("amount", total.ToString("0.00", CultureInfo.InvariantCulture), totalLine);
-                }
+                else
+                    Put("amount", grossTotal.Value, grossTotal.Evidence);
                 foreach (var line in lines)
                 {
                     var rate = Regex.Match(line, @"(?<!\d)(\d{1,2}(?:[.,]\d+)?)\s*%");
@@ -447,7 +404,8 @@ public static class ReceiptParser
                             fields,
                             taxes,
                             warnings,
-                            DocumentSegmentation.RegionsFor(page, currentOffset, wordCount, segments.Count > 1)
+                            DocumentSegmentation.RegionsFor(page, currentOffset, wordCount, segments.Count > 1),
+                            Alternatives: alternatives.Count == 0 ? null : alternatives
                         )
                     );
             }

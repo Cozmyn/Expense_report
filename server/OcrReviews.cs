@@ -40,7 +40,13 @@ public class ExtractionAttempt
 
 public record SourceRegion(int Page, decimal X = 0, decimal Y = 0, decimal Width = 1, decimal Height = 1);
 
-public record PageDisposition(int Page, string Reason);
+// Keep completeness acknowledgements separate from supporting-page disposition.
+// The optional Kind preserves compatibility with existing serialized review JSON.
+// Coverage entries use Page=0 and CoveragePage=the physical page.
+// This fails safely if an older version is restored: it cannot accidentally
+// treat an acknowledgement as a supporting disposition for a real page.
+public record PageDisposition(
+    int Page, string Reason, string Kind = "Supporting", int? CoveragePage = null);
 
 public record GroupCommand(
     long Version,
@@ -54,6 +60,7 @@ public record GroupCommand(
 public record OcrDraftCommand(long Version, ExpenseData Data, string? Reason = null);
 
 public record PageCommand(long Version, int Page, bool Supporting, string Reason);
+public record PageCoverageCommand(long Version, int Page, bool Complete, string Reason);
 
 public static class OcrReviews
 {
@@ -203,7 +210,14 @@ public static class OcrReviews
                 added = true;
             }
             if (added && reportEntity != null)
+            {
+                // New OCR candidates invalidate previous visual completeness checks.
+                review.Dispositions = Serialization.Write(
+                    Serialization.Read<List<PageDisposition>>(review.Dispositions)
+                        .Where(p => p.Kind != "CoverageConfirmed").ToList()
+                );
                 Reports.Touch(reportEntity);
+            }
         }
         // Raw attempts are append-only; retry never overwrites corrected/verified groups.
         if (created && reportEntity != null)
@@ -255,10 +269,20 @@ public static class OcrReviews
             .Where(Active)
             .SelectMany(Regions)
             .Select(r => r.Page)
-            .Concat(Serialization.Read<List<PageDisposition>>(review.Dispositions).Select(p => p.Page))
+            .Concat(Serialization.Read<List<PageDisposition>>(review.Dispositions)
+                .Where(p => p.Kind != "CoverageConfirmed").Select(p => p.Page))
             .ToHashSet();
         return Enumerable.Range(1, review.PageCount).Where(p => !assigned.Contains(p)).ToArray();
     }
+
+    public static bool NeedsPageCoverage(ReportAttachment source, IEnumerable<DocumentGroup> groups) =>
+        source.ReceiptMode == "Multiple"
+        || groups.Any(g => g.SourceKey.StartsWith("single:") && g.State == "Split");
+
+    public static int[] ConfirmedPages(DocumentReview review) =>
+        Serialization.Read<List<PageDisposition>>(review.Dispositions)
+            .Where(d => d.Kind == "CoverageConfirmed")
+            .Select(d => d.CoveragePage ?? d.Page).Distinct().Order().ToArray();
 
     public static async Task<object> View(Db db, DocumentReview review)
     {
@@ -273,6 +297,7 @@ public static class OcrReviews
         var masters = await db.Masters.ToListAsync();
         var hash = await db.ReportAttachments.Where(a => a.Id == review.Id).Select(a => a.Hash).SingleAsync();
         var duplicate = await db.ReportAttachments.AnyAsync(a => a.Id != review.Id && a.Hash == hash && !a.Archived);
+        var sourceFile = await db.ReportAttachments.SingleAsync(a => a.Id == review.Id);
         return new
         {
             review.Id,
@@ -282,7 +307,10 @@ public static class OcrReviews
             pageStates = source.Pages.Select(p => new { p.Number, p.Error }),
             tombstones = groups.Where(g => !Active(g)).Select(g => new { g.Id, g.State }),
             unassignedPages = Unassigned(review, groups),
-            dispositions = Serialization.Read<List<PageDisposition>>(review.Dispositions),
+            coverageRequired = NeedsPageCoverage(sourceFile, groups),
+            confirmedPages = ConfirmedPages(review),
+            dispositions = Serialization.Read<List<PageDisposition>>(review.Dispositions)
+                .Where(d => d.Kind != "CoverageConfirmed").ToList(),
             candidates = groups
                 .Where(Active)
                 .OrderBy(g => Regions(g).Min(r => r.Page))
@@ -376,6 +404,16 @@ public static class OcrReviews
                         "ocr_unassigned_pages",
                         "Verifică paginile neatribuite din documentele încărcate.",
                         "Review unassigned pages in uploaded documents."
+                    )
+                );
+            var source = report.Attachments.Single(a => a.Id == review.Id);
+            if (NeedsPageCoverage(source, groups)
+                && Enumerable.Range(1, review.PageCount).Except(ConfirmedPages(review)).Any())
+                issues.Add(
+                    new(
+                        "ocr_page_coverage_required",
+                        "Confirmă vizual că toate bonurile de pe fiecare pagină au fost adăugate.",
+                        "Visually confirm that every receipt on every page is accounted for."
                     )
                 );
             if (
@@ -1135,6 +1173,12 @@ public static class OcrReviews
                         }
                         else
                             throw new DomainException("action", "Acțiune invalidă.", "Invalid action.");
+                        // Any regrouping may reveal a receipt previously outside the
+                        // reviewed regions. The visual acknowledgement must be repeated.
+                        review.Dispositions = Serialization.Write(
+                            Serialization.Read<List<PageDisposition>>(review.Dispositions)
+                                .Where(p => p.Kind != "CoverageConfirmed").ToList()
+                        );
                         Reports.Touch(report);
                         svc.Log(
                             c.User,
@@ -1192,7 +1236,9 @@ public static class OcrReviews
                         );
                         var before = review.Dispositions;
                         var pages = Serialization.Read<List<PageDisposition>>(before);
-                        pages.RemoveAll(p => p.Page == i.Page);
+                        pages.RemoveAll(p => p.Page == i.Page
+                            || (p.Kind == "CoverageConfirmed"
+                                && (p.CoveragePage ?? p.Page) == i.Page));
                         if (i.Supporting)
                             pages.Add(new(i.Page, i.Reason));
                         review.Dispositions = Serialization.Write(pages);
@@ -1206,6 +1252,52 @@ public static class OcrReviews
                             review.Dispositions,
                             i.Reason
                         );
+                        return Api.View(report);
+                    }
+                )
+        );
+        api.MapPost(
+            "/reports/{id:guid}/documents/{document:guid}/page-coverage",
+            async (Guid id, Guid document, PageCoverageCommand i, Db db, Reports svc, HttpContext c) =>
+                await Api.Atomic(
+                    db,
+                    c,
+                    i,
+                    async () =>
+                    {
+                        var report = await svc.Version(id, i.Version, c.User);
+                        svc.Edit(report, c.User, i.Reason);
+                        Guard.Reason(i.Reason);
+                        var source = report.Attachments.SingleOrDefault(a => a.Id == document && !a.Archived);
+                        Guard.Require(source != null, "source", "Document inexistent.", "Source unavailable.", 404);
+                        var review = await db.DocumentReviews.SingleAsync(r => r.Id == document && r.ReportId == id);
+                        var groups = await db.DocumentGroups.Where(g => g.BundleId == document).ToListAsync();
+                        Guard.Require(
+                            NeedsPageCoverage(source!, groups),
+                            "coverage_mode",
+                            "Confirmarea completitudinii este necesară doar pentru documente cu mai multe bonuri.",
+                            "Receipt completeness confirmation applies only to multi-receipt documents."
+                        );
+                        Guard.Require(
+                            i.Page >= 1 && i.Page <= review.PageCount,
+                            "page", "Pagină invalidă.", "Invalid page."
+                        );
+                        Guard.Require(
+                            !i.Complete || !Unassigned(review, groups).Contains(i.Page),
+                            "coverage_unassigned",
+                            "Atribuie toate paginile înainte de confirmare.",
+                            "Assign the page before confirming completeness."
+                        );
+                        var before = review.Dispositions;
+                        var dispositions = Serialization.Read<List<PageDisposition>>(before);
+                        dispositions.RemoveAll(x => x.Kind == "CoverageConfirmed"
+                            && (x.CoveragePage ?? x.Page) == i.Page);
+                        if (i.Complete)
+                            dispositions.Add(new(0, i.Reason, "CoverageConfirmed", i.Page));
+                        review.Dispositions = Serialization.Write(dispositions);
+                        Reports.Touch(report);
+                        svc.Log(c.User, id, document.ToString(),
+                            "PageCoverageReviewed", before, review.Dispositions, i.Reason);
                         return Api.View(report);
                     }
                 )

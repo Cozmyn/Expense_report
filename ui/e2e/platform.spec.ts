@@ -649,6 +649,15 @@ test('Three receipt branches, mixed VAT and evidence enforcement through ERP', a
   expect(extraction.candidates).toHaveLength(2);
   expect(JSON.parse(captured.attachments[0].coveredLines)).toHaveLength(2);
   expect(captured.total).toBe(30);
+  for (let originalPage = 1; originalPage <= 2; originalPage++) {
+    await page.getByLabel('Alege pagina pentru verificare').selectOption(String(originalPage));
+    await page.getByRole('button', {
+      name: 'Confirmă toate bonurile din pagina ' + originalPage, exact: true,
+    }).click();
+    await expect(page.getByRole('button', {
+      name: 'Confirmă toate bonurile din pagina ' + originalPage, exact: true,
+    })).toHaveCount(0);
+  }
   await expect(page.getByRole('button', { name: 'Trimite la aprobare' })).toBeEnabled();
   await page.getByRole('button', { name: 'Trimite la aprobare' }).click();
   await expect(page.getByText('La manager', { exact: true }).first()).toBeVisible();
