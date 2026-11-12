@@ -10,7 +10,8 @@ export default function CapturePanel({ report, t, run, refresh, reason, edit, ed
     [receiptMode, ReceiptMode] = useState<'Single' | 'Multiple'>('Single'),
     [queued, Queued] = useState<Array<{ file: File; mode: 'Single' | 'Multiple' }>>([]),
     [activeFile, ActiveFile] = useState(''),
-    [completedFiles, CompletedFiles] = useState(0);
+    [completedFiles, CompletedFiles] = useState(0),
+    [uploadWarning, UploadWarning] = useState('');
   const files = (report.attachments || []).filter((f: Any) => !f.archived);
   useEffect(() => {
     if (
@@ -43,11 +44,16 @@ export default function CapturePanel({ report, t, run, refresh, reason, edit, ed
       W(true);
       let version = report.version;
       CompletedFiles(0);
+      UploadWarning('');
       let succeeded = 0;
+      let pendingRegistration = false;
+      let uncertainName = '';
       try {
         for (const [index, item] of selected.entries()) {
           const { file, mode } = item;
           ActiveFile(file.name);
+          uncertainName = file.name;
+          pendingRegistration = false;
           CompletedFiles(index);
           Progress(0);
           const hash = Array.from(
@@ -76,7 +82,9 @@ export default function CapturePanel({ report, t, run, refresh, reason, edit, ed
             reason,
             receiptMode: mode,
           });
-           const form = new FormData();
+          // Once a document has been registered, automatic retry could create a duplicate.
+          pendingRegistration = true;
+          const form = new FormData();
           form.append('version', String(version));
           form.append('reason', reason);
           form.append('file', file);
@@ -90,13 +98,22 @@ export default function CapturePanel({ report, t, run, refresh, reason, edit, ed
             { version, token: grant.token, reason },
           );
           version = done.version;
+          pendingRegistration = false;
           succeeded = index + 1;
           CompletedFiles(succeeded);
         }
         Queued([]);
       } catch (error) {
-        // Keep only unfinished files selected to avoid creating duplicate documents on retry.
-        Queued(selected.slice(succeeded));
+        // Do not automatically register the same attachment twice when the server
+        // has already issued a document ID. The user can complete it from the
+        // document list (or review its status before choosing to upload again).
+        Queued(selected.slice(succeeded + (pendingRegistration ? 1 : 0)));
+        if (pendingRegistration) {
+          UploadWarning(t(
+            'Încărcarea pentru „' + uncertainName + '” a fost întreruptă după înregistrare. Verifică documentul în listă și folosește „Finalizează încărcarea”, dacă apare. Nu reîncărca automat același document.',
+            'Upload of “' + uncertainName + '” was interrupted after registration. Check the document list and use “Complete upload” if offered. Do not automatically add the same file again.',
+          ));
+        }
         throw error;
       } finally {
         W(false);
@@ -248,6 +265,7 @@ export default function CapturePanel({ report, t, run, refresh, reason, edit, ed
         {t('Poți încărca mai multe fișiere, chiar dacă fiecare conține câte un singur bon. Pentru selecții multiple verifici tipul fiecărui fișier înainte de trimitere. Pe telefon poți fotografia bonul din selector.',
            'You can upload multiple files even when each contains one receipt. For multi-file selections, review each file type before uploading. On mobile you can take a photo from the file picker.')}
       </p>
+      {uploadWarning && <div className="issue warning" role="alert">{uploadWarning}</div>}
       {queued.length > 0 && !working && (
         <section className="capture-file-queue" aria-label={t('Fișiere pregătite pentru încărcare', 'Files ready to upload')}>
           <h3>{t('Verifică fișierele selectate', 'Review selected files')} ({queued.length})</h3>
