@@ -60,8 +60,13 @@ function openStore() {
 }
 
 async function masterKey(db) {
-  // Create the candidate outside the IDB transaction. Its read+put are in
-  // ONE readwrite transaction to prevent two tabs from rotating the same key.
+  // Read the existing non-extractable key before generating a new one.
+  // On first use, a readwrite IDB transaction serializes competing tabs.
+  const readTx = db.transaction('keys', 'readonly');
+  const readDone = txDone(readTx);
+  const existing = await reqValue(readTx.objectStore('keys').get(keyId));
+  await readDone;
+  if (existing) return existing;
   const candidate = await crypto.subtle.generateKey(
     { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
   return new Promise((resolve, reject) => {
@@ -83,9 +88,7 @@ export async function encryptDraftSnapshot(snapshot, key) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const cipher = new Uint8Array(await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv }, key, plain));
-  const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', plain)))
-    .map(x => x.toString(16).padStart(2, '0')).join('');
-  return { iv, cipher, hash };
+  return { iv, cipher };
 }
 export async function decryptDraftSnapshot(record, key) {
   const plain = await crypto.subtle.decrypt(
@@ -93,12 +96,6 @@ export async function decryptDraftSnapshot(record, key) {
     new Uint8Array(record.cipher));
   return JSON.parse(new TextDecoder().decode(plain));
 }
-async function snapshotHash(snapshot) {
-  const bytes = new TextEncoder().encode(JSON.stringify(snapshot));
-  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)))
-    .map(x => x.toString(16).padStart(2, '0')).join('');
-}
-
 export async function stageEncryptedDraft(scope, snapshot) {
   if (!scope || typeof scope !== 'string') throw new Error('Private draft scope is required');
   const db = await openStore();
@@ -106,14 +103,15 @@ export async function stageEncryptedDraft(scope, snapshot) {
     const key = await masterKey(db);
     const encrypted = await encryptDraftSnapshot(snapshot, key);
     const now = Date.now();
+    const version = crypto.randomUUID();
     const tx = db.transaction('drafts', 'readwrite');
     tx.objectStore('drafts').put({
-      id: scope + '::' + tabId, scope, tabId,
-      iv: encrypted.iv, cipher: encrypted.cipher, hash: encrypted.hash,
+      id: scope + '::' + tabId, scope, tabId, version,
+      iv: encrypted.iv, cipher: encrypted.cipher,
       updatedAt: now, expiresAt: now + DRAFT_RECOVERY_DAYS * 86400000,
     });
     await txDone(tx);
-    return encrypted.hash;
+    return version;
   } finally { db.close(); }
 }
 
@@ -149,17 +147,26 @@ export async function recoverEncryptedDrafts(scope) {
 }
 
 export async function clearOwnEncryptedDraftIfMatch(scope, snapshot) {
-  const hash = await snapshotHash(snapshot);
   const db = await openStore();
   try {
+    const key = await masterKey(db);
+    const readTx = db.transaction('drafts', 'readonly');
+    const readDone = txDone(readTx);
+    const earlier = await reqValue(readTx.objectStore('drafts').get(scope + '::' + tabId));
+    await readDone;
+    if (!earlier) return false;
+    // Compare full plaintext in volatile memory rather than persisting a
+    // dictionary-attackable SHA-256 of sensitive financial data on disk.
+    const decrypted = await decryptDraftSnapshot(earlier, key);
+    if (JSON.stringify(decrypted) !== JSON.stringify(snapshot)) return false;
     return await new Promise((resolve, reject) => {
       const tx = db.transaction('drafts', 'readwrite');
       const store = tx.objectStore('drafts');
       let removed = false;
       store.get(scope + '::' + tabId).onsuccess = e => {
-        const prior = e.target.result;
-        if (prior?.hash === hash) {
-          store.delete(prior.id);
+        const current = e.target.result;
+        if (current?.version === earlier.version) {
+          store.delete(current.id);
           removed = true;
         }
       };
