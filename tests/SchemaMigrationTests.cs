@@ -64,6 +64,39 @@ public class SchemaMigrationTests
     }
 
     [Fact]
+    public async Task PostgreSqlMissingFinancialCheckIsDetected()
+    {
+        await using var factory = new Factory();
+        await factory.Seed();
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        if (!db.Database.IsNpgsql()) return; // SQLite ALTER TABLE cannot drop named checks.
+        await SchemaUpgrades.Apply(db);
+        await db.Database.ExecuteSqlRawAsync(
+            "ALTER TABLE \"PostingLines\" DROP CONSTRAINT \"CK_Posting_Money\"");
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => SchemaUpgrades.VerifyModel(db));
+        Assert.Contains("missing check constraints", error.Message);
+        Assert.Contains("CK_Posting_Money", error.Message);
+    }
+
+    [Fact]
+    public async Task PostgreSqlMissingSourceForeignKeyIsDetected()
+    {
+        await using var factory = new Factory();
+        await factory.Seed();
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Db>();
+        if (!db.Database.IsNpgsql()) return;
+        await SchemaUpgrades.Apply(db);
+        await db.Database.ExecuteSqlRawAsync(
+            "ALTER TABLE \"ReportAttachments\" DROP CONSTRAINT \"FK_ReportAttachments_Reports_ReportId\"");
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => SchemaUpgrades.VerifyModel(db));
+        Assert.Contains("missing foreign keys", error.Message);
+    }
+
+    [Fact]
     public async Task ReviewedBaselineMatchesTheEFModelWithoutDynamicProductionDDL()
     {
         await using var factory = new Factory();
