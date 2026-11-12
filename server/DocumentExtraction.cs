@@ -392,7 +392,7 @@ public static class ReceiptParser
                 // alternatives need a human choice rather than a silent guess.
                 var totalCandidates = lines
                     .Where(l => Regex.IsMatch(l,
-                        @"(?i)\b(?:TOTAL|SUMA\s+(?:DE\s+)?PLAT[ĂA]|VALOARE(?:A)?\s+TOTAL[ĂA]|AMOUNT\s+DUE|GRAND\s+TOTAL)\b")
+                        @"(?i)\b(?:TOTAL|SUMA(?:\s+TOTAL[ĂA])?\s+(?:DE\s+)?(?:PLAT[ĂA]|ACHITAT[ĂA])|VALOARE(?:A)?\s+TOTAL[ĂA]|AMOUNT\s+DUE|GRAND\s+TOTAL)\b")
                         && !Regex.IsMatch(l,
                             @"(?i)SUB[ -]?TOTAL|TOTAL\s*(?:TVA|TAX|VAT|BAZ[ĂA])|REST|CHANGE|AVANS|ADVANCE|ECHIVALENT|EQUIVALENT|BALANCE\s+BROUGHT"))
                     .Select(l => new
@@ -401,7 +401,7 @@ public static class ReceiptParser
                         Amounts = Amounts.Matches(l).Select(m => Number(m.Value))
                             .Where(v => v != null).Select(v => v!.Value).ToList(),
                         Score = Regex.IsMatch(l,
-                            @"(?i)TOTAL\s*DE\s*PLAT[ĂA]|TOTAL\s*GENERAL|GRAND\s+TOTAL|AMOUNT\s+DUE|DE\s+ACHITAT")
+                            @"(?i)TOTAL\s*DE\s*PLAT[ĂA]|TOTAL\s*GENERAL|GRAND\s+TOTAL|AMOUNT\s+DUE|(?:DE\s+)?ACHITAT[ĂA]?")
                             ? 2 : 1
                     })
                     .Where(x => x.Amounts.Count > 0)
